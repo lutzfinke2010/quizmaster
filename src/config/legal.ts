@@ -22,7 +22,7 @@ export type LegalConfig = {
 };
 
 export const legal: LegalConfig = {
-  appName: "QuizRush",
+  appName: "Ratelama",
   providerName: "Lutz Finke",
   street: "Am Obern Grott 15",
   postalCode: "91097",

@@ -1,6 +1,8 @@
-# QuizRush
+# Ratelama
 
-QuizRush ist eine deutschsprachige Live-Quiz-Anwendung mit React, TypeScript, Vite und AWS Amplify Gen 2. Quizmaster verwalten Quizze und steuern Sitzungen; Gäste spielen ohne Konto auf ihrem Smartphone. Eine optionale Präsentationsansicht ist schreibgeschützt.
+Ratelama (https://www.ratelama.de) ist eine deutschsprachige Live-Quiz-Anwendung mit React, TypeScript, Vite und AWS Amplify Gen 2. Quizmaster verwalten Quizze und steuern Sitzungen; Gäste spielen ohne Konto auf ihrem Smartphone. Eine optionale Präsentationsansicht ist schreibgeschützt.
+
+Der frühere Projektname „QuizRush“ bleibt aus Kompatibilitätsgründen in technischen Bezeichnern erhalten (Env-Variablen `QUIZRUSH_*`, Lambda- und Metriknamen, Browser-Speicherschlüssel `quizrush.*`, Paketname).
 
 **Status:** Der Live-Ablauf und ausgewählte Autorisierungs- und Lastfälle wurden in einer isolierten AWS-Sandbox geprüft. Vor produktivem Einsatz müssen Deployment, Alarme, Sicherheit und Lastgrenzen in der jeweiligen Zielumgebung erneut überprüft werden.
 

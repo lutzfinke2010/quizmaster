@@ -1,4 +1,4 @@
-# Rechtliche Betreiber-Checkliste (QuizRush)
+# Rechtliche Betreiber-Checkliste (Ratelama)
 
 Technischer Entwurf, keine Rechtsberatung. Betreiber ist Lutz Finke als Privatperson; der Arbeitgeber (MAXYA) ist nicht Verantwortlicher. Rechtsquellen wurden am 15.11.2026 gesichtet (§ 5 DDG, § 18 Abs. 1 MStV, § 25 TDDDG, DSGVO) und sind vor Veröffentlichung erneut zu prüfen.
 

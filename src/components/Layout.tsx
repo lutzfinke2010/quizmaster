@@ -18,9 +18,9 @@ export function Layout({ children, localMode = false, gameMode }: {
   return <div className={`app${gameMode ? ` game-layout game-layout-${gameMode}` : ""}`}>
     <a className="skip-link" href="#main-content">Zum Inhalt springen</a>
     <header className="header">
-      <Link to="/" className="brand" aria-label="QuizRush – Startseite">
+      <Link to="/" className="brand" aria-label="Ratelama – Startseite">
         <span className="brand-icon"><Sparkles size={23} aria-hidden="true" /></span>
-        <span>QuizRush<span className="brand-caption">Einfach. Zusammen. Spielen.</span></span>
+        <span>Ratelama<span className="brand-caption">Einfach. Zusammen. Spielen.</span></span>
       </Link>
       {gameMode && gameMode !== "admin" ? <span className="live-label">Gemeinsam spielen</span> : <nav className="header-nav" aria-label="Hauptnavigation">
         <NavLink className="nav-link" to="/join">Mitspielen</NavLink>
@@ -30,7 +30,7 @@ export function Layout({ children, localMode = false, gameMode }: {
     </header>
     <main id="main-content" tabIndex={-1} className="container">{children}</main>
     <footer>
-      <Link to="/" className="footer-brand">QuizRush<span aria-hidden="true"> ✳</span></Link>
+      <Link to="/" className="footer-brand">Ratelama<span aria-hidden="true"> ✳</span></Link>
       <details className="footer-privacy privacy-disclosure">
         <summary><ShieldCheck size={18} aria-hidden="true" />
           {localMode ? "Datenschutz: Entwürfe bleiben im Browser" : "Datenschutz: Mitspielen ohne Name und E-Mail"}</summary>
