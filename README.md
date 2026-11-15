@@ -91,7 +91,9 @@ Die Auswertung schließt zuerst atomar, liest danach konsistent und schreibt pro
 
 ## Hosting und Betrieb
 
-In Amplify Hosting das Repository mit Gen-2-Backend verbinden, den Backend-Build mit den gewünschten Umgebungsvariablen konfigurieren und vor `npm run build` die erzeugte `amplify_outputs.json` nach `public/amplify_outputs.json` kopieren. Das Build-Artefakt ist `dist`. Für React Router eine SPA-Rewrite-Regel auf `/index.html` für Pfade ohne vorhandene Datei einrichten; die JSON-Ausgabe muss als tatsächliche Datei ausgeliefert werden.
+In Amplify Hosting das Repository mit Gen-2-Backend verbinden und den Backend-Build mit den gewünschten Umgebungsvariablen konfigurieren. Die versionierte `amplify.yml` deployt das Backend und kopiert dessen erzeugte `amplify_outputs.json` vor dem Frontend-Build nach `public/amplify_outputs.json`. Das Build-Artefakt ist `dist`; der Build schlägt fehl, falls die Ausgabe fehlt.
+
+Für React Router in Amplify Hosting unter **Rewrites and redirects** eine Rewrite-Regel mit Status **200 (Rewrite)** auf `/index.html` einrichten. Als Quelle eignet sich `</^[^.]+$|\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>`; vorhandene Dateien wie `/amplify_outputs.json` müssen direkt ausgeliefert werden. Nach dem Deployment prüfen, dass `/admin` mit Status 200 die App und `/amplify_outputs.json` JSON mit den Kennungen des passenden Backend-Deployments liefert.
 
 Die Definition benötigt unter anderem CloudFormation-, CDK-Bootstrap-, IAM-, Cognito-, AppSync-, WAFv2-, DynamoDB-, Lambda-, SQS-, EventBridge-, Step-Functions- und CloudWatch-Berechtigungen. IAM-Rollen und Policies werden durch CDK erstellt. Die Tabelle ist mit `RETAIN` definiert, dennoch kann `ampx sandbox delete` Sandbox-Ressourcen einschließlich dieser Tabelle löschen (so auch in der geprüften Sandbox). Vor jeder Löschung Daten sichern und den tatsächlichen Ressourcenstatus prüfen; gegebenenfalls erhaltene Tabellen nach Identitäts- und Inhaltsprüfung separat entfernen.
 
