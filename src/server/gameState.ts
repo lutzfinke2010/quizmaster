@@ -218,12 +218,17 @@ export async function getMyResult(
     }));
     if (answer.Item) throw new Error("Die Auswertung ist unvollständig.");
   }
+  const person = await client.send(new GetCommand({
+    TableName: tableName, Key: { pk: `SESSION#${sessionId}`, sk: `PARTICIPANT#${participation.participantId}` },
+    ConsistentRead: true,
+  }));
+  const { totalPoints } = z.object({ totalPoints: z.number().int().min(0) }).parse(person.Item);
   const latest = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
   if (latest.version !== meta.version || latest.currentQuestionId !== meta.currentQuestionId || latest.status !== meta.status) {
     throw new Error("Der Spielstand wurde gleichzeitig geändert. Bitte erneut versuchen.");
   }
   return { questionId: meta.currentQuestionId, answered: result !== null,
-    correct: result?.correct ?? false, points: result?.points ?? 0, elapsedMs: result?.elapsedMs ?? null };
+    correct: result?.correct ?? false, points: result?.points ?? 0, totalPoints, elapsedMs: result?.elapsedMs ?? null };
 }
 
 export async function getMyAnswer(

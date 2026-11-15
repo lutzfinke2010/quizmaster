@@ -155,3 +155,19 @@ test("Fehler nach erfolgreichem Login bleiben durch erneute Prüfung oder Abmeld
   await page.getByRole("button", { name: "Abmelden", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Quizmaster-Anmeldung" })).toBeVisible();
 });
+
+test("Anmeldung und Registrierung bleiben auf kleinen Handys vollständig bedienbar", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Quizmaster-Anmeldung" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.screenshot({ path: test.info().outputPath("login.png"), fullPage: true });
+  await page.getByRole("button", { name: "Konto anlegen", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Quizmaster-Konto anlegen" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.getByLabel("E-Mail-Adresse", { exact: true }).fill("new@example.invalid");
+  await page.getByLabel("Passwort", { exact: true }).fill("TestPassword!123");
+  await page.getByRole("button", { name: "Konto anlegen", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "E-Mail-Adresse bestätigen" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});

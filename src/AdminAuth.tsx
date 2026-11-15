@@ -9,6 +9,7 @@ import { z } from "zod";
 import { adminAccess, authMessage, emailSchema, passwordSchema } from "./domain/adminAuth";
 import { ErrorBanner, Layout } from "./components/Layout";
 import { Button } from "./components/ui/button";
+import { ShieldCheck, Sparkles } from "lucide-react";
 
 type Step = "checking" | "signIn" | "signUp" | "confirm" | "newPassword" | "pending" | "authorized" | "sessionError";
 type Fields = { email: string; password: string; code: string };
@@ -111,10 +112,14 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       })}>Abmelden</Button></div></div></Layout>;
   }
   return <Layout><div className="login-card">
+    <span className="login-icon"><Sparkles size={26} aria-hidden="true" /></span>
+    <span className="eyebrow">HINTER JEDER RUNDE STECKT EINE GUTE IDEE</span>
     <h1>{step === "signUp" ? "Quizmaster-Konto anlegen" : step === "confirm" ? "E-Mail-Adresse bestätigen" :
       step === "newPassword" ? "Neues Passwort setzen" : "Quizmaster-Anmeldung"}</h1>
     <p>{step === "confirm" ? "Gib den sechsstelligen Code aus deiner Bestätigungs-E-Mail ein." :
       "Neue Konten erhalten erst nach manueller Freigabe durch die Administration Quizmaster-Rechte."}</p>
+    {step === "signUp" && <p className="local-notice"><ShieldCheck size={20} aria-hidden="true" />
+      <span>Für dein Quizmaster-Konto wird deine E-Mail-Adresse gespeichert. Zum Mitspielen brauchst du kein Konto.</span></p>}
     <ErrorBanner error={error} />{notice && <p role="status">{notice}</p>}
     <form onSubmit={handleSubmit(submit)} noValidate>
       {step !== "newPassword" && <label className="field">E-Mail-Adresse

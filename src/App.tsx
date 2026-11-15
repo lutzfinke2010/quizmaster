@@ -1,46 +1,26 @@
-import { useState } from "react";
-import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Copy, HardDrive, Plus, Sparkles, Trash2 } from "lucide-react";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { newDraft, readDrafts, saveDrafts, type Draft } from "./drafts";
 import { QuizEditor } from "./QuizEditor";
 import type { Quiz } from "./domain/quiz";
 import { CloudApp } from "./CloudApp";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : "Ein unerwarteter Fehler ist aufgetreten.";
-}
+import { Layout as SharedLayout, message } from "./components/Layout";
+import { HomeContent } from "./components/HomeContent";
 
 function Layout({ children }: { children: React.ReactNode }) {
-  return <div className="app">
-    <header className="header">
-      <Link to="/" className="brand"><Sparkles size={24} aria-hidden="true" /> QuizRush</Link>
-      <Link to="/admin" className="header-link">Quiz-Entwürfe</Link>
-    </header>
-    <main className="container">{children}</main>
-    <footer>QuizRush · Gemeinsam spielen, gemeinsam staunen</footer>
-  </div>;
+  return <SharedLayout localMode>{children}</SharedLayout>;
 }
 
-function Notice() {
-  return <aside className="notice" role="note">
-    <strong>Lokaler Entwurfsmodus:</strong> Quizze werden nur in diesem Browser gespeichert.
-    Live-Spiele, Anmeldung und AWS-Backend sind noch nicht verfügbar.
-  </aside>;
+function LocalNotice() {
+  return <p className="local-notice"><HardDrive size={20} aria-hidden="true" />
+    <span><strong>Lokaler Entwurfsmodus:</strong> Quizze werden nur in diesem Browser gespeichert. Live-Spiele und Anmeldung sind hier nicht verfügbar.</span></p>;
 }
 
 function Home() {
   return <Layout>
-    <div className="hero">
-      <span className="eyebrow">DIE QUIZSHOW FÜR ALLE</span>
-      <h1>Wissen trifft <span className="gradient">Spielfreude.</span></h1>
-      <p>Fragen vorbereiten, Freunde herausfordern und gemeinsam rätseln.</p>
-      <div className="actions">
-        <Link className="button primary" to="/admin">Quiz vorbereiten <ExternalLink size={18} /></Link>
-        <Link className="button secondary" to="/join">Spiel beitreten</Link>
-      </div>
-    </div>
-    <Notice />
+    <HomeContent localMode />
   </Layout>;
 }
 
@@ -70,12 +50,12 @@ function Overview() {
   }
 
   return <Layout>
-    <Notice />
     <div className="section-heading">
-      <div><span className="eyebrow">DEINE IDEEN</span><h1>Quiz-Entwürfe</h1>
+      <div><span className="eyebrow">DEINE IDEEN, DEINE BÜHNE</span><h1>Quiz-Entwürfe <span className="heading-count">{drafts.length}</span></h1>
         <p>Erstelle Fragen und bringe deine nächste Runde in Form.</p></div>
       <Link className="button primary" to="/admin/quizzes/new"><Plus size={19} /> Neues Quiz</Link>
     </div>
+    <LocalNotice />
     {error && <p className="error-banner" role="alert">{error}</p>}
     {drafts.length === 0 && !error ? <div className="empty">
       <Sparkles size={36} aria-hidden="true" /><h2>Hier ist noch Platz für Ideen.</h2>
@@ -127,11 +107,11 @@ function EditorPage() {
   }
 
   return <Layout><Link className="back" to="/admin"><ArrowLeft size={17} /> Zur Übersicht</Link>
-    <Notice />
     {initial.error ? <p role="alert" className="error-banner">{initial.error}</p> : <>
       <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span>
         <h1>{initial.draft ? "Quiz bearbeiten" : "Neues Quiz"}</h1>
         <p>Eine richtige Antwort pro Frage. Den Rest erledigt die Spielfreude.</p></div></div>
+      <LocalNotice />
       {error && <p className="error-banner" role="alert">{error}</p>}
       <QuizEditor initialQuiz={initial.draft?.quiz} onSave={save} />
     </>}
@@ -152,6 +132,15 @@ function NotFound() {
 }
 
 export function App({ cloudConfigured = false }: { cloudConfigured?: boolean }) {
+  const { pathname } = useLocation();
+  const previousPath = useRef(pathname);
+  useEffect(() => {
+    if (previousPath.current !== pathname) {
+      window.scrollTo(0, 0);
+      document.getElementById("main-content")?.focus({ preventScroll: true });
+      previousPath.current = pathname;
+    }
+  }, [pathname]);
   if (cloudConfigured) return <CloudApp />;
   return <Routes>
     <Route path="/" element={<Home />} />

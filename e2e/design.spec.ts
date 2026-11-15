@@ -1,0 +1,622 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function localMode(page: Page) {
+  await page.route("**/amplify_outputs.json", (route) => route.fulfill({ status: 404 }));
+}
+
+async function screenshot(page: Page, name: string) {
+  await page.screenshot({ path: test.info().outputPath(name), fullPage: true, animations: "disabled" });
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflow = await page.evaluate(() => ({
+    width: window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    elements: [...document.querySelectorAll("body *")].filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.right > window.innerWidth || rect.left < 0;
+    }).map((element) => element.className).filter((name) => typeof name === "string"),
+  }));
+  expect(overflow.scrollWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width);
+}
+
+async function expectReadableText(page: Page, selectors: string) {
+  const contrasts = await page.locator(selectors).evaluateAll((elements) => {
+    function rgb(value: string) { return (value.match(/[\d.]+/g) ?? []).map(Number); }
+    function luminance(color: number[]) {
+      return color.slice(0, 3).map((part) => {
+        const value = part / 255;
+        return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+    }
+    return elements.map((element) => {
+      let ancestor: Element | null = element;
+      let background = [247, 247, 239];
+      while (ancestor) {
+        const color = rgb(getComputedStyle(ancestor).backgroundColor);
+        if (color.length === 3 || color[3] === 1) { background = color; break; }
+        ancestor = ancestor.parentElement;
+      }
+      const foreground = luminance(rgb(getComputedStyle(element).color));
+      const back = luminance(background);
+      return { text: element.textContent?.trim().slice(0, 70), ratio: (Math.max(foreground, back) + .05) / (Math.min(foreground, back) + .05) };
+    });
+  });
+  expect(contrasts.length).toBeGreaterThan(0);
+  for (const contrast of contrasts) expect(contrast.ratio, contrast.text).toBeGreaterThanOrEqual(4.5);
+}
+
+async function mockGame(page: Page) {
+  await page.route("**/src/cloud.ts", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: `
+      export async function configureCloud() { return true; }
+      const participant = { sessionId: "design", participantId: "me", displayName: "Fröhlicher Fuchs", avatarId: "fox", joinedAt: 1 };
+      const deadline = Date.now() + 60000;
+      function state() {
+        const extra = JSON.parse(sessionStorage.getItem("game-state") || "{}");
+        return { sessionId: "design", status: "QUESTION_OPEN", version: 1, title: "Die große Feierabendrunde",
+          questionId: "q1", questionIndex: 0, questionCount: 2, participantCount: 2, answerCount: 0,
+          eligibleParticipantCount: 2, serverTime: Date.now(), closesAt: deadline,
+          question: { text: "Welcher Planet ist für seine Ringe bekannt?", answers: [
+            { id: "a", text: "Mars" }, { id: "b", text: "Saturn" }, { id: "c", text: "Venus" }, { id: "d", text: "Merkur" }
+          ] }, participants: [participant], leaderboard: [], ...extra };
+      }
+      export const cloud = {
+        gameState: async () => {
+          if (sessionStorage.getItem("fail-state")) throw new Error("Spielstand nicht erreichbar.");
+          return state();
+        },
+        presentation: async () => {
+          if (sessionStorage.getItem("fail-presentation")) throw new Error("Präsentation nicht erreichbar.");
+          return state();
+        },
+        myParticipation: async () => participant,
+        myAnswer: async () => {
+          if (sessionStorage.getItem("fail-restore")) throw new Error("Gespeicherte Antwort konnte nicht geladen werden.");
+          return { questionId: state().questionId, choiceId: sessionStorage.getItem(state().questionId) };
+        },
+        result: async () => {
+          if (sessionStorage.getItem("fail-result")) throw new Error("Ergebnis nicht erreichbar.");
+          return { questionId: state().questionId, answered: Boolean(sessionStorage.getItem(state().questionId)),
+            correct: sessionStorage.getItem(state().questionId) === "b", points: sessionStorage.getItem(state().questionId) === "b" ? 850 : 0,
+            totalPoints: sessionStorage.getItem(state().questionId) === "b" ? 850 : 0,
+            elapsedMs: sessionStorage.getItem(state().questionId) ? 6000 : null,
+            ...JSON.parse(sessionStorage.getItem("personal-result") || "{}") };
+        },
+        answer: async (session, question, choice) => {
+          sessionStorage.setItem("answer-calls", String(Number(sessionStorage.getItem("answer-calls") || 0) + 1));
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (sessionStorage.getItem("fail-answer")) throw new Error("Antwort konnte nicht gespeichert werden.");
+          sessionStorage.setItem(question, choice);
+          if (sessionStorage.getItem("lose-receipt")) throw new Error("Bestätigung nicht erreichbar.");
+          return { acceptedAt: Date.now() };
+        },
+        listSessions: async () => [{ sessionId: "design", title: "Runde", status: state().status, joinCode: "123456", presentationToken: "design", createdAt: 1 }],
+        questions: async () => [{ questionId: "q1", index: 0, text: "Frage 1" }, { questionId: "q2", index: 1, text: "Frage 2" }],
+        control: async (action, sessionId, questionId, expectedVersion) => {
+          sessionStorage.setItem("last-control", JSON.stringify({ action, sessionId, questionId, expectedVersion }));
+          return { version: expectedVersion + 1 };
+        },
+        transition: async (action, sessionId, expectedVersion) => {
+          sessionStorage.setItem("last-control", JSON.stringify({ action, sessionId, expectedVersion }));
+          return { version: expectedVersion + 1 };
+        },
+        subscribe: (session, mode, token, onEvent) => {
+          const listener = () => onEvent(state().version);
+          window.addEventListener("quiz-test-state", listener);
+          return { unsubscribe: () => window.removeEventListener("quiz-test-state", listener) };
+        }
+      };
+    `,
+  }));
+}
+
+async function setPhase(page: Page, status: string, questionId = "q1") {
+  await page.evaluate(({ status, questionId }) => {
+    const previous = JSON.parse(sessionStorage.getItem("game-state") || "{}");
+    sessionStorage.setItem("game-state", JSON.stringify({
+      ...previous, status, questionId, questionIndex: questionId === "q1" ? 0 : 1, version: (previous.version ?? 1) + 1,
+      reveal: ["REVEAL", "LEADERBOARD", "FINISHED"].includes(status) ? {
+        correctChoiceId: "b", explanation: "Saturn ist für sein Ringsystem bekannt.",
+        distribution: [{ choiceId: "a", count: 1 }, { choiceId: "b", count: 1 }],
+      } : null,
+    }));
+    window.dispatchEvent(new Event("quiz-test-state"));
+  }, { status, questionId });
+}
+
+async function updateGame(page: Page, update: Record<string, unknown>) {
+  await page.evaluate((update) => {
+    const previous = JSON.parse(sessionStorage.getItem("game-state") || "{}");
+    sessionStorage.setItem("game-state", JSON.stringify({ ...previous, ...update, version: (previous.version ?? 1) + 1 }));
+    window.dispatchEvent(new Event("quiz-test-state"));
+  }, update);
+}
+
+function players(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    participantId: index === 3 ? "me" : `p${index}`,
+    displayName: index === 3 ? "Fröhlicher Fuchs" : `Neugieriger Koala ${index + 1}`,
+    avatarId: `avatar${index}`, points: 4000 - index * 30, correctAnswers: 4, correctElapsedMs: 6000,
+    rank: index + 1, previousRank: index + 2, rankChange: 1,
+  }));
+}
+
+for (const width of [320, 390, 768, 1440]) {
+  test(`Startseite und Editor passen bei ${width}px ohne horizontales Scrollen`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await localMode(page);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Kleine Fragen.");
+    await screenshot(page, "home.png");
+    await expectNoHorizontalOverflow(page);
+    await page.goto("/admin/quizzes/new");
+    await expect(page.getByRole("heading", { name: "Neues Quiz", exact: true })).toBeVisible();
+    await page.getByLabel("Antwort 2 bei Frage 1", { exact: true }).fill("Eine längere Antwort für die nächste gemeinsame Quizrunde");
+    await page.getByLabel("Antwort 2 bei Frage 1 ist richtig").check();
+    await expect(page.locator(".answer-row.is-correct")).toContainText("Richtig");
+    await expect(page.locator(".answers .selection-summary")).toContainText("Richtige Antwort: B");
+    await expect(page.locator(".outline-link.has-selection")).toContainText("B · Eine längere Antwort");
+    await expectNoHorizontalOverflow(page);
+    const targets = await page.locator(".correct-choice, .icon-button, .editor-actions .button").evaluateAll((elements) =>
+      elements.map((element) => { const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height }; }));
+    expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBe(true);
+    await screenshot(page, "editor.png");
+  });
+}
+
+test("Tastatur, Fokus, Navigationszustand und Fehlermeldungen sind zugänglich", async ({ page }) => {
+  await localMode(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Zum Inhalt springen" });
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("main")).toBeFocused();
+  await page.getByRole("link", { name: "Quiz-Entwürfe", exact: true }).click();
+  await expect(page.getByRole("main")).toBeFocused();
+  await page.goto("/admin/quizzes/new");
+  await expect(page.getByRole("link", { name: "Quiz-Entwürfe", exact: true })).toHaveAttribute("aria-current", "page");
+  const first = page.getByRole("radio", { name: "Antwort 1 bei Frage 1 ist richtig" });
+  await first.focus();
+  await page.keyboard.press("Space");
+  await expect(first).toBeChecked();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("radio", { name: "Antwort 2 bei Frage 1 ist richtig" })).toBeChecked();
+  await expect(page.locator(".answers .selection-summary")).toContainText("Richtige Antwort: B");
+  const focusStyle = await page.getByRole("radio", { name: "Antwort 2 bei Frage 1 ist richtig" }).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { width: style.outlineWidth, style: style.outlineStyle };
+  });
+  expect(focusStyle).toEqual({ width: "3px", style: "solid" });
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByLabel("Quiztitel")).toBeFocused();
+  await expect(page.getByLabel("Quiztitel")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Quiztitel")).toHaveAccessibleDescription("Bitte ausfüllen.");
+});
+
+test("Eigene Antwort bleibt beim Senden, Auswerten und Neuladen sichtbar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockGame(page);
+  await page.goto("/play/design");
+  const answer = page.getByRole("button", { name: /Saturn/ });
+  await expect(answer).toBeEnabled();
+  await answer.click();
+  await expect(answer).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".answer-feedback")).toContainText("Wird gesendet");
+  await expect(page.locator(".answer-feedback")).toContainText("B · Saturn");
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expect(answer).toHaveClass(/is-selected/);
+  await expect(answer).toContainText("Deine Antwort");
+  await page.getByRole("button", { name: /Mars/ }).focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("1");
+  await expectNoHorizontalOverflow(page);
+  await setPhase(page, "SCORING");
+  await expect(page.locator(".phase-badge")).toContainText("Wird ausgewertet");
+  await expect(answer).toHaveClass(/is-selected/);
+  await page.reload();
+  await expect(answer).toHaveAttribute("aria-pressed", "true");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toContainText("Richtig!");
+  await expect(page.locator(".personal-result .points")).toContainText("850");
+  await expect(page.locator(".result-option.correct")).toContainText("Saturn");
+  await expect(page.locator(".answer-grid")).toHaveCount(0);
+  await expect(page.locator(".answer-confetti")).toBeVisible();
+  await expect(page.locator(".answer-confetti")).toHaveAttribute("aria-hidden", "true");
+  await expect.poll(() => page.locator(".answer-confetti span").evaluateAll((particles) =>
+    particles.some((particle) => {
+      const rect = particle.getBoundingClientRect();
+      return Number(getComputedStyle(particle).opacity) > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight;
+    }))).toBe(true);
+  expect(await page.locator(".answer-confetti").evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
+  await screenshot(page, "correct-answer.png");
+  await expect.poll(() => page.locator(".answer-confetti span").evaluateAll((particles) =>
+    particles.every((particle) => getComputedStyle(particle).opacity === "0"))).toBe(true);
+  await page.reload();
+  await expect(page.locator(".result-option.correct")).toContainText("Deine Antwort");
+  await setPhase(page, "FINISHED");
+  await expect(page.locator(".phase-badge")).toContainText("Geschafft!");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
+  await expect(page.locator(".reveal-phase")).toHaveCount(0);
+  await setPhase(page, "LEADERBOARD");
+  await expect(page.locator(".phase-badge")).toContainText("Der Zwischenstand");
+  await expect(page.locator(".question-phase")).toHaveCount(0);
+  await setPhase(page, "QUESTION_OPEN", "q2");
+  await expect(page.locator(".answer-feedback")).toContainText("Tippe auf eine Antwort");
+  await expect(answer).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+});
+
+test("Falsche Antwort bleibt von der richtigen Lösung unterscheidbar – ohne Konfetti", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Mars/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toContainText("Leider daneben");
+  await expect(page.locator(".result-option").filter({ hasText: "Mars" })).toContainText("Deine Antwort");
+  await expect(page.locator(".correct-answer")).toContainText("Saturn");
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".result-option").filter({ hasText: "Mars" })).toContainText("Deine Antwort");
+});
+
+test("Fehlgeschlagenes Senden wird nicht als gespeicherte Antwort dargestellt", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.evaluate(() => sessionStorage.setItem("fail-answer", "true"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("alert")).toContainText("Antwort konnte nicht gespeichert werden.");
+  await expect(page.getByRole("button", { name: /Saturn/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".answer-feedback")).not.toContainText("Antwort ist drin");
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.removeItem("fail-answer"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+});
+
+test("Reduzierte Bewegung unterdrückt Konfetti, nicht die Erfolgsmeldung", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-total")).toContainText("850 Punkte");
+  await expect(page.locator(".answer-confetti")).toBeHidden();
+});
+
+test("Fehlgeschlagene Wiederherstellung kann ohne erneutes Antworten wiederholt werden", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await page.evaluate(() => sessionStorage.setItem("fail-restore", "true"));
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("Gespeicherte Antwort konnte nicht geladen werden.");
+  await expect(page.locator(".answer-feedback")).toContainText("gerade nicht verfügbar");
+  await expect(page.getByRole("button", { name: /Mars/ })).toBeDisabled();
+  await page.evaluate(() => sessionStorage.removeItem("fail-restore"));
+  await page.getByRole("button", { name: "Gespeicherte Antwort erneut prüfen" }).click();
+  await expect(page.getByRole("button", { name: /Saturn/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".answer-feedback")).toContainText("B · Saturn");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("Beitritt und Präsentation passen auf schmale Bildschirme", async ({ page }) => {
+  await mockGame(page);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/join/123456");
+  await expect(page.getByLabel("Spielcode")).toHaveValue("123456");
+  await expectNoHorizontalOverflow(page);
+  await screenshot(page, "join.png");
+  await page.goto("/present/design");
+  await expect(page.locator(".game-title")).toHaveText("Die große Feierabendrunde");
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".answer-tile").filter({ hasText: "Saturn" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Saturn/ })).toHaveCount(0);
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+});
+
+test("Zentrale Texte und Auswahlmarkierungen erfüllen mindestens 4,5:1 Kontrast", async ({ page }) => {
+  await localMode(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expectReadableText(page, ".button, .eyebrow, .hero-copy p, .badge, .sample-selected, .sample-confirmation, .trust-chips li, .trust-link, .privacy-section h2, .privacy-section h3, .privacy-section p, .privacy-section li, .privacy-more summary, .footer-privacy summary, .footer-privacy li");
+  await page.goto("/admin/quizzes/new");
+  await page.getByRole("radio", { name: "Antwort 2 bei Frage 1 ist richtig" }).check();
+  await expectReadableText(page, ".is-correct .correct-choice, .selection-summary, .field-error, .outline-link small, .hint");
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expectReadableText(page, ".answer-tile, .answer-state, .answer-feedback, .phase-badge");
+});
+
+for (const width of [320, 390, 430, 1440]) {
+  test(`Spielphasen und lange Inhalte passen bei ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mockGame(page);
+    await page.goto("/play/design");
+    await expect(page.getByText("Noch keine Wertung")).toBeVisible();
+    await expect(page.getByRole("timer")).toHaveAttribute("aria-live", "off");
+    const normalAnswers = await page.locator(".answer-tile").evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height));
+    expect(normalAnswers.every((height) => height >= 56)).toBe(true);
+    if (width >= 390 && width <= 430) {
+      expect(await page.locator(".answer-tile").last().evaluate((element) => element.getBoundingClientRect().bottom)).toBeLessThan(844);
+    }
+    await screenshot(page, "question.png");
+    for (const count of [2, 4, 6]) {
+      await updateGame(page, { question: { text: "Eine sehr lange Frage über unser Sonnensystem und seine Planeten: ".repeat(5),
+        answers: Array.from({ length: count }, (_, index) => ({ id: `a${index}`, text: `Antwort ${index + 1}: ${"Ausführlicher Antworttext ohne Abschneiden. ".repeat(4)}` })) } });
+      await expect(page.locator(".answer-tile")).toHaveCount(count);
+      await expectNoHorizontalOverflow(page);
+      expect(await page.locator(".answer-text").last().evaluate((element) =>
+        element.scrollHeight <= element.clientHeight)).toBe(true);
+    }
+    await screenshot(page, "long-answers.png");
+    await updateGame(page, { question: { text: "Welcher Planet ist für seine Ringe bekannt?",
+      answers: [{ id: "a", text: "Mars" }, { id: "b", text: "Saturn" }] }, participantCount: 25, eligibleParticipantCount: 25 });
+    await page.getByRole("button", { name: /Saturn/ }).click();
+    await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+    await screenshot(page, "answered.png");
+    await page.evaluate(() => sessionStorage.setItem("personal-result", JSON.stringify({ totalPoints: 3910 })));
+    await setPhase(page, "REVEAL");
+    await expect(page.locator(".result-total")).toContainText("3.910 Punkte");
+    await expect(page.locator(".result-time")).toContainText("6 Sekunden");
+    await expect(page.locator(".correct-answer")).toContainText("B · Saturn");
+    await expect(page.locator(".ranking-phase")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await screenshot(page, "reveal.png");
+    await updateGame(page, { status: "LEADERBOARD", questionIndex: 4, questionCount: 10, leaderboard: players(25) });
+    await expect(page.getByRole("heading", { name: "Dein Zwischenstand: Platz 4" })).toBeVisible();
+    await expect(page.locator(".personal-ranking .rank-change")).toContainText("1 Platz gutgemacht");
+    await expect(page.locator(".reveal-phase, .question-phase")).toHaveCount(0);
+    await expect(page.locator(".leaderboard li")).toHaveCount(3);
+    await expectNoHorizontalOverflow(page);
+    await screenshot(page, "ranking.png");
+    await updateGame(page, { status: "FINISHED", questionIndex: 9 });
+    await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
+    await expect(page.locator(".personal-ranking")).toContainText("4 von 10 Fragen richtig beantwortet");
+    await expectNoHorizontalOverflow(page);
+    await screenshot(page, "final.png");
+  });
+}
+
+test("Präsentation trennt Phasen, zeigt proportionale Stimmen und das Podest 2–1–3", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockGame(page);
+  await page.goto("/present/design");
+  await updateGame(page, { answerCount: 18, eligibleParticipantCount: 24, participantCount: 24 });
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "18");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("max", "24");
+  await expect(page.locator(".answer-progress")).toContainText("18 von 24");
+  await expect(page.locator(".correct, .vote-track, .leaderboard")).toHaveCount(0);
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await expect(page.getByRole("button")).toHaveCount(0);
+  await screenshot(page, "presentation-question.png");
+  await setPhase(page, "REVEAL");
+  await updateGame(page, { leaderboard: players(5), reveal: { correctChoiceId: "b", explanation: "",
+    distribution: [{ choiceId: "a", count: 3 }, { choiceId: "b", count: 17 }, { choiceId: "c", count: 3 }, { choiceId: "d", count: 1 }] } });
+  await expect(page.locator(".reveal-phase")).toBeVisible();
+  await expect(page.locator(".ranking-phase, .question-phase, .question-explanation")).toHaveCount(0);
+  expect(await page.locator(".result-option.correct .vote-track span").evaluate((element) => (element as HTMLElement).style.width)).toBe("70.8333%");
+  await screenshot(page, "presentation-reveal.png");
+  await updateGame(page, { status: "LEADERBOARD", leaderboard: players(24), questionIndex: 4 });
+  await expect(page.locator(".podium-player")).toHaveCount(3);
+  const podium = await page.locator(".pedestal").evaluateAll((elements) =>
+    elements.map((element) => ({ text: element.textContent, height: element.getBoundingClientRect().height })));
+  expect(podium.map((place) => place.text)).toEqual(["Platz 2", "Platz 1", "Platz 3"]);
+  expect(podium[1].height).toBeGreaterThan(podium[0].height);
+  expect(podium[0].height).toBeGreaterThan(podium[2].height);
+  await expect(page.locator(".leaderboard li")).toHaveCount(5);
+  await expectReadableText(page, ".podium-player strong, .podium-player > span, .leaderboard strong, .ranking-intro");
+  await expectNoHorizontalOverflow(page);
+  expect(await page.locator(".game-view").evaluate((element) => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1080);
+  await screenshot(page, "presentation-ranking.png");
+  await updateGame(page, { status: "FINISHED" });
+  await screenshot(page, "presentation-final.png");
+});
+
+test("Leere Runde, begrenzte Lobby, kleine Podeste und geteilte Ränge bleiben korrekt", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/present/design");
+  await updateGame(page, { status: "LOBBY", questionIndex: -1, joinCode: "123456", participants: players(100), participantCount: 100 });
+  await expect(page.locator(".player-tag")).toHaveCount(12);
+  await expect(page.getByText("+ 88 weitere")).toBeVisible();
+  await expect(page.locator(".join-code")).toHaveText("123456");
+  await screenshot(page, "lobby.png");
+  await updateGame(page, { status: "QUESTION_OPEN", participantCount: 0, eligibleParticipantCount: 0, answerCount: 0 });
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "0");
+  await expect(page.locator(".answer-progress")).toContainText("0 von 0");
+  await setPhase(page, "REVEAL");
+  await updateGame(page, { reveal: { correctChoiceId: "b", explanation: "", distribution: [] } });
+  await expect(page.locator(".distribution-note")).toContainText("0 abgegebene Antworten");
+  expect(await page.locator(".vote-track span").evaluateAll((elements) => elements.every((element) => (element as HTMLElement).style.width === "0%"))).toBe(true);
+  for (const count of [0, 1, 2, 3]) {
+    await updateGame(page, { status: "FINISHED", leaderboard: players(count) });
+    await expect(page.locator(".podium-player")).toHaveCount(count);
+  }
+  const tied = players(3).map((player, index) => ({ ...player, points: index < 2 ? 4000 : 3000, rank: index < 2 ? 1 : 3 }));
+  await updateGame(page, { leaderboard: tied });
+  await expect(page.locator(".pedestal")).toHaveText(["Platz 1", "Platz 1", "Platz 3"]);
+  const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+  expect(heights[0]).toBe(heights[1]);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await updateGame(page, { leaderboard: tied.map((player) => ({ ...player, displayName: "EinSehrLangerSpielnameOhneTrennstellen".repeat(4) })) });
+  await expectNoHorizontalOverflow(page);
+  await screenshot(page, "tied-long-names.png");
+});
+
+test("Fehlende Antwort, Ergebnisfehler und Wiederherstellung einer verlorenen Bestätigung", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toContainText("Zeit abgelaufen · Keine Antwort");
+  await expect(page.locator(".correct-answer")).toContainText("Saturn");
+  await expect(page.locator(".result-time")).toHaveCount(0);
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+  await setPhase(page, "QUESTION_OPEN", "q2");
+  await page.evaluate(() => sessionStorage.setItem("lose-receipt", "true"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("1");
+  await page.evaluate(() => sessionStorage.setItem("fail-result", "true"));
+  await setPhase(page, "REVEAL", "q2");
+  await expect(page.getByRole("alert")).toContainText("Ergebnis nicht erreichbar");
+  await expect(page.locator(".correct-answer")).toContainText("Saturn");
+  await page.evaluate(() => sessionStorage.removeItem("fail-result"));
+  await page.getByRole("button", { name: "Spielstand erneut prüfen" }).click();
+  await expect(page.locator(".result-message")).toHaveText("Richtig!");
+});
+
+test("Wiederverbindung stellt bestätigte Antworten her und ignoriert alte Versionen", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await expect(page.getByRole("button", { name: /Saturn/ })).toBeEnabled();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("offline"));
+    sessionStorage.setItem("q1", "b");
+  });
+  await expect(page.getByRole("alert")).toContainText("offline");
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await setPhase(page, "SCORING");
+  await expect(page.locator(".phase-badge")).toHaveText("Wird ausgewertet");
+  await page.evaluate(() => {
+    sessionStorage.setItem("game-state", JSON.stringify({ status: "QUESTION_OPEN", version: 1 }));
+    window.dispatchEvent(new Event("quiz-test-state"));
+  });
+  await expect(page.getByRole("button", { name: /Mars/ })).toBeDisabled();
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBeNull();
+});
+
+test("Präsentation erholt sich auch von einem Fehler beim ersten Laden", async ({ page }) => {
+  await mockGame(page);
+  await page.addInitScript(() => sessionStorage.setItem("fail-presentation", "true"));
+  await page.goto("/present/design");
+  await expect(page.getByRole("alert")).toContainText("Präsentation nicht erreichbar");
+  await page.evaluate(() => sessionStorage.removeItem("fail-presentation"));
+  await expect(page.locator(".question-phase")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await setPhase(page, "SCORING");
+  await expect(page.locator(".phase-badge")).toHaveText("Wird ausgewertet");
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+});
+
+test("Vergrößerter Text bleibt bedienbar und die erste Wertung erfindet keinen Rangaufstieg", async ({ page }) => {
+  await mockGame(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/play/design");
+  await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+  await expectNoHorizontalOverflow(page);
+  const answer = page.getByRole("button", { name: /Saturn/ });
+  await answer.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expectNoHorizontalOverflow(page);
+  await expect(answer).toHaveCSS("outline-style", "solid");
+  await updateGame(page, { status: "LEADERBOARD", leaderboard: players(6) });
+  await expect(page.locator(".personal-ranking")).toContainText("Platz 4");
+  await expect(page.locator(".rank-change")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await page.reload();
+  await expect(page.locator(".personal-ranking .points")).toHaveText("3.910");
+  await updateGame(page, { status: "QUESTION_OPEN", questionIndex: 1, questionId: "q2", leaderboard: [] });
+  await expect(page.locator(".player-identity")).toContainText("3.910 Punkte · Zuletzt Platz 4");
+});
+
+test("Der Timer zeigt die Serverdeadline ohne eigenen Phasenwechsel", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await updateGame(page, { closesAt: Date.now() - 1000 });
+  await expect(page.getByRole("timer")).toHaveAccessibleName("Noch 0 Sekunden");
+  await expect(page.locator(".phase-badge")).toHaveText("Du bist gefragt");
+  await expect(page.getByRole("button", { name: /Saturn/ })).toBeEnabled();
+  await page.evaluate(() => sessionStorage.setItem("fail-answer", "true"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("alert")).toContainText("Antwort nicht bestätigt");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toContainText("Keine Antwort");
+});
+
+test("Quizmaster steuert ausschließlich zulässige Schritte, Sonderaktionen bleiben nachrangig", async ({ page }) => {
+  await mockGame(page);
+  await page.route("**/src/AdminAuth.tsx", (route) => route.fulfill({
+    contentType: "application/javascript", body: "export function AdminGate({children}) { return children; }",
+  }));
+  await page.goto("/admin/sessions/design");
+  const controls = page.getByRole("complementary", { name: "Sitzung steuern" });
+  await updateGame(page, { status: "LOBBY", questionIndex: -1 });
+  await expect(page.locator(".join-code")).toHaveCount(1);
+  await expect(controls.locator(".primary")).toHaveText("Erste Frage starten");
+  await page.getByRole("button", { name: "Erste Frage starten" }).click();
+  expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("last-control")) ?? "{}").action).toBe("startQuestion");
+  await updateGame(page, { status: "COUNTDOWN", questionIndex: 0, opensAt: Date.now() + 3000 });
+  await expect(controls.locator(".primary")).toHaveCount(0);
+  await updateGame(page, { status: "QUESTION_OPEN" });
+  await expect(page.getByRole("button", { name: "Frage vorzeitig schließen" })).toHaveClass(/secondary/);
+  await setPhase(page, "REVEAL");
+  await expect(controls.locator(".primary")).toHaveText("Zwischenstand anzeigen");
+  await page.getByRole("button", { name: "Zwischenstand anzeigen" }).click();
+  expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("last-control")) ?? "{}").action).toBe("showLeaderboard");
+  await updateGame(page, { status: "LEADERBOARD", leaderboard: players(24), participantCount: 24 });
+  await expect(controls.locator(".primary")).toHaveText("Nächste Frage starten");
+  await updateGame(page, { questionIndex: 1 });
+  await expect(controls.locator(".primary")).toHaveText("Endstand anzeigen");
+  await screenshot(page, "quizmaster.png");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Sitzung abbrechen" }).click();
+  expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("last-control")) ?? "{}").action).toBe("showLeaderboard");
+  await updateGame(page, { status: "FINISHED" });
+  await expect(page.getByRole("button", { name: "Sitzung abbrechen" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Präsentationsansicht öffnen/ })).toHaveAttribute("target", "_blank");
+});
+
+test("Datenhinweis ist prominent eingebettet, wahrheitsgemäß und per Tastatur aufklappbar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockGame(page);
+  await page.goto("/");
+  await expect(page.locator(".privacy-banner")).toHaveCount(0);
+  const chips = page.getByRole("list", { name: "Mitspielen auf einen Blick" });
+  await expect(chips).toContainText("Ohne Konto");
+  await expect(chips).toContainText("Ohne E-Mail");
+  await page.getByRole("link", { name: "Was wird gespeichert?" }).click();
+  const section = page.getByRole("region", { name: "Mitspielen ohne Name und E-Mail." });
+  await expect(section).toBeFocused();
+  await expect(section).toBeInViewport();
+  await expect(section).toContainText("Antwortzeiten und Punkte");
+  await expect(section).toContainText("automatisch gelöscht");
+  const more = section.locator("summary");
+  await more.focus();
+  await page.keyboard.press("Enter");
+  await expect(section.getByText("Quizmaster-Konten:", { exact: true })).toBeVisible();
+  await expect(section).toContainText("E-Mail-Adresse gespeichert");
+  await expectNoHorizontalOverflow(page);
+
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/join");
+  const note = page.locator(".join-card .privacy-note");
+  await expect(note).toContainText("Ohne Name und E-Mail dabei.");
+  await note.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(note).toContainText("Antwortzeiten und Punkte werden gespeichert");
+  await expect(note).toContainText("zeitversetzt");
+  await expectNoHorizontalOverflow(page);
+  await page.keyboard.press("Enter");
+  await expect(note.getByText("Aufbewahrung:", { exact: true })).toBeHidden();
+
+  await page.goto("/play/design");
+  const footerPrivacy = page.locator("footer .footer-privacy");
+  await footerPrivacy.locator("summary").click();
+  await expect(footerPrivacy).toContainText("Für ein Konto wird eine E-Mail-Adresse gespeichert.");
+  await expectNoHorizontalOverflow(page);
+});

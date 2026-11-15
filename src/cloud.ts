@@ -28,6 +28,9 @@ const participation = z.object({ sessionId: z.string(), participantId: z.string(
 const player = z.object({ participantId: z.string(), displayName: z.string(), avatarId: z.string() });
 const rankedPlayer = player.extend({ points: z.number(), correctAnswers: z.number(), correctElapsedMs: z.number(), rank: z.number(),
   previousRank: z.number(), rankChange: z.number() });
+const myResult = z.object({ questionId: z.string(), answered: z.boolean(), correct: z.boolean(),
+  points: z.number(), totalPoints: z.number(), elapsedMs: z.number().nullish() });
+export type MyResult = z.infer<typeof myResult>;
 export const gameStateSchema = z.object({
   sessionId: z.string(), status: z.string(), version: z.number(), title: z.string(), questionId: z.string().nullish(),
   joinCode: z.string().nullish(),
@@ -89,9 +92,8 @@ export const cloud = {
   },
   presentation: (presentationToken: string) => operation(`query Presentation($presentationToken: String!) { getPresentationState(presentationToken: $presentationToken) { ${stateFields} } }`,
     "getPresentationState", { presentationToken }, "identityPool", gameStateSchema),
-  result: (sessionId: string) => operation("query Result($sessionId: ID!) { getMyResult(sessionId: $sessionId) { questionId answered correct points elapsedMs } }",
-    "getMyResult", { sessionId }, "identityPool", z.object({ questionId: z.string(), answered: z.boolean(),
-      correct: z.boolean(), points: z.number(), elapsedMs: z.number().nullish() })),
+  result: (sessionId: string) => operation("query Result($sessionId: ID!) { getMyResult(sessionId: $sessionId) { questionId answered correct points totalPoints elapsedMs } }",
+    "getMyResult", { sessionId }, "identityPool", myResult),
   myAnswer: (sessionId: string) => operation("query MyAnswer($sessionId: ID!) { getMyAnswer(sessionId: $sessionId) { questionId choiceId } }",
     "getMyAnswer", { sessionId }, "identityPool", z.object({ questionId: z.string().nullish(), choiceId: z.string().nullish() })),
   answer: (sessionId: string, questionId: string, choiceId: string) =>

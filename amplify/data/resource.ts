@@ -49,7 +49,7 @@ const schema = a.schema({
   Version: a.customType({ version: a.integer().required() }),
   MyResult: a.customType({
     questionId: a.id().required(), answered: a.boolean().required(), correct: a.boolean().required(),
-    points: a.integer().required(), elapsedMs: a.float(),
+    points: a.integer().required(), totalPoints: a.integer().required(), elapsedMs: a.float(),
   }),
   MyAnswer: a.customType({ questionId: a.id(), choiceId: a.id() }),
   GameEvent: a.customType({ sessionId: a.id().required(), version: a.integer().required() }),
