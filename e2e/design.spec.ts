@@ -51,7 +51,7 @@ async function mockGame(page: Page) {
     contentType: "application/javascript",
     body: `
       export async function configureCloud() { return true; }
-      const participant = { sessionId: "design", participantId: "me", displayName: "Fröhlicher Fuchs", avatarId: "fox", joinedAt: 1 };
+      const participant = { sessionId: "design", participantId: "me", displayName: "Fröhlicher Fuchs", avatarId: "avatar-001", joinedAt: 1 };
       const deadline = Date.now() + 60000;
       function state() {
         const extra = JSON.parse(sessionStorage.getItem("game-state") || "{}");
@@ -142,6 +142,25 @@ function players(count: number) {
     rank: index + 1, previousRank: index + 2, rankChange: 1,
   }));
 }
+
+test("Avatare laden lokale Motive und zeigen bei unbekannten oder defekten Bildern einen stabilen Fallback", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const image = page.locator(".player-identity img.avatar");
+  await expect(image).toHaveAttribute("src", "/assets/avatars/256/avatar-001-fuchs.png");
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(256);
+  await setPhase(page, "FINISHED");
+  await updateGame(page, { leaderboard: players(1) });
+  await expect(page.locator(".leaderboard .avatar-fallback")).toHaveCount(1);
+
+  const brokenImagePage = await page.context().newPage();
+  await mockGame(brokenImagePage);
+  await brokenImagePage.route("**/avatar-001-fuchs.png", (route) => route.abort());
+  await brokenImagePage.goto("/play/design");
+  await expect(brokenImagePage.locator(".player-identity .avatar-fallback")).toBeVisible();
+  await expect(brokenImagePage.locator(".player-identity img.avatar")).toHaveCount(0);
+  await brokenImagePage.close();
+});
 
 for (const width of [320, 390, 768, 1440]) {
   test(`Startseite und Editor passen bei ${width}px ohne horizontales Scrollen`, async ({ page }) => {

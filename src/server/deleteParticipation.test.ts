@@ -12,7 +12,7 @@ const identity = "eu-central-1:guest-1";
 const now = 1_000;
 
 function meta(status: string) {
-  return { status, expiresAt: 10_000, ttl: 10, participantCount: 2, maxParticipants: 100, joinCode: "123456" };
+  return { status, version: 1, expiresAt: 10_000, ttl: 10, participantCount: 2, maxParticipants: 100, joinCode: "123456" };
 }
 
 function stubMembership(status: string, member = true) {

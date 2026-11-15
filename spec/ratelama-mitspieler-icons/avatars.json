@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "avatars": [
+    {
+      "id": "avatar-001",
+      "label": "Fuchs",
+      "path256": "assets/avatars/256/avatar-001-fuchs.png",
+      "path512": "assets/avatars/512/avatar-001-fuchs.png"
+    },
+    {
+      "id": "avatar-002",
+      "label": "Koala",
+      "path256": "assets/avatars/256/avatar-002-koala.png",
+      "path512": "assets/avatars/512/avatar-002-koala.png"
+    },
+    {
+      "id": "avatar-003",
+      "label": "Panda",
+      "path256": "assets/avatars/256/avatar-003-panda.png",
+      "path512": "assets/avatars/512/avatar-003-panda.png"
+    },
+    {
+      "id": "avatar-004",
+      "label": "Eule",
+      "path256": "assets/avatars/256/avatar-004-eule.png",
+      "path512": "assets/avatars/512/avatar-004-eule.png"
+    },
+    {
+      "id": "avatar-005",
+      "label": "Lama",
+      "path256": "assets/avatars/256/avatar-005-lama.png",
+      "path512": "assets/avatars/512/avatar-005-lama.png"
+    },
+    {
+      "id": "avatar-006",
+      "label": "Waschbär",
+      "path256": "assets/avatars/256/avatar-006-waschbaer.png",
+      "path512": "assets/avatars/512/avatar-006-waschbaer.png"
+    },
+    {
+      "id": "avatar-007",
+      "label": "Frosch",
+      "path256": "assets/avatars/256/avatar-007-frosch.png",
+      "path512": "assets/avatars/512/avatar-007-frosch.png"
+    },
+    {
+      "id": "avatar-008",
+      "label": "Pinguin",
+      "path256": "assets/avatars/256/avatar-008-pinguin.png",
+      "path512": "assets/avatars/512/avatar-008-pinguin.png"
+    },
+    {
+      "id": "avatar-009",
+      "label": "Otter",
+      "path256": "assets/avatars/256/avatar-009-otter.png",
+      "path512": "assets/avatars/512/avatar-009-otter.png"
+    },
+    {
+      "id": "avatar-010",
+      "label": "Faultier",
+      "path256": "assets/avatars/256/avatar-010-faultier.png",
+      "path512": "assets/avatars/512/avatar-010-faultier.png"
+    },
+    {
+      "id": "avatar-011",
+      "label": "Roter Panda",
+      "path256": "assets/avatars/256/avatar-011-roter-panda.png",
+      "path512": "assets/avatars/512/avatar-011-roter-panda.png"
+    },
+    {
+      "id": "avatar-012",
+      "label": "Katze",
+      "path256": "assets/avatars/256/avatar-012-katze.png",
+      "path512": "assets/avatars/512/avatar-012-katze.png"
+    },
+    {
+      "id": "avatar-013",
+      "label": "Hund",
+      "path256": "assets/avatars/256/avatar-013-hund.png",
+      "path512": "assets/avatars/512/avatar-013-hund.png"
+    },
+    {
+      "id": "avatar-014",
+      "label": "Hase",
+      "path256": "assets/avatars/256/avatar-014-hase.png",
+      "path512": "assets/avatars/512/avatar-014-hase.png"
+    },
+    {
+      "id": "avatar-015",
+      "label": "Bär",
+      "path256": "assets/avatars/256/avatar-015-baer.png",
+      "path512": "assets/avatars/512/avatar-015-baer.png"
+    },
+    {
+      "id": "avatar-016",
+      "label": "Eisbär",
+      "path256": "assets/avatars/256/avatar-016-eisbaer.png",
+      "path512": "assets/avatars/512/avatar-016-eisbaer.png"
+    },
+    {
+      "id": "avatar-017",
+      "label": "Löwe",
+      "path256": "assets/avatars/256/avatar-017-loewe.png",
+      "path512": "assets/avatars/512/avatar-017-loewe.png"
+    },
+    {
+      "id": "avatar-018",
+      "label": "Tiger",
+      "path256": "assets/avatars/256/avatar-018-tiger.png",
+      "path512": "assets/avatars/512/avatar-018-tiger.png"
+    },
+    {
+      "id": "avatar-019",
+      "label": "Elefant",
+      "path256": "assets/avatars/256/avatar-019-elefant.png",
+      "path512": "assets/avatars/512/avatar-019-elefant.png"
+    },
+    {
+      "id": "avatar-020",
+      "label": "Giraffe",
+      "path256": "assets/avatars/256/avatar-020-giraffe.png",
+      "path512": "assets/avatars/512/avatar-020-giraffe.png"
+    },
+    {
+      "id": "avatar-021",
+      "label": "Zebra",
+      "path256": "assets/avatars/256/avatar-021-zebra.png",
+      "path512": "assets/avatars/512/avatar-021-zebra.png"
+    },
+    {
+      "id": "avatar-022",
+      "label": "Nilpferd",
+      "path256": "assets/avatars/256/avatar-022-nilpferd.png",
+      "path512": "assets/avatars/512/avatar-022-nilpferd.png"
+    },
+    {
+      "id": "avatar-023",
+      "label": "Nashorn",
+      "path256": "assets/avatars/256/avatar-023-nashorn.png",
+      "path512": "assets/avatars/512/avatar-023-nashorn.png"
+    },
+    {
+      "id": "avatar-024",
+      "label": "Krokodil",
+      "path256": "assets/avatars/256/avatar-024-krokodil.png",
+      "path512": "assets/avatars/512/avatar-024-krokodil.png"
+    },
+    {
+      "id": "avatar-025",
+      "label": "Schildkröte",
+      "path256": "assets/avatars/256/avatar-025-schildkroete.png",
+      "path512": "assets/avatars/512/avatar-025-schildkroete.png"
+    },
+    {
+      "id": "avatar-026",
+      "label": "Igel",
+      "path256": "assets/avatars/256/avatar-026-igel.png",
+      "path512": "assets/avatars/512/avatar-026-igel.png"
+    },
+    {
+      "id": "avatar-027",
+      "label": "Eichhörnchen",
+      "path256": "assets/avatars/256/avatar-027-eichhoernchen.png",
+      "path512": "assets/avatars/512/avatar-027-eichhoernchen.png"
+    },
+    {
+      "id": "avatar-028",
+      "label": "Biber",
+      "path256": "assets/avatars/256/avatar-028-biber.png",
+      "path512": "assets/avatars/512/avatar-028-biber.png"
+    },
+    {
+      "id": "avatar-029",
+      "label": "Maus",
+      "path256": "assets/avatars/256/avatar-029-maus.png",
+      "path512": "assets/avatars/512/avatar-029-maus.png"
+    },
+    {
+      "id": "avatar-030",
+      "label": "Hamster",
+      "path256": "assets/avatars/256/avatar-030-hamster.png",
+      "path512": "assets/avatars/512/avatar-030-hamster.png"
+    },
+    {
+      "id": "avatar-031",
+      "label": "Fledermaus",
+      "path256": "assets/avatars/256/avatar-031-fledermaus.png",
+      "path512": "assets/avatars/512/avatar-031-fledermaus.png"
+    },
+    {
+      "id": "avatar-032",
+      "label": "Reh",
+      "path256": "assets/avatars/256/avatar-032-reh.png",
+      "path512": "assets/avatars/512/avatar-032-reh.png"
+    },
+    {
+      "id": "avatar-033",
+      "label": "Elch",
+      "path256": "assets/avatars/256/avatar-033-elch.png",
+      "path512": "assets/avatars/512/avatar-033-elch.png"
+    },
+    {
+      "id": "avatar-034",
+      "label": "Wolf",
+      "path256": "assets/avatars/256/avatar-034-wolf.png",
+      "path512": "assets/avatars/512/avatar-034-wolf.png"
+    },
+    {
+      "id": "avatar-035",
+      "label": "Seeotter",
+      "path256": "assets/avatars/256/avatar-035-fischotter.png",
+      "path512": "assets/avatars/512/avatar-035-fischotter.png"
+    },
+    {
+      "id": "avatar-036",
+      "label": "Robbe",
+      "path256": "assets/avatars/256/avatar-036-robbe.png",
+      "path512": "assets/avatars/512/avatar-036-robbe.png"
+    },
+    {
+      "id": "avatar-037",
+      "label": "Walross",
+      "path256": "assets/avatars/256/avatar-037-walross.png",
+      "path512": "assets/avatars/512/avatar-037-walross.png"
+    },
+    {
+      "id": "avatar-038",
+      "label": "Delfin",
+      "path256": "assets/avatars/256/avatar-038-delfin.png",
+      "path512": "assets/avatars/512/avatar-038-delfin.png"
+    },
+    {
+      "id": "avatar-039",
+      "label": "Wal",
+      "path256": "assets/avatars/256/avatar-039-wal.png",
+      "path512": "assets/avatars/512/avatar-039-wal.png"
+    },
+    {
+      "id": "avatar-040",
+      "label": "Hai",
+      "path256": "assets/avatars/256/avatar-040-hai.png",
+      "path512": "assets/avatars/512/avatar-040-hai.png"
+    },
+    {
+      "id": "avatar-041",
+      "label": "Oktopus",
+      "path256": "assets/avatars/256/avatar-041-oktopus.png",
+      "path512": "assets/avatars/512/avatar-041-oktopus.png"
+    },
+    {
+      "id": "avatar-042",
+      "label": "Krabbe",
+      "path256": "assets/avatars/256/avatar-042-krabbe.png",
+      "path512": "assets/avatars/512/avatar-042-krabbe.png"
+    },
+    {
+      "id": "avatar-043",
+      "label": "Clownfisch",
+      "path256": "assets/avatars/256/avatar-043-clownfisch.png",
+      "path512": "assets/avatars/512/avatar-043-clownfisch.png"
+    },
+    {
+      "id": "avatar-044",
+      "label": "Seepferdchen",
+      "path256": "assets/avatars/256/avatar-044-seepferdchen.png",
+      "path512": "assets/avatars/512/avatar-044-seepferdchen.png"
+    },
+    {
+      "id": "avatar-045",
+      "label": "Papagei",
+      "path256": "assets/avatars/256/avatar-045-papagei.png",
+      "path512": "assets/avatars/512/avatar-045-papagei.png"
+    },
+    {
+      "id": "avatar-046",
+      "label": "Tukan",
+      "path256": "assets/avatars/256/avatar-046-tukan.png",
+      "path512": "assets/avatars/512/avatar-046-tukan.png"
+    },
+    {
+      "id": "avatar-047",
+      "label": "Flamingo",
+      "path256": "assets/avatars/256/avatar-047-flamingo.png",
+      "path512": "assets/avatars/512/avatar-047-flamingo.png"
+    },
+    {
+      "id": "avatar-048",
+      "label": "Pfau",
+      "path256": "assets/avatars/256/avatar-048-pfau.png",
+      "path512": "assets/avatars/512/avatar-048-pfau.png"
+    },
+    {
+      "id": "avatar-049",
+      "label": "Huhn",
+      "path256": "assets/avatars/256/avatar-049-huhn.png",
+      "path512": "assets/avatars/512/avatar-049-huhn.png"
+    },
+    {
+      "id": "avatar-050",
+      "label": "Ente",
+      "path256": "assets/avatars/256/avatar-050-ente.png",
+      "path512": "assets/avatars/512/avatar-050-ente.png"
+    }
+  ]
+}

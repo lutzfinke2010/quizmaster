@@ -16,7 +16,7 @@
 .game-layout-presentation .header { padding-inline: 32px; }
 .game-layout-player footer { font-size: .72rem; }
 .game-view { min-width: 0; background: var(--game-surface); border: 1px solid var(--line); border-radius: 24px; overflow-wrap: anywhere; }
-.game-view .avatar { width: 42px; height: 42px; flex: none; }
+.game-view .avatar { width: 42px; height: 42px; flex: none; aspect-ratio: 1; object-fit: contain; }
 .game-view .game-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 18px 28px; border-bottom: 1px solid var(--line); }
 .game-title { margin: 0; font-size: 1rem; color: var(--ink); font-weight: 650; }
 .game-view .phase-badge { background: var(--game-soft); padding: 6px 10px; border-radius: 8px; font-size: .75rem; color: var(--teal); }
@@ -52,6 +52,7 @@
 .player-identity > div { min-width: 0; }
 .player-identity strong { display: block; font-size: .9rem; font-weight: 650; }
 .player-identity span { display: block; font-size: .75rem; color: var(--muted); margin-top: 3px; }
+.player-identity-result .avatar { width: 60px; height: 60px; }
 .game-personal { background: transparent; border: 0; border-radius: 0; }
 .game-personal .game-heading { padding: 0 0 12px; }
 .game-personal .game-title { font-size: .8rem; }
@@ -92,7 +93,7 @@
 .game-view .podium > .podium-player { flex: 0 1 30%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: center; }
 .podium-player > strong { font-size: clamp(.9rem, 1.8vw, 1.4rem); font-weight: 700; }
 .podium-player > span { font-size: .85rem; color: var(--muted); }
-.game-view .podium .avatar { width: 58px; height: 58px; }
+.game-view .podium .avatar { width: 80px; height: 80px; }
 .pedestal { display: grid; place-items: center; height: 85px; width: 100%; border-radius: 16px 16px 0 0; background: var(--game-lilac); font-size: 2.5rem; font-weight: 850; margin-top: 8px; }
 .podium-rank-1 .pedestal { height: 125px; background: var(--lime); }
 .podium-rank-3 .pedestal { height: 62px; background: var(--game-peach); }
@@ -114,7 +115,7 @@
 .game-view .players { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .game-view .player-tag { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 12px 6px 6px; background: var(--game-soft); border: 1px solid var(--line); border-radius: 30px; font-size: .85rem; font-weight: 500; animation: game-enter 200ms ease-out; }
 .game-view .player-tag span { min-width: 0; }
-.game-view .player-tag .avatar { width: 32px; height: 32px; }
+.game-view .player-tag .avatar { width: 44px; height: 44px; }
 .more-players { align-self: center; font-size: .85rem; color: var(--muted); padding: 8px; }
 .lobby-count { margin: 20px 0 0; color: var(--ink); }
 .countdown-phase { text-align: center; padding-block: 30px; }
@@ -131,9 +132,10 @@
 .game-layout-admin .answer-tile { font-size: 1.1rem; }
 .game-presentation .game-phase { padding: 24px 48px; }
 .game-presentation .ranking-phase { max-width: 1100px; margin-inline: auto; }
-.game-presentation .ranking-phase h1 { margin: 10px 0 20px; font-size: clamp(2rem, 3vw, 3rem); }
-.game-presentation .podium { margin: 20px 0; }
-.game-presentation .podium .avatar { width: 46px; height: 46px; }
+.game-presentation .ranking-phase h1 { margin: 10px 0 16px; font-size: clamp(2rem, 3vw, 3rem); }
+.game-presentation .ranking-intro { margin-bottom: 12px; }
+.game-presentation .podium { margin: 6px 0 8px; }
+.game-presentation .podium .avatar { width: 80px; height: 80px; }
 .game-presentation .pedestal { height: 70px; }
 .game-presentation .podium-rank-1 .pedestal { height: 100px; }
 .game-presentation .podium-rank-3 .pedestal { height: 50px; }
@@ -161,7 +163,7 @@
   .game-view .podium { gap: 8px; }
   .game-view .podium-player { flex-basis: 33%; }
   .podium-player > span { font-size: .7rem; }
-  .game-view .podium .avatar { width: 44px; height: 44px; }
+  .game-view .podium .avatar { width: 72px; height: 72px; }
   .game-view .game-footnote { padding: 12px 18px; }
   .game-personal .game-footnote { padding-inline: 0; }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, CheckCircle2, Clock3, Sparkles, Trophy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import avatars from "../domain/avatars.json";
 import type { GameState, MyResult, Participation } from "../cloud";
 import { AnswerCelebration } from "./AnswerCelebration";
 import "./game.css";
@@ -11,17 +12,24 @@ export const phaseLabels: Record<string, string> = {
   LEADERBOARD: "Der Zwischenstand", FINISHED: "Geschafft!", CANCELLED: "Runde abgebrochen",
 };
 
+const avatarById = new Map(avatars.avatars.map((avatar) => [avatar.id, avatar]));
 type RankedPlayer = GameState["leaderboard"][number];
 export type PersonalStanding = { questionIndex: number; player: RankedPlayer };
 const number = (value: number) => value.toLocaleString("de-DE");
 
 export function Avatar({ avatarId }: { avatarId: string }) {
-  const hues = ["#88edff", "#ff9fca", "#b7fa63", "#ffd77a", "#c5a6ff"];
-  const index = [...avatarId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % hues.length;
-  return <svg className="avatar" viewBox="0 0 64 64" aria-hidden="true">
-    <circle cx="32" cy="32" r="30" fill={hues[index]} /><circle cx="22" cy="27" r="4" fill="#211a40" />
-    <circle cx="42" cy="27" r="4" fill="#211a40" /><path d="M22 40 Q32 50 42 40" fill="none" stroke="#211a40" strokeWidth="4" strokeLinecap="round" />
-  </svg>;
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const avatar = avatarById.get(avatarId);
+  if (!avatar || failedId === avatarId) {
+    return <svg className="avatar avatar-fallback" viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="3" y="3" width="58" height="58" rx="18" fill="#eaf0df" stroke="#9cad9f" strokeWidth="2" />
+      <path d="M22 28h.01M42 28h.01M23 41c5 5 13 5 18 0" fill="none" stroke="#31594e" strokeWidth="4" strokeLinecap="round" />
+    </svg>;
+  }
+  const path256 = `${import.meta.env.BASE_URL}${avatar.path256}`;
+  const path512 = `${import.meta.env.BASE_URL}${avatar.path512}`;
+  return <img className="avatar" src={path256} srcSet={`${path256} 1x, ${path512} 2x`} alt="" aria-hidden="true"
+    onError={() => setFailedId(avatarId)} />;
 }
 
 export function Timer({ deadline, offset }: { deadline: number; offset: number }) {
@@ -184,7 +192,7 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
       <p className="game-title">{state.title}</p>
       <span className="phase-badge" role="status">{phaseLabels[phase] ?? phase}</span>
     </header>
-    {personal && <div className="player-identity">
+    {personal && <div className={`player-identity${["REVEAL", "LEADERBOARD", "FINISHED"].includes(phase) ? " player-identity-result" : ""}`}>
       {participant ? <><Avatar avatarId={participant.avatarId} /><div><strong>{participant.displayName}</strong>
         <span>{score != null ? `${number(score)} Punkte` : state.questionIndex < 1 ? "Noch keine Wertung" : "Wertung nach der Auflösung"}
           {rank != null && ` · ${currentPlayer ? "Platz" : "Zuletzt Platz"} ${rank}`}</span></div></> :

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   BatchWriteCommand, GetCommand, QueryCommand, TransactGetCommand, TransactWriteCommand, type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
+import avatars from "../domain/avatars.json";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 
 const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -11,6 +12,7 @@ const codeSchema = z.string().regex(/^\d{6}$/);
 const metaSchema = z.object({
   status: z.string(), expiresAt: z.number().int(), ttl: z.number().int(),
   participantCount: z.number().int().min(0), maxParticipants: z.number().int().min(1), joinCode: codeSchema,
+  version: z.number().int(),
 });
 const identityRecordSchema = z.object({ participantId: sessionIdSchema });
 const participantSchema = z.object({
@@ -18,16 +20,13 @@ const participantSchema = z.object({
 });
 export type Participation = z.infer<typeof participantSchema> & { sessionId: string };
 
-const adjectives = ["Flotter", "Mutiger", "Neugieriger", "Fröhlicher", "Cleverer", "Wilder",
-  "Flinker", "Witziger", "Tapferer", "Pfiffiger", "Muntrer", "Funkelnder"];
-const animals = [
-  { name: "Otter", avatarId: "otter" }, { name: "Fuchs", avatarId: "fox" },
-  { name: "Panda", avatarId: "panda" }, { name: "Pinguin", avatarId: "penguin" },
-  { name: "Dachs", avatarId: "badger" }, { name: "Koala", avatarId: "koala" },
-  { name: "Igel", avatarId: "hedgehog" }, { name: "Tiger", avatarId: "tiger" },
-  { name: "Kater", avatarId: "cat" }, { name: "Hase", avatarId: "rabbit" },
-  { name: "Löwe", avatarId: "lion" }, { name: "Biber", avatarId: "beaver" },
-];
+const adjectiveStems = ["Flott", "Mutig", "Neugierig", "Fröhlich", "Clever", "Wild",
+  "Flink", "Witzig", "Tapfer", "Pfiffig", "Munter", "Funkelnd"];
+const feminineLabels = new Set(["Eule", "Giraffe", "Katze", "Schildkröte", "Maus", "Fledermaus", "Robbe", "Krabbe", "Ente"]);
+const neuterLabels = new Set(["Lama", "Faultier", "Nilpferd", "Krokodil", "Walross", "Eichhörnchen",
+  "Reh", "Zebra", "Seepferdchen", "Huhn"]);
+const avatarIds = avatars.avatars.map(({ id }) => id);
+const maxJoinAttempts = 1000;
 
 function assertTime(now: number): void {
   if (!Number.isSafeInteger(now) || now < 0) throw new Error("Ungültige Serverzeit.");
@@ -66,6 +65,49 @@ async function readMembership(
   return { meta, participant: { sessionId, ...participant } };
 }
 
+async function avatarUsage(
+  client: DynamoDBDocumentClient, tableName: string, sessionId: string,
+): Promise<Map<string, number>> {
+  const pk = `SESSION#${sessionId}`;
+  const counts = new Map(avatarIds.map((id) => [id, 0]));
+  for (const prefix of ["PARTICIPANT#", "AVATAR#"]) {
+    let cursor: Record<string, unknown> | undefined;
+    do {
+      const page = await client.send(new QueryCommand({
+        TableName: tableName, ConsistentRead: true,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues: { ":pk": pk, ":prefix": prefix },
+        ExclusiveStartKey: cursor,
+      }));
+      for (const item of page.Items ?? []) {
+        if (prefix === "PARTICIPANT#" && item.removed !== true && typeof item.avatarId === "string" &&
+            counts.has(item.avatarId)) {
+          counts.set(item.avatarId, (counts.get(item.avatarId) ?? 0) + 1);
+        } else if (prefix === "AVATAR#") {
+          const id = String(item.sk).slice("AVATAR#".length);
+          if (counts.has(id)) counts.set(id, Math.max(1, counts.get(id) ?? 0));
+        }
+      }
+      cursor = page.LastEvaluatedKey;
+    } while (cursor);
+  }
+  return counts;
+}
+
+function chooseAvatar(counts: Map<string, number>): { id: string; reserve: boolean } {
+  const unused = avatarIds.filter((id) => (counts.get(id) ?? 0) === 0);
+  const candidates = unused.length ? unused : avatarIds.filter((id) => {
+    const minimum = Math.min(...avatarIds.map((candidate) => counts.get(candidate) ?? 0));
+    return (counts.get(id) ?? 0) === minimum;
+  });
+  return { id: candidates[randomInt(candidates.length)], reserve: unused.length > 0 };
+}
+
+function displayNameFor(label: string): string {
+  const ending = feminineLabels.has(label) ? "e" : neuterLabels.has(label) ? "es" : "er";
+  return `${adjectiveStems[randomInt(adjectiveStems.length)]}${ending} ${label}`;
+}
+
 /** `identityId` must be derived from an authenticated Cognito identity, never a client argument. */
 export async function getMyParticipation(
   client: DynamoDBDocumentClient, tableName: string, rawSessionId: unknown, identityId: string, now: number,
@@ -90,19 +132,22 @@ export async function joinSession(
   if (!parsed.success || parsed.data.expiresAt <= now) throw new Error("Der Spielcode ist ungültig oder abgelaufen.");
   const sessionId = parsed.data.sessionId;
   const pk = `SESSION#${sessionId}`;
-  for (let attempt = 0; attempt < 30; attempt++) {
+  for (let attempt = 0; attempt < maxJoinAttempts; attempt++) {
     const membership = await readMembership(client, tableName, sessionId, identityId, now);
     if (membership.meta.joinCode !== code) throw new Error("Der Spielcode ist ungültig oder abgelaufen.");
     if (membership.participant) return membership.participant;
     if (membership.meta.status !== "LOBBY") throw new Error("Das Spiel hat bereits begonnen.");
     if (membership.meta.participantCount >= membership.meta.maxParticipants) throw new Error("Die Sitzung ist voll.");
-    const animal = animals[randomInt(animals.length)];
-    const baseName = `${adjectives[randomInt(adjectives.length)]} ${animal.name}`;
+    const counts = await avatarUsage(client, tableName, sessionId);
+    const avatar = chooseAvatar(counts);
+    const catalogEntry = avatars.avatars.find((entry) => entry.id === avatar.id);
+    if (!catalogEntry) throw new Error("Avatar fehlt im lokalen Katalog.");
+    const baseName = displayNameFor(catalogEntry.label);
     const displayName = attempt === 0 ? baseName : `${baseName} ${randomInt(10, 1000)}`;
     const participantId = randomUUID();
     const ttl = membership.meta.ttl;
     try {
-      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+      const writes = [
         { ConditionCheck: {
           TableName: tableName, Key: codeKey,
           ConditionExpression: "sessionId = :session AND expiresAt > :now",
@@ -111,9 +156,12 @@ export async function joinSession(
         { Update: {
           TableName: tableName, Key: { pk, sk: "META" },
           UpdateExpression: "ADD participantCount :one, #version :one",
-          ConditionExpression: "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants",
+          ConditionExpression: avatar.reserve
+            ? "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants"
+            : "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants AND #version = :version",
           ExpressionAttributeNames: { "#status": "status", "#version": "version" },
-          ExpressionAttributeValues: { ":one": 1, ":lobby": "LOBBY", ":code": code, ":now": now },
+          ExpressionAttributeValues: { ":one": 1, ":lobby": "LOBBY", ":code": code, ":now": now,
+            ...(avatar.reserve ? {} : { ":version": membership.meta.version }) },
         } },
         { Put: {
           TableName: tableName, Item: { pk, sk: `IDENTITY#${identityId}`, participantId, ttl },
@@ -122,15 +170,22 @@ export async function joinSession(
         { Put: {
           TableName: tableName,
           Item: { pk, sk: `PARTICIPANT#${participantId}`, participantId, displayName,
-            avatarId: animal.avatarId, joinedAt: now, totalPoints: 0, correctAnswers: 0, correctElapsedMs: 0, ttl },
+            avatarId: avatar.id, joinedAt: now, totalPoints: 0, correctAnswers: 0, correctElapsedMs: 0, ttl },
           ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
         } },
         { Put: {
           TableName: tableName, Item: { pk, sk: `NAME#${displayName}`, participantId, ttl },
           ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
         } },
+      ];
+      if (avatar.reserve) writes.push({ Put: {
+        TableName: tableName, Item: { pk, sk: `AVATAR#${avatar.id}`, participantId, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      } });
+      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+        ...writes,
       ] })));
-      return { sessionId, participantId, displayName, avatarId: animal.avatarId, joinedAt: now };
+      return { sessionId, participantId, displayName, avatarId: avatar.id, joinedAt: now };
     } catch (error) {
       if (!isConditionalFailure(error)) throw error;
       const current = await readMembership(client, tableName, sessionId, identityId, now);
@@ -140,9 +195,11 @@ export async function joinSession(
       const freshCode = await client.send(new GetCommand({ TableName: tableName, Key: codeKey, ConsistentRead: true }));
       if (freshCode.Item?.sessionId !== sessionId || typeof freshCode.Item.expiresAt !== "number" ||
           freshCode.Item.expiresAt <= now) throw new Error("Der Spielcode ist ungültig oder abgelaufen.");
+      if (!avatar.reserve) await new Promise<void>((resolve) =>
+        setTimeout(resolve, randomInt(Math.min(50, attempt + 2))));
     }
   }
-  throw new Error("Es konnte kein eindeutiger Teilnehmername vergeben werden.");
+  throw new Error("Es konnte kein Avatar und eindeutiger Teilnehmername vergeben werden.");
 }
 
 const gonePatterns = ["Sitzung nicht gefunden oder abgelaufen.", "Teilnahme konnte nicht wiederhergestellt werden."];
