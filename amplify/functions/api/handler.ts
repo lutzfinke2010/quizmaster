@@ -3,7 +3,7 @@ import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 import { QuizStore } from "../../../src/server/quizStore";
 import { createSession } from "../../../src/server/createSession";
-import { joinSession, getMyParticipation } from "../../../src/server/participation";
+import { joinSession, getMyParticipation, deleteMyParticipation } from "../../../src/server/participation";
 import { DynamoAnswerStore, submitAnswer } from "../../../src/server/submitAnswer";
 import { getAdminGameState, getGameState, getMyAnswer, getMyResult, getPresentationState } from "../../../src/server/gameState";
 import { startQuestion } from "../../../src/server/startQuestion";
@@ -91,6 +91,11 @@ export async function handler(raw: unknown): Promise<unknown> {
       return joinSession(client, tableName, args.joinCode, identityId, now);
     }
     case "getMyParticipation": return getMyParticipation(client, tableName, args.sessionId, guest(event.identity), now);
+    case "deleteMyParticipation": {
+      const identityId = guest(event.identity);
+      await enforceRateLimit(client, tableName, identityId, "join", now);
+      return deleteMyParticipation(client, tableName, args.sessionId, identityId, now);
+    }
     case "submitAnswer": {
       const identityId = guest(event.identity);
       await enforceRateLimit(client, tableName, identityId, "answer", now);

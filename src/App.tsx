@@ -8,6 +8,7 @@ import type { Quiz } from "./domain/quiz";
 import { CloudApp } from "./CloudApp";
 import { Layout as SharedLayout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
+import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 
 function Layout({ children }: { children: React.ReactNode }) {
   return <SharedLayout localMode>{children}</SharedLayout>;
@@ -151,6 +152,8 @@ export function App({ cloudConfigured = false }: { cloudConfigured?: boolean }) 
     <Route path="/play/:sessionId" element={<Unavailable />} />
     <Route path="/present/:presentationToken" element={<Unavailable />} />
     <Route path="/admin/sessions/:sessionId" element={<Unavailable />} />
+    <Route path="/impressum" element={<Layout><ImpressumPage /></Layout>} />
+    <Route path="/datenschutz" element={<Layout><PrivacyPolicyPage /></Layout>} />
     <Route path="*" element={<NotFound />} />
   </Routes>;
 }

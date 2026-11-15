@@ -37,6 +37,10 @@ export function Layout({ children, localMode = false, gameMode }: {
         <PrivacyFacts localMode={localMode} />
       </details>
       <span className="footer-tagline">Gemeinsam spielen, gemeinsam staunen.</span>
+      <div className="footer-legal" role="group" aria-label="Rechtliches">
+        <Link to="/impressum">Impressum</Link>
+        <Link to="/datenschutz">Datenschutzerklärung</Link>
+      </div>
     </footer>
   </div>;
 }

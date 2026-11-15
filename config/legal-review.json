@@ -1,0 +1,16 @@
+{
+  "_hinweis": "Betreiber-Bestätigungen. Nur auf true setzen, wenn der Punkt tatsächlich geprüft wurde. Diese Datei wird nicht ins Frontend gebündelt.",
+  "operatorConfirmedControllerIsPrivatePerson": true,
+  "operatorConfirmedNoEmployerInvolvement": true,
+  "operatorConfirmedNoCommercialUse": true,
+  "operatorConfirmedAwsDpaConcluded": false,
+  "operatorConfirmedAwsRegionsAndSubprocessorsReviewed": false,
+  "operatorConfirmedRetentionPeriod": true,
+  "operatorConfirmedLogRetentionDeployed": false,
+  "operatorConfirmedBackupsAndPitrStatus": false,
+  "operatorConfirmedSecurityHeadersDeployed": false,
+  "operatorConfirmedSpaRewriteConfigured": false,
+  "operatorConfirmedBackendSchemaDeployed": false,
+  "operatorConfirmedDataSubjectRequestProcess": true,
+  "operatorConfirmedLegalReview": false
+}

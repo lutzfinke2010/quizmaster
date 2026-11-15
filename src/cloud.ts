@@ -1,7 +1,11 @@
 import { Amplify } from "aws-amplify";
 import { generateClient, type GraphQLQuery, type GraphQLSubscription } from "aws-amplify/api";
+import {
+  CognitoAWSCredentialsAndIdentityIdProvider, DefaultIdentityIdStore, cognitoUserPoolsTokenProvider,
+} from "aws-amplify/auth/cognito";
 import { z } from "zod";
 import { quizSchema } from "./domain/quiz";
+import { createExpiringIdentityStorage } from "./guestIdentityStorage";
 
 export const client = generateClient();
 const outputsSchema = z.object({
@@ -16,7 +20,16 @@ export async function configureCloud(): Promise<boolean> {
   const response = await fetch("/amplify_outputs.json", { cache: "no-store" });
   if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return false;
   const outputs = outputsSchema.parse(await response.json());
-  Amplify.configure(outputs);
+  // Eigene Provider, damit die Gast-Kennung nach 24 Stunden verfällt; dann muss der Token-Provider manuell konfiguriert werden.
+  Amplify.configure(outputs, {
+    Auth: {
+      tokenProvider: cognitoUserPoolsTokenProvider,
+      credentialsProvider: new CognitoAWSCredentialsAndIdentityIdProvider(
+        new DefaultIdentityIdStore(createExpiringIdentityStorage())),
+    },
+  });
+  const auth = Amplify.getConfig().Auth;
+  if (auth) cognitoUserPoolsTokenProvider.setAuthConfig(auth);
   return true;
 }
 
@@ -83,6 +96,8 @@ export const cloud = {
     "listSessionQuestions", { sessionId }, "userPool", z.array(z.object({ questionId: z.string(), index: z.number(), text: z.string() }))),
   join: (joinCode: string) => operation(`mutation Join($joinCode: String!) { joinSession(joinCode: $joinCode) { ${participationFields} } }`,
     "joinSession", { joinCode }, "identityPool", participation),
+  deleteMyParticipation: (sessionId: string) => operation("mutation DeleteMyParticipation($sessionId: ID!) { deleteMyParticipation(sessionId: $sessionId) }",
+    "deleteMyParticipation", { sessionId }, "identityPool", z.boolean()),
   myParticipation: (sessionId: string) => operation(`query Participation($sessionId: ID!) { getMyParticipation(sessionId: $sessionId) { ${participationFields} } }`,
     "getMyParticipation", { sessionId }, "identityPool", participation),
   gameState: (sessionId: string, mode: "admin" | "guest") => {

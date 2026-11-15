@@ -11,7 +11,8 @@
     "test:aws": "QUIZRUSH_AWS_TEST=1 vitest run src/server/submitAnswer.aws.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "sandbox": "ampx sandbox"
+    "sandbox": "ampx sandbox",
+    "legal:check": "node scripts/legal-check.mjs"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "^5.2.0",

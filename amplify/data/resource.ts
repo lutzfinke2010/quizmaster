@@ -91,6 +91,8 @@ const schema = a.schema({
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
   getMyParticipation: a.query().arguments({ sessionId: a.id().required() }).returns(a.ref("Participation"))
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
+  deleteMyParticipation: a.mutation().arguments({ sessionId: a.id().required() }).returns(a.boolean().required())
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
   submitAnswer: a.mutation().arguments({ sessionId: a.id().required(), questionId: a.id().required(), choiceId: a.id().required() })
     .returns(a.ref("AnswerReceipt")).authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
   getGameState: a.query().arguments({ sessionId: a.id().required() }).returns(a.ref("GameState"))

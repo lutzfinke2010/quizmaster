@@ -594,7 +594,7 @@ test("Datenhinweis ist prominent eingebettet, wahrheitsgemäß und per Tastatur 
   await expect(section).toBeFocused();
   await expect(section).toBeInViewport();
   await expect(section).toContainText("Antwortzeiten und Punkte");
-  await expect(section).toContainText("automatisch gelöscht");
+  await expect(section).toContainText("Erstellung der Sitzung gelöscht");
   const more = section.locator("summary");
   await more.focus();
   await page.keyboard.press("Enter");

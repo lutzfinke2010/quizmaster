@@ -1,6 +1,8 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { GetCommand, TransactGetCommand, TransactWriteCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import {
+  BatchWriteCommand, GetCommand, QueryCommand, TransactGetCommand, TransactWriteCommand, type DynamoDBDocumentClient,
+} from "@aws-sdk/lib-dynamodb";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 
 const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -141,4 +143,99 @@ export async function joinSession(
     }
   }
   throw new Error("Es konnte kein eindeutiger Teilnehmername vergeben werden.");
+}
+
+const gonePatterns = ["Sitzung nicht gefunden oder abgelaufen.", "Teilnahme konnte nicht wiederhergestellt werden."];
+const deletableStatuses = ["LOBBY", "REVEAL", "LEADERBOARD", "FINISHED", "CANCELLED"];
+
+async function removeParticipantRecords(
+  client: DynamoDBDocumentClient, tableName: string, sessionId: string, participantId: string,
+): Promise<void> {
+  const keys: Array<{ pk: string; sk: string }> = [];
+  for (const prefix of ["ANSWER#", "RESULT#"]) {
+    let cursor: Record<string, unknown> | undefined;
+    do {
+      const page = await client.send(new QueryCommand({
+        TableName: tableName, ConsistentRead: true,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ProjectionExpression: "pk, sk",
+        ExpressionAttributeValues: { ":pk": `SESSION#${sessionId}`, ":prefix": prefix },
+        ExclusiveStartKey: cursor,
+      }));
+      for (const item of page.Items ?? []) {
+        if (String(item.sk).endsWith(`#${participantId}`)) keys.push({ pk: String(item.pk), sk: String(item.sk) });
+      }
+      cursor = page.LastEvaluatedKey;
+    } while (cursor);
+  }
+  for (let index = 0; index < keys.length; index += 25) {
+    let pending = keys.slice(index, index + 25).map((Key) => ({ DeleteRequest: { Key } }));
+    for (let attempt = 0; pending.length > 0 && attempt < 5; attempt++) {
+      const result = await client.send(new BatchWriteCommand({ RequestItems: { [tableName]: pending } }));
+      pending = (result.UnprocessedItems?.[tableName] ?? []) as typeof pending;
+    }
+  }
+}
+
+/**
+ * Löscht die eigene Teilnahme: Zugriff und Namensreservierung werden entfernt, der Teilnehmer-Datensatz wird zu einem
+ * personenlosen Platzhalter (Auswertungen laufender Fragen greifen darauf zu), Antworten und Ergebnisse werden gelöscht.
+ * Wiederholbar: ohne vorhandene Teilnahme ist das Ergebnis ebenfalls `true`.
+ */
+export async function deleteMyParticipation(
+  client: DynamoDBDocumentClient, tableName: string, rawSessionId: unknown, identityId: string, now: number,
+): Promise<boolean> {
+  const sessionId = sessionIdSchema.parse(rawSessionId);
+  identitySchema.parse(identityId);
+  assertTime(now);
+  const pk = `SESSION#${sessionId}`;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let membership;
+    try {
+      membership = await readMembership(client, tableName, sessionId, identityId, now);
+    } catch (error) {
+      if (error instanceof Error && gonePatterns.includes(error.message)) return true;
+      throw error;
+    }
+    const participant = membership.participant;
+    if (!participant) return true;
+    if (!deletableStatuses.includes(membership.meta.status)) {
+      throw new Error("Während einer laufenden Frage kann die Teilnahme nicht gelöscht werden. Bitte nach der Auflösung erneut versuchen.");
+    }
+    try {
+      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+        { Update: {
+          TableName: tableName, Key: { pk, sk: "META" },
+          UpdateExpression: "ADD participantCount :minusOne, #version :one",
+          ConditionExpression: "#status IN (:s1, :s2, :s3, :s4, :s5) AND expiresAt > :now AND participantCount > :zero",
+          ExpressionAttributeNames: { "#status": "status", "#version": "version" },
+          ExpressionAttributeValues: { ":minusOne": -1, ":one": 1, ":zero": 0, ":now": now,
+            ":s1": deletableStatuses[0], ":s2": deletableStatuses[1], ":s3": deletableStatuses[2],
+            ":s4": deletableStatuses[3], ":s5": deletableStatuses[4] },
+        } },
+        { Delete: {
+          TableName: tableName, Key: { pk, sk: `IDENTITY#${identityId}` },
+          ConditionExpression: "participantId = :participant", ExpressionAttributeValues: { ":participant": participant.participantId },
+        } },
+        { Delete: { TableName: tableName, Key: { pk, sk: `NAME#${participant.displayName}` } } },
+        { Update: {
+          TableName: tableName, Key: { pk, sk: `PARTICIPANT#${participant.participantId}` },
+          UpdateExpression: "SET removed = :true, displayName = :empty, avatarId = :empty, totalPoints = :zero, correctAnswers = :zero, correctElapsedMs = :zero",
+          ConditionExpression: "attribute_exists(pk)",
+          ExpressionAttributeValues: { ":true": true, ":empty": "", ":zero": 0 },
+        } },
+      ] })));
+    } catch (error) {
+      if (!isConditionalFailure(error)) throw error;
+      continue;
+    }
+    try {
+      await removeParticipantRecords(client, tableName, sessionId, participant.participantId);
+    } catch (error) {
+      console.error("Aufräumen der Teilnehmerdaten unvollständig; die automatische Löschung greift.",
+        error instanceof Error ? error.name : "UnknownError");
+    }
+    return true;
+  }
+  throw new Error("Die Teilnahme konnte nicht gelöscht werden. Bitte erneut versuchen.");
 }

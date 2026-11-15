@@ -1,12 +1,16 @@
+import { Link } from "react-router-dom";
 import { Check, Database, HardDrive, Hourglass, ShieldCheck, Trash2, UserRoundX } from "lucide-react";
+import { legal } from "../config/legal";
 
 type Fact = { label: string; text: string };
 
 const cloudFacts: Fact[] = [
   { label: "Ohne Klarnamen", text: "Zum Mitspielen brauchst du kein Konto, keinen Namen und keine E-Mail-Adresse. Spielname und Avatar werden automatisch vergeben." },
   { label: "Für die Runde gespeichert", text: "Eine technische Teilnahme-Kennung, Spielname, Avatar, Antworten, Antwortzeiten und Punkte werden gespeichert." },
-  { label: "Aufbewahrung", text: "Sitzungsdaten haben eine vom Betreiber festgelegte Aufbewahrungsfrist. Die automatische Löschung kann danach zeitversetzt erfolgen." },
-  { label: "Technik", text: "QuizRush nutzt AWS für den Live-Betrieb. Technische Identitätsdaten können zusätzlich im Browser gespeichert werden, damit deine Teilnahme wiedergefunden wird." },
+  { label: "Aufbewahrung", text: `Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
+  { label: "Sichtbar für die Runde", text: "Spielname, Avatar, Punkte und Platzierung sind für die anderen Teilnehmenden, den Quizmaster und die Präsentationsansicht sichtbar." },
+  { label: "Selbst löschen", text: "Im Spiel kannst du deine Teilnahme selbst löschen, sobald keine Frage läuft. Antworten und Ergebnisse werden dabei entfernt." },
+  { label: "Technik", text: "QuizRush nutzt AWS für den Live-Betrieb. Eine anonyme technische Kennung wird höchstens 24 Stunden im Browser gespeichert, damit deine Teilnahme wiedergefunden wird." },
   { label: "Quizmaster-Konten", text: "Für ein Konto wird eine E-Mail-Adresse gespeichert. Quizvorlagen bleiben bis zur Löschung gespeichert." },
   { label: "Keine Tracker", text: "QuizRush lädt keine externen Tracker, Schriftarten oder Avatarbilder." },
 ];
@@ -53,7 +57,7 @@ export function PrivacySection({ localMode = false }: { localMode?: boolean }) {
   ] : [
     { icon: UserRoundX, title: "Brauchst du nicht", text: "Konto, Klarnamen, E-Mail-Adresse oder Passwort. Spielname und Avatar würfeln wir dir zu." },
     { icon: Database, title: "Speichern wir für die Runde", text: "Technische Kennung, Spielname, Avatar, deine Antworten, Antwortzeiten und Punkte." },
-    { icon: Hourglass, title: "Bleibt nicht für immer", text: "Spieldaten werden nach einer festgelegten Frist automatisch gelöscht – manchmal etwas zeitversetzt." },
+    { icon: Hourglass, title: "Bleibt nicht für immer", text: `Spieldaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht – technisch manchmal etwas zeitversetzt.` },
   ];
   return <section id="datenschutz" className="privacy-section" aria-labelledby="privacy-heading" tabIndex={-1}>
     <div className="privacy-intro">
@@ -82,7 +86,8 @@ export function PrivacyNote() {
   return <div className="privacy-note">
     <ShieldCheck size={22} aria-hidden="true" />
     <div>
-      <p><strong>Ohne Name und E-Mail dabei.</strong> Spielname und Avatar werden automatisch vergeben.</p>
+      <p><strong>Ohne Name und E-Mail dabei.</strong> Spielname und Avatar werden automatisch vergeben. Beides sowie deine Punkte
+        und Platzierung sind für die Spielrunde sichtbar. <Link to="/datenschutz">Datenschutzerklärung</Link></p>
       <details className="privacy-disclosure">
         <summary>Was wird gespeichert?</summary>
         <PrivacyFacts skip={1} />

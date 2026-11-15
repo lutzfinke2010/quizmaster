@@ -5,6 +5,7 @@ export const timerStep = defineFunction({
   entry: "./step.ts",
   resourceGroupName: "game",
   timeoutSeconds: 120,
+  logging: { retention: "2 weeks" },
 });
 
 export const timerDispatch = defineFunction({
@@ -12,6 +13,7 @@ export const timerDispatch = defineFunction({
   entry: "./dispatch.ts",
   resourceGroupName: "game",
   timeoutSeconds: 120,
+  logging: { retention: "2 weeks" },
 });
 
 export const timerSweep = defineFunction({
@@ -19,5 +21,6 @@ export const timerSweep = defineFunction({
   entry: "./sweep.ts",
   resourceGroupName: "game",
   timeoutSeconds: 50,
+  logging: { retention: "2 weeks" },
   schedule: "every 1m",
 });

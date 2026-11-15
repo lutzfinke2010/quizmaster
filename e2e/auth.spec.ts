@@ -32,6 +32,11 @@ test.beforeEach(async ({ page }) => {
         const access = localStorage.getItem("test-access");
         return access ? { tokens: { idToken: { payload: access === "authorized" ? { "cognito:groups": ["Quizmasters"] } : {} } } } : {};
       }
+      export async function getCurrentUser() {
+        record("currentUser");
+        if (!localStorage.getItem("test-access")) fail("UserUnAuthenticatedException");
+        return { userId: "test" };
+      }
       export async function signUp(input) {
         record("signUp", { username: input.username, attributes: input.options.userAttributes });
         return { nextStep: { signUpStep: "CONFIRM_SIGN_UP" } };
@@ -170,4 +175,12 @@ test("Anmeldung und Registrierung bleiben auf kleinen Handys vollständig bedien
   await page.getByRole("button", { name: "Konto anlegen", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E-Mail-Adresse bestätigen" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+test("Das Öffnen des Admin-Bereichs ohne Anmeldung fordert keine Sitzung und keine Gast-Kennung an", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Quizmaster-Anmeldung" })).toBeVisible();
+  const calls = await page.evaluate(() => JSON.parse(localStorage.getItem("test-auth-calls") || "[]"));
+  expect(calls.length).toBeGreaterThan(0);
+  expect(calls.filter((call: { name: string }) => call.name !== "currentUser")).toEqual([]);
 });

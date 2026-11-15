@@ -99,6 +99,17 @@ AppSync-Subscriptions werden bei Registrierung durch Lambda auf gültige Mitglie
 
 Lösung, Erklärung und Verteilung liegen im privaten Snapshot und werden erst nach vollständiger Auswertung in eine separate Projektion übernommen. Die Präsentationsadresse enthält einen zufälligen Token; gemeinsam genutzte Datensätze speichern nur dessen Hash. Der Eigentümer benötigt eine private Kopie zum Wiederöffnen. Die Anwendung setzt `Referrer-Policy: no-referrer` und lädt keine externen Tracker, Schriftarten oder Avatarbilder.
 
+## Impressum, Datenschutz und Betreiberangaben
+
+Impressum (`/impressum`) und Datenschutzerklärung (`/datenschutz`) sind ohne Anmeldung erreichbar und im Footer verlinkt. Alle Betreiberangaben stehen in `src/config/legal.ts`; solange dort Platzhalter (`[… ERGÄNZEN]`) stehen, zeigen die Seiten einen sichtbaren Entwurfshinweis. Die Texte sind ein technischer Entwurf und keine Rechtsberatung. `config/legal-review.json` hält die Bestätigungen des Betreibers fest.
+
+```sh
+npm run legal:check            # listet offene Angaben (Exit 0, Entwurfsmodus)
+npm run legal:check -- --strict # Exit 1 bei offenen Angaben/Bestätigungen, für die Veröffentlichung
+```
+
+`amplify.yml` führt `legal:check` vor dem Build aus; `customHttp.yml` setzt Sicherheits-Header und `noindex` für `/admin`, `/play` und `/present`. Teilnehmende können ihre Teilnahme im Spiel löschen (`deleteMyParticipation`, nur wenn keine Frage läuft). Die Gast-Kennung im Browser läuft nach 24 Stunden ab. Offene Betreiber- und AWS-Prüfpunkte stehen in `docs/rechtliche-betreiber-checkliste.md`. Dieses Repository löst keinen automatischen Produktionsdeploy aus.
+
 ## Fristen und Auswertung
 
 Eine Transaktion legt Countdown und dauerhaften Timerauftrag gemeinsam an. DynamoDB Streams starten einen Step-Functions-Standard-Workflow; ein minütlicher Sweep nimmt liegengebliebene Aufträge wieder auf. Step Functions rundet Wartezeitpunkte auf Sekunden ab, deshalb werden Öffnung und Deadline für den Wait-Zustand auf die nächste Sekunde aufgerundet. Ein verspäteter Workflow verlängert die Antwortfrist nicht.

@@ -171,3 +171,8 @@
 @media (forced-colors: active) {
   .game-view .answer-tile.is-selected, .game-view .result-option.correct { outline: 3px solid Highlight; }
 }
+
+.delete-own-data { margin-top: 32px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.delete-own-data h2 { margin: 0 0 10px; font-size: 1.05rem; }
+.delete-own-data p { margin: 0 0 12px; line-height: 1.55; }
+.delete-own-data .delete-hint { margin: 10px 0 0; color: var(--muted); font-size: .85rem; }

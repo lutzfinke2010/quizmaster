@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Amplify } from "aws-amplify";
 import {
-  confirmSignIn, confirmSignUp, fetchAuthSession, resendSignUpCode, signIn, signOut, signUp,
+  confirmSignIn, confirmSignUp, fetchAuthSession, getCurrentUser, resendSignUpCode, signIn, signOut, signUp,
 } from "aws-amplify/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,8 +37,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   }
   useEffect(() => {
     let active = true;
-    fetchAuthSession().then((session) => {
+        // Ohne Anmeldung keine Sitzung anfordern: fetchAuthSession würde sonst eine anonyme Gast-Kennung erzeugen.
+    getCurrentUser().then(() => fetchAuthSession(), () => null).then((session) => {
       if (!active) return;
+      if (!session) { setStep("signIn"); return; }
       const next = adminAccess(session.tokens?.idToken?.payload);
       setStep(next === "signedOut" ? "signIn" : next);
     }).catch((caught: unknown) => {

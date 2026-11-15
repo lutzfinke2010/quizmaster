@@ -5,4 +5,5 @@ export const gameApi = defineFunction({
   entry: "./handler.ts",
   resourceGroupName: "game",
   timeoutSeconds: 120,
+  logging: { retention: "2 weeks" },
 });

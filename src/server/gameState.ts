@@ -75,7 +75,7 @@ async function participants(client: DynamoDBDocumentClient, tableName: string, p
       ExpressionAttributeValues: { ":pk": pk, ":prefix": "PARTICIPANT#" },
       ExclusiveStartKey: cursor,
     }));
-    items.push(...(page.Items ?? []).map((item) => participantSchema.parse(item)));
+    items.push(...(page.Items ?? []).filter((item) => item.removed !== true).map((item) => participantSchema.parse(item)));
     cursor = page.LastEvaluatedKey;
   } while (cursor);
   return items;

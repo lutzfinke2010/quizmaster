@@ -13,6 +13,8 @@ import { ErrorBanner, Layout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
 import { GameView, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
+import { clearGuestIdentity } from "./guestIdentityStorage";
+import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 
 function Home() {
   return <Layout><HomeContent /></Layout>;
@@ -252,6 +254,35 @@ function Play() {
   return <PlayerSession key={sessionId} sessionId={sessionId} />;
 }
 
+const runningStatuses = ["COUNTDOWN", "QUESTION_OPEN", "QUESTION_CLOSED", "SCORING"];
+
+function DeleteOwnData({ sessionId, status, onDeleted }: { sessionId: string; status: string; onDeleted: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const running = runningStatuses.includes(status);
+  async function remove() {
+    setBusy(true); setError("");
+    try { await cloud.deleteMyParticipation(sessionId); clearGuestIdentity(); onDeleted(); }
+    catch (caught) { setError(message(caught)); setBusy(false); }
+  }
+  return <section className="delete-own-data" aria-labelledby="delete-own-data-heading">
+    <h2 id="delete-own-data-heading">Meine Spieldaten</h2>
+    <ErrorBanner error={error} />
+    {confirming ? <>
+      <p>Deine Teilnahme, Antworten und Punkte werden gelöscht. Du verlässt damit das Spiel und kannst nicht mehr weiterspielen.</p>
+      <div className="actions">
+        <button className="button primary" disabled={busy || running} onClick={() => void remove()}>
+          {busy ? "Wird gelöscht …" : "Ja, endgültig löschen"}</button>
+        <button className="button secondary" disabled={busy} onClick={() => setConfirming(false)}>Abbrechen</button>
+      </div>
+    </> : <>
+      <button className="button secondary" disabled={running} onClick={() => setConfirming(true)}>Meine Spieldaten löschen</button>
+      {running && <p className="delete-hint">Während einer laufenden Frage nicht möglich. Nach der Auflösung kannst du löschen.</p>}
+    </>}
+  </section>;
+}
+
 function PlayerSession({ sessionId }: { sessionId: string }) {
   const [participant, setParticipant] = useState<Participation | null>(null);
   const [error, setError] = useState("");
@@ -266,6 +297,7 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
   const [result, setResult] = useState<MyResult | null>(null);
   const [resultError, setResultError] = useState("");
   const [standing, setStanding] = useState<PersonalStanding | null>(null);
+  const [deleted, setDeleted] = useState(false);
   const sending = useRef(false);
   const { state, offset, error: liveError, refresh, recoveryVersion } = useLiveState(sessionId, "guest");
   useEffect(() => {
@@ -322,6 +354,9 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
       setRestoredQuestion(null); setRestoreAttempt((attempt) => attempt + 1); refresh();
     } finally { sending.current = false; setBusy(false); setPending(null); }
   }
+  if (deleted) return <Layout gameMode="player"><h1>Deine Spieldaten wurden gelöscht</h1>
+    <p>Teilnahme, Antworten und Punkte wurden entfernt. Die Browser-Kennung wurde zurückgesetzt.</p>
+    <Link className="button primary" to="/">Zur Startseite</Link></Layout>;
   return <Layout gameMode="player"><ErrorBanner error={liveError || restoreError || resultError || error || answerError} />
     {(restoreError || resultError || error || liveError) && <button className="button secondary" onClick={() => {
       setError(""); setRestoreAttempt((attempt) => attempt + 1); refresh();
@@ -332,6 +367,7 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
       answerBusy={busy || restoringAnswer || Boolean(restoreError) || restoredQuestion !== state.questionId} answerRestoreFailed={Boolean(restoreError)}
       onAnswer={(choiceId) => void answer(choiceId)}
       result={result?.questionId === state.questionId && ["REVEAL", "LEADERBOARD", "FINISHED"].includes(state.status) ? result : null} /> : <p>Spielstand wird geladen …</p>}
+    {state && participant && <DeleteOwnData sessionId={sessionId} status={state.status} onDeleted={() => setDeleted(true)} />}
   </Layout>;
 }
 
@@ -355,6 +391,8 @@ export function CloudApp() {
     <Route path="/admin/sessions/:sessionId" element={<AdminGate><AdminSession /></AdminGate>} />
     <Route path="/join" element={<Join />} /><Route path="/join/:joinCode" element={<Join />} />
     <Route path="/play/:sessionId" element={<Play />} /><Route path="/present/:presentationToken" element={<Presentation />} />
+    <Route path="/impressum" element={<Layout><ImpressumPage /></Layout>} />
+    <Route path="/datenschutz" element={<Layout><PrivacyPolicyPage /></Layout>} />
     <Route path="*" element={<Layout><h1>Seite nicht gefunden</h1><Link to="/">Zur Startseite</Link></Layout>} />
   </Routes>;
 }

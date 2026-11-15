@@ -7,7 +7,7 @@ import { CfnGraphQLApi, CfnResolver } from "aws-cdk-lib/aws-appsync";
 import { CfnWebACL, CfnWebACLAssociation } from "aws-cdk-lib/aws-wafv2";
 import { StartingPosition } from "aws-cdk-lib/aws-lambda";
 import { DynamoEventSource, SqsDlq } from "aws-cdk-lib/aws-lambda-event-sources";
-import { Queue } from "aws-cdk-lib/aws-sqs";
+import { Queue, QueueEncryption } from "aws-cdk-lib/aws-sqs";
 import { DefinitionBody, JsonPath, StateMachine, StateMachineType, TaskInput, Wait, WaitTime } from "aws-cdk-lib/aws-stepfunctions";
 import { LambdaInvoke } from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { auth } from "./auth/resource";
@@ -111,7 +111,7 @@ new Policy(Stack.of(api), "QuizmasterIdentityPoolAccess", {
     resources: [
       ...["getMyParticipation", "getGameState", "getMyResult", "getMyAnswer", "getLeaderboard", "getPresentationState"]
         .map((field) => `${api.arn}/types/Query/fields/${field}`),
-      ...["joinSession", "submitAnswer"].map((field) => `${api.arn}/types/Mutation/fields/${field}`),
+      ...["joinSession", "deleteMyParticipation", "submitAnswer"].map((field) => `${api.arn}/types/Mutation/fields/${field}`),
       `${api.arn}/types/Subscription/fields/onGameChange`,
     ],
   })],
@@ -148,7 +148,9 @@ for (const fn of [dispatchFunction, sweepFunction]) {
   fn.addToRolePolicy(new PolicyStatement({ effect: Effect.ALLOW, actions: ["states:DescribeExecution"], resources: [executionArn] }));
 }
 
-const failedEvents = new Queue(stack, "FailedTimerEvents", { retentionPeriod: Duration.days(14) });
+const failedEvents = new Queue(stack, "FailedTimerEvents", {
+  retentionPeriod: Duration.days(14), encryption: QueueEncryption.SQS_MANAGED, enforceSSL: true,
+});
 dispatchFunction.addEventSource(new DynamoEventSource(table, {
   startingPosition: StartingPosition.TRIM_HORIZON,
   batchSize: 10,
