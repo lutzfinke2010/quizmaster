@@ -10,9 +10,9 @@ const cloudFacts: Fact[] = [
   { label: "Aufbewahrung", text: `Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
   { label: "Sichtbar für die Runde", text: "Spielname, Avatar, Punkte und Platzierung sind für die anderen Teilnehmenden, den Quizmaster und die Präsentationsansicht sichtbar." },
   { label: "Selbst löschen", text: "Im Spiel kannst du deine Teilnahme selbst löschen, sobald keine Frage läuft. Antworten und Ergebnisse werden dabei entfernt." },
-  { label: "Technik", text: "Ratelama nutzt AWS für den Live-Betrieb. Eine anonyme technische Kennung wird höchstens 24 Stunden im Browser gespeichert, damit deine Teilnahme wiedergefunden wird." },
+  { label: "Technik", text: "RateLama nutzt AWS für den Live-Betrieb. Eine anonyme technische Kennung wird höchstens 24 Stunden im Browser gespeichert, damit deine Teilnahme wiedergefunden wird." },
   { label: "Quizmaster-Konten", text: "Für ein Konto wird eine E-Mail-Adresse gespeichert. Quizvorlagen bleiben bis zur Löschung gespeichert." },
-  { label: "Keine Tracker", text: "Ratelama lädt keine externen Tracker, Schriftarten oder Avatarbilder." },
+  { label: "Keine Tracker", text: "RateLama lädt keine externen Tracker, Schriftarten oder Avatarbilder." },
 ];
 
 const localFacts: Fact[] = [

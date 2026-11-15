@@ -14,7 +14,7 @@ const questions: [string, string[], number, string][] = [
 ];
 
 export const exampleQuiz: Quiz = {
-  title: "Die große Ratelama-Runde",
+  title: "Die große RateLama-Runde",
   description: "Zehn bunte Fragen für einen unterhaltsamen Einstieg.",
   questions: questions.map(([text, answers, correctIndex, explanation]) => ({
     text,
