@@ -56,7 +56,8 @@ async function mockGame(page: Page) {
       function state() {
         const extra = JSON.parse(sessionStorage.getItem("game-state") || "{}");
         return { sessionId: "design", status: "QUESTION_OPEN", version: 1, title: "Die große Feierabendrunde",
-          questionId: "q1", questionIndex: 0, questionCount: 2, participantCount: 2, answerCount: 0,
+          questionId: "q1", questionIndex: 0, questionCount: 2, participantCount: 2,
+          answerCount: sessionStorage.getItem(extra.questionId || "q1") ? 1 : 0,
           eligibleParticipantCount: 2, serverTime: Date.now(), closesAt: deadline,
           question: { text: "Welcher Planet ist für seine Ringe bekannt?", answers: [
             { id: "a", text: "Mars" }, { id: "b", text: "Saturn" }, { id: "c", text: "Venus" }, { id: "d", text: "Merkur" }
@@ -73,8 +74,13 @@ async function mockGame(page: Page) {
         },
         myParticipation: async () => participant,
         myAnswer: async () => {
-          if (sessionStorage.getItem("fail-restore")) throw new Error("Gespeicherte Antwort konnte nicht geladen werden.");
-          return { questionId: state().questionId, choiceId: sessionStorage.getItem(state().questionId) };
+          sessionStorage.setItem("restore-calls", String(Number(sessionStorage.getItem("restore-calls") || 0) + 1));
+          const failed = sessionStorage.getItem("fail-restore");
+          const result = { questionId: state().questionId, choiceId: sessionStorage.getItem(state().questionId) };
+          const delay = Number(sessionStorage.getItem("restore-delay") || 0);
+          if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+          if (failed) throw new Error("Gespeicherte Antwort konnte nicht geladen werden.");
+          return result;
         },
         result: async () => {
           if (sessionStorage.getItem("fail-result")) throw new Error("Ergebnis nicht erreichbar.");
@@ -86,11 +92,19 @@ async function mockGame(page: Page) {
         },
         answer: async (session, question, choice) => {
           sessionStorage.setItem("answer-calls", String(Number(sessionStorage.getItem("answer-calls") || 0) + 1));
-          await new Promise(resolve => setTimeout(resolve, 500));
+          const receivedAt = Date.now();
+          await new Promise(resolve => setTimeout(resolve, Number(sessionStorage.getItem("answer-delay") || 500)));
           if (sessionStorage.getItem("fail-answer")) throw new Error("Antwort konnte nicht gespeichert werden.");
+          if (state().status !== "QUESTION_OPEN" || state().questionId !== question || receivedAt >= state().closesAt)
+            throw new Error("Die Frage ist nicht zur Beantwortung geöffnet.");
+          if (sessionStorage.getItem(question) === choice)
+            return { acceptedAt: Number(sessionStorage.getItem("accepted-at-" + question)) };
           sessionStorage.setItem(question, choice);
+          sessionStorage.setItem("accepted-at-" + question, String(receivedAt));
+          const receiptDelay = Number(sessionStorage.getItem("receipt-delay") || 0);
+          if (receiptDelay) await new Promise(resolve => setTimeout(resolve, receiptDelay));
           if (sessionStorage.getItem("lose-receipt")) throw new Error("Bestätigung nicht erreichbar.");
-          return { acceptedAt: Date.now() };
+          return { acceptedAt: receivedAt };
         },
         listSessions: async () => [{ sessionId: "design", title: "Runde", status: state().status, joinCode: "123456", presentationToken: "design", createdAt: 1 }],
         questions: async () => [{ questionId: "q1", index: 0, text: "Frage 1" }, { questionId: "q2", index: 1, text: "Frage 2" }],
@@ -229,7 +243,7 @@ test("Eigene Antwort bleibt beim Senden, Auswerten und Neuladen sichtbar", async
   await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
   await expect(answer).toHaveClass(/is-selected/);
   await expect(answer).toContainText("Deine Antwort");
-  await page.getByRole("button", { name: /Mars/ }).focus();
+  await answer.focus();
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("1");
   await expectNoHorizontalOverflow(page);
@@ -553,18 +567,163 @@ test("Vergrößerter Text bleibt bedienbar und die erste Wertung erfindet keinen
   await expect(page.locator(".player-identity")).toContainText("3.910 Punkte · Zuletzt Platz 4");
 });
 
-test("Der Timer zeigt die Serverdeadline ohne eigenen Phasenwechsel", async ({ page }) => {
+test("Der Timer sperrt bei Fristende Antworten ohne eigenen Phasenwechsel", async ({ page }) => {
   await mockGame(page);
   await page.goto("/play/design");
   await updateGame(page, { closesAt: Date.now() - 1000 });
   await expect(page.getByRole("timer")).toHaveAccessibleName("Noch 0 Sekunden");
   await expect(page.locator(".phase-badge")).toHaveText("Du bist gefragt");
-  await expect(page.getByRole("button", { name: /Saturn/ })).toBeEnabled();
-  await page.evaluate(() => sessionStorage.setItem("fail-answer", "true"));
-  await page.getByRole("button", { name: /Saturn/ }).click();
-  await expect(page.getByRole("alert")).toContainText("Antwort nicht bestätigt");
+  const answer = page.getByRole("button", { name: /Saturn/ });
+  await expect(answer).toBeDisabled();
+  await answer.focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBeNull();
   await setPhase(page, "REVEAL");
   await expect(page.locator(".result-message")).toContainText("Keine Antwort");
+});
+
+test("Antwortwechsel per Tastatur und Maus zählen nur eine Stimme und bleiben nach Neuladen änderbar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockGame(page);
+  await page.goto("/play/design");
+  const mars = page.getByRole("button", { name: /Mars/ });
+  const saturn = page.getByRole("button", { name: /Saturn/ });
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await expect(saturn).toBeEnabled();
+  const firstTime = await page.evaluate(() => sessionStorage.getItem("accepted-at-q1"));
+  await saturn.focus();
+  await page.keyboard.press("Enter");
+  await expect(saturn).toHaveClass(/is-pending/);
+  await expect(mars).toHaveClass(/is-selected/);
+  await expect(page.locator(".answer-feedback")).toContainText("Wird gesendet");
+  await expect(page.locator(".answer-feedback")).toContainText("B · Saturn");
+  await expect(mars).toBeDisabled();
+  await mars.focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("2");
+  await expect(saturn).toHaveClass(/is-selected/);
+  await expect(mars).not.toHaveClass(/is-selected/);
+  await expect(page.locator(".answer-progress")).toContainText("1 von 2");
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("accepted-at-q1")))).toBeGreaterThan(Number(firstTime));
+  await page.reload();
+  await expect(saturn).toHaveAttribute("aria-pressed", "true");
+  await expect(mars).toBeEnabled();
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await expect(page.locator(".answer-progress")).toContainText("1 von 2");
+  await expectNoHorizontalOverflow(page);
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toContainText("Leider daneben");
+  await expect(page.locator(".result-option").filter({ hasText: "Mars" })).toContainText("Deine Antwort");
+  await expect(page.locator(".result-option.correct")).not.toContainText("Deine Antwort");
+});
+
+test("Ein abgelehnter Wechsel behält die alte Antwort und zeigt den Fehler auch nach Wiederherstellung", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const mars = page.getByRole("button", { name: /Mars/ });
+  const saturn = page.getByRole("button", { name: /Saturn/ });
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await page.evaluate(() => sessionStorage.setItem("fail-answer", "true"));
+  await saturn.click();
+  await expect(page.getByRole("alert")).toContainText("Antwort nicht bestätigt");
+  await expect(saturn).toBeEnabled();
+  await expect(mars).toHaveAttribute("aria-pressed", "true");
+  await expect(saturn).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("alert")).toContainText("Antwort konnte nicht gespeichert werden.");
+  expect(await page.evaluate(() => sessionStorage.getItem("q1"))).toBe("a");
+  await page.evaluate(() => sessionStorage.removeItem("fail-answer"));
+  await saturn.click();
+  await expect(saturn).toHaveClass(/is-selected/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("Verlorene Wechselbestätigung wird abgeglichen und erlaubt danach weitere Änderungen", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const mars = page.getByRole("button", { name: /Mars/ });
+  const saturn = page.getByRole("button", { name: /Saturn/ });
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await page.evaluate(() => {
+    sessionStorage.setItem("lose-receipt", "true");
+    sessionStorage.setItem("restore-delay", "700");
+  });
+  await saturn.click();
+  await expect(page.getByRole("alert")).toContainText("Antwort nicht bestätigt");
+  await expect(mars).toBeDisabled();
+  await expect(saturn).toHaveClass(/is-selected/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("2");
+  await page.evaluate(() => {
+    sessionStorage.removeItem("lose-receipt");
+    sessionStorage.removeItem("restore-delay");
+    window.dispatchEvent(new Event("offline"));
+  });
+  await expect(page.getByRole("alert")).toContainText("offline");
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(saturn).toHaveAttribute("aria-pressed", "true");
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+});
+
+test("Fristende sperrt auch Wechsel, während die zuletzt bestätigte Antwort sichtbar bleibt", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const mars = page.getByRole("button", { name: /Mars/ });
+  const saturn = page.getByRole("button", { name: /Saturn/ });
+  await saturn.click();
+  await expect(saturn).toHaveClass(/is-selected/);
+  await updateGame(page, { closesAt: Date.now() - 1 });
+  await expect(page.getByRole("timer")).toHaveAccessibleName("Noch 0 Sekunden");
+  await expect(mars).toBeDisabled();
+  await mars.focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => sessionStorage.getItem("answer-calls"))).toBe("1");
+  await expect(saturn).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".phase-badge")).toHaveText("Du bist gefragt");
+});
+
+test("Eine verspätete Sendebestätigung setzt die nächste Frage nicht zurück", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.evaluate(() => sessionStorage.setItem("receipt-delay", "1800"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("q1"))).toBe("b");
+  await setPhase(page, "QUESTION_OPEN", "q2");
+  await page.evaluate(() => sessionStorage.removeItem("receipt-delay"));
+  const mars = page.getByRole("button", { name: /Mars/ });
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await page.waitForTimeout(2000);
+  await expect(mars).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".answer-feedback")).toContainText("A · Mars");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("Ein verspäteter Restore überschreibt keine Auswahl der nächsten Frage", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("button", { name: /Mars/ })).toBeEnabled();
+  await page.evaluate(() => {
+    sessionStorage.setItem("restore-delay", "1800");
+    window.dispatchEvent(new Event("offline"));
+  });
+  const before = Number(await page.evaluate(() => sessionStorage.getItem("restore-calls")));
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("restore-calls")))).toBeGreaterThan(before);
+  await page.evaluate(() => sessionStorage.removeItem("restore-delay"));
+  await setPhase(page, "QUESTION_OPEN", "q2");
+  const mars = page.getByRole("button", { name: /Mars/ });
+  await mars.click();
+  await expect(mars).toHaveClass(/is-selected/);
+  await page.waitForTimeout(2000);
+  await expect(mars).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("Quizmaster steuert ausschließlich zulässige Schritte, Sonderaktionen bleiben nachrangig", async ({ page }) => {

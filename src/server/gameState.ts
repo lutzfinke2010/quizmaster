@@ -237,15 +237,19 @@ export async function getMyAnswer(
   const sessionId = id.parse(rawSessionId);
   const participation = await getMyParticipation(client, tableName, sessionId, identityId, now);
   const authorization: Authorization = { kind: "participant", identityId, participantId: participation.participantId };
-  const meta = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
-  if (!meta.currentQuestionId) return { questionId: null, choiceId: null };
-  const response = await client.send(new GetCommand({
-    TableName: tableName,
-    Key: { pk: `SESSION#${sessionId}`, sk: `ANSWER#${meta.currentQuestionId}#${participation.participantId}` },
-    ConsistentRead: true,
-  }));
-  const answer = response.Item ? z.object({ choiceId: id }).parse(response.Item) : null;
-  const latest = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
-  if (latest.currentQuestionId !== meta.currentQuestionId) throw new Error("Die Frage wurde gleichzeitig geändert.");
-  return { questionId: meta.currentQuestionId, choiceId: answer?.choiceId ?? null };
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const meta = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
+    if (!meta.currentQuestionId) return { questionId: null, choiceId: null };
+    const response = await client.send(new GetCommand({
+      TableName: tableName,
+      Key: { pk: `SESSION#${sessionId}`, sk: `ANSWER#${meta.currentQuestionId}#${participation.participantId}` },
+      ConsistentRead: true,
+    }));
+    const answer = response.Item ? z.object({ choiceId: id }).parse(response.Item) : null;
+    const latest = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
+    if (latest.version !== meta.version || latest.status !== meta.status ||
+        latest.currentQuestionId !== meta.currentQuestionId) continue;
+    return { questionId: meta.currentQuestionId, choiceId: answer?.choiceId ?? null };
+  }
+  throw new Error("Die Antwort wurde gleichzeitig geändert. Bitte erneut versuchen.");
 }

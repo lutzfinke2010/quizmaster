@@ -10,15 +10,18 @@ const cloudFacts: Fact[] = [
   { label: "Aufbewahrung", text: `Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
   { label: "Sichtbar für die Runde", text: "Spielname, Avatar, Punkte und Platzierung sind für die anderen Teilnehmenden, den Quizmaster und die Präsentationsansicht sichtbar." },
   { label: "Selbst löschen", text: "Im Spiel kannst du deine Teilnahme selbst löschen, sobald keine Frage läuft. Antworten und Ergebnisse werden dabei entfernt." },
-  { label: "Technik", text: "RateLama nutzt AWS für den Live-Betrieb. Eine anonyme technische Kennung wird höchstens 24 Stunden im Browser gespeichert, damit deine Teilnahme wiedergefunden wird." },
-  { label: "Quizmaster-Konten", text: "Für ein Konto wird eine E-Mail-Adresse gespeichert. Quizvorlagen bleiben bis zur Löschung gespeichert." },
-  { label: "Keine Tracker", text: "RateLama lädt keine externen Tracker, Schriftarten oder Avatarbilder." },
+  { label: "Technik", text: "Erst beim Beitritt oder Öffnen eines konkreten Live-Spiels wird eine technische Gast-Kennung benötigt. Sie verfällt nach höchstens 24 Stunden; bloße Informationsseiten erzeugen sie nicht." },
+  { label: "Quizmaster-Konten", text: "Anmeldetokens speichert Amplify erst während einer gestarteten Anmeldung. Refresh-Tokens können die Sitzung bis zum Ablauf ihrer Cognito-Gültigkeit erneuern; Abmelden beendet sie über Cognito." },
+  { label: "Browser-Speicher", text: "Die App setzt keine Cookies über ihren Frontend-Code. Sie nutzt localStorage für ausdrücklich angeforderte Funktionen; die konkrete Speichernutzung steht in der Datenschutzerklärung." },
+  { label: "Keine Tracker", text: "RateLama lädt keine Analyse- oder Werbe-Tracker, externen Schriftarten oder Avatarbilder. Cloud-Anfragen gehen nur an AWS-Dienste, wenn die zugehörige Funktion genutzt wird." },
 ];
 
 const localFacts: Fact[] = [
   { label: "Ohne Konto", text: "Für Quiz-Entwürfe brauchst du weder Konto noch E-Mail-Adresse oder Passwort." },
-  { label: "Nur im Browser", text: "Entwürfe liegen ausschließlich im lokalen Speicher dieses Browsers." },
-  { label: "Löschen", text: "Entwürfe lassen sich in der Übersicht löschen oder über die Website-Daten deines Browsers entfernen." },
+  { label: "Erst nach Aktivierung", text: "Die App liest oder speichert Quiz-Entwürfe erst, wenn du die Speicherfunktion einschaltest. Ein neuer Entwurf wird erst durch ausdrückliches Speichern dauerhaft abgelegt." },
+  { label: "Dauer", text: "Gespeicherte Entwürfe bleiben im localStorage dieses Browsers, bis du sie in der Übersicht löschst oder die Website-Daten entfernst. Ausschalten löscht sie nicht." },
+  { label: "Vorhandene Entwürfe", text: "Vorhandene Entwürfe bleiben unverändert, bis du die Speicherfunktion aktivierst. Das Aktivieren zeigt sie an und löscht oder migriert sie nicht." },
+  { label: "Löschen", text: "In der Übersicht kannst du alle lokalen Entwürfe gezielt löschen. Die App entfernt dabei nur ihren eigenen Entwurfsschlüssel." },
   { label: "Kein geschützter Bereich", text: "Andere Personen mit Zugriff auf dieses Browserprofil können die Entwürfe öffnen." },
   { label: "Ohne Live-Spiel", text: "Live-Spiele und Anmeldung sind in diesem Modus nicht verfügbar." },
 ];
@@ -52,8 +55,8 @@ export function TrustChips({ localMode = false }: { localMode?: boolean }) {
 export function PrivacySection({ localMode = false }: { localMode?: boolean }) {
   const cards = localMode ? [
     { icon: UserRoundX, title: "Brauchst du nicht", text: "Konto, E-Mail-Adresse oder Passwort." },
-    { icon: HardDrive, title: "Bleibt bei dir", text: "Deine Entwürfe liegen nur im lokalen Speicher dieses Browsers." },
-    { icon: Trash2, title: "Liegt in deiner Hand", text: "Entwürfe in der Übersicht löschen oder die Website-Daten im Browser entfernen." },
+    { icon: HardDrive, title: "Nur nach Aktivierung", text: "Vorher wird kein Entwurf dauerhaft gespeichert oder automatisch wieder aufgenommen." },
+    { icon: Trash2, title: "Liegt in deiner Hand", text: "Entwürfe einzeln oder alle in der Übersicht löschen; Ausschalten löscht nichts." },
   ] : [
     { icon: UserRoundX, title: "Brauchst du nicht", text: "Konto, Klarnamen, E-Mail-Adresse oder Passwort. Spielname und Avatar würfeln wir dir zu." },
     { icon: Database, title: "Speichern wir für die Runde", text: "Technische Kennung, Spielname, Avatar, deine Antworten, Antwortzeiten und Punkte." },

@@ -21,6 +21,11 @@ const backend = defineBackend({ auth, data, gameApi, eventPublisher, subscriptio
 backend.auth.resources.cfnResources.cfnUserPool.adminCreateUserConfig = {
   allowAdminCreateUserOnly: false,
 };
+const userPoolClient = backend.auth.resources.cfnResources.cfnUserPoolClient;
+userPoolClient.accessTokenValidity = 60;
+userPoolClient.idTokenValidity = 60;
+userPoolClient.refreshTokenValidity = 1;
+userPoolClient.tokenValidityUnits = { accessToken: "minutes", idToken: "minutes", refreshToken: "days" };
 
 const stack = Stack.of(backend.timerStep.resources.lambda);
 const table = new Table(stack, "GameTable", {

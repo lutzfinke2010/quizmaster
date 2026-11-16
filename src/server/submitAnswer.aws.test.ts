@@ -63,18 +63,44 @@ describe.skipIf(process.env.QUIZRUSH_AWS_TEST !== "1")("DynamoDB-Antwortannahme 
     await expect(submitAnswer(store, request, "guest-one", 2000)).rejects.toMatchObject({ code: "NOT_OPEN" });
     expect(await submitAnswer(store, request, "guest-one", 1500)).toEqual({ acceptedAt: 1500 });
     expect(await submitAnswer(store, request, "guest-one", 1700)).toEqual({ acceptedAt: 1500 });
-    await expect(submitAnswer(store, { ...request, choiceId: "a2" }, "guest-one", 1700))
-      .rejects.toMatchObject({ code: "ALREADY_ANSWERED" });
+    expect(await submitAnswer(store, { ...request, choiceId: "a2" }, "guest-one", 1700)).toEqual({ acceptedAt: 1700 });
+    expect(await submitAnswer(store, { ...request, choiceId: "a2" }, "guest-one", 1800)).toEqual({ acceptedAt: 1700 });
+    await expect(submitAnswer(store, request, "guest-one", 2000)).rejects.toMatchObject({ code: "NOT_OPEN" });
     const meta = await document.send(new GetCommand({ TableName: tableName, Key: { pk, sk: "META" }, ConsistentRead: true }));
-    expect(meta.Item?.answerCount).toBe(1);
+    expect(meta.Item).toMatchObject({ answerCount: 1, version: 3 });
     const stored = await document.send(new GetCommand({ TableName: tableName, Key: { pk, sk: "ANSWER#q1#p1" }, ConsistentRead: true }));
-    expect(stored.Item?.ttl).toBe(5);
+    expect(stored.Item).toMatchObject({ choiceId: "a2", receivedAt: 1700, ttl: 5 });
     await document.send(new UpdateCommand({
       TableName: tableName, Key: { pk, sk: "META" },
       UpdateExpression: "SET #status = :closed", ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: { ":closed": "QUESTION_CLOSED" },
     }));
     await expect(submitAnswer(store, request, "guest-two", 1500)).rejects.toMatchObject({ code: "NOT_OPEN" });
+    await expect(submitAnswer(store, request, "guest-one", 1900)).rejects.toMatchObject({ code: "NOT_OPEN" });
+  }, 60_000);
+
+  it("ordnet konkurrierende Erstabgaben nach Serverzeit und zählt auch nach einem Wechsel nur eine Stimme", async () => {
+    const sessionId = "changing";
+    const changingPk = `SESSION#${sessionId}`;
+    await Promise.all([
+      { pk: changingPk, sk: "META", status: "QUESTION_OPEN", currentQuestionId: "q1",
+        opensAt: 1000, closesAt: 2000, expiresAt: 5000, answerCount: 0, version: 1 },
+      { pk: changingPk, sk: "QUESTION#q1", answerIds: ["a1", "a2"] },
+      { pk: changingPk, sk: "IDENTITY#guest", participantId: "p1" },
+    ].map((item) => document.send(new PutCommand({ TableName: tableName, Item: item }))));
+    const request = { sessionId, questionId: "q1", choiceId: "a1" };
+    const results = await Promise.allSettled([
+      submitAnswer(store, request, "guest", 1200),
+      submitAnswer(store, { ...request, choiceId: "a2" }, "guest", 1600),
+    ]);
+    expect(results[1]).toEqual({ status: "fulfilled", value: { acceptedAt: 1600 } });
+    expect((await document.send(new GetCommand({
+      TableName: tableName, Key: { pk: changingPk, sk: "ANSWER#q1#p1" }, ConsistentRead: true,
+    }))).Item).toMatchObject({ choiceId: "a2", receivedAt: 1600 });
+    expect(await submitAnswer(store, request, "guest", 1999)).toEqual({ acceptedAt: 1999 });
+    expect((await document.send(new GetCommand({
+      TableName: tableName, Key: { pk: changingPk, sk: "META" }, ConsistentRead: true,
+    }))).Item?.answerCount).toBe(1);
   }, 60_000);
 
   it("zählt parallele Antworten und Wiederholungen nur einmal pro Person", async () => {
@@ -112,7 +138,9 @@ describe.skipIf(process.env.QUIZRUSH_AWS_TEST !== "1")("DynamoDB-Antwortannahme 
       ]),
     ].map((item) => document.send(new PutCommand({ TableName: tableName, Item: item }))));
     const request = { sessionId, questionId: "q1", timerId: "timer1" };
+    await submitAnswer(store, { sessionId, questionId: "q1", choiceId: "a2" }, "scoring-1", 1200);
     await submitAnswer(store, { sessionId, questionId: "q1", choiceId: "a1" }, "scoring-1", 1500);
+    await submitAnswer(store, { sessionId, questionId: "q1", choiceId: "a1" }, "scoring-2", 1300);
     await submitAnswer(store, { sessionId, questionId: "q1", choiceId: "a2" }, "scoring-2", 1750);
     await expect(finalizeQuestion(document, tableName, request, 1999)).rejects.toThrow(/noch nicht abgelaufen/);
     await expect(finalizeQuestion(document, tableName, { ...request, timerId: "old" }, 2000)).rejects.toThrow(/Veralteter/);

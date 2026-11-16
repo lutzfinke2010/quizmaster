@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, HardDrive, Plus, Sparkles, Trash2 } from "lucide-react";
 import { exampleQuiz } from "./domain/exampleQuiz";
-import { newDraft, readDrafts, saveDrafts, type Draft } from "./drafts";
+import { clearDrafts, newDraft, readDrafts, saveDrafts, type Draft } from "./drafts";
 import { QuizEditor } from "./QuizEditor";
 import type { Quiz } from "./domain/quiz";
 import { CloudApp } from "./CloudApp";
@@ -16,7 +16,8 @@ function Layout({ children }: { children: React.ReactNode }) {
 
 function LocalNotice() {
   return <p className="local-notice"><HardDrive size={20} aria-hidden="true" />
-    <span><strong>Lokaler Entwurfsmodus:</strong> Quizze werden nur in diesem Browser gespeichert. Live-Spiele und Anmeldung sind hier nicht verfügbar.</span></p>;
+    <span><strong>Lokaler Entwurfsmodus:</strong> Entwürfe werden erst nach deiner Aktivierung auf diesem Gerät gespeichert.
+      Live-Spiele und Anmeldung sind hier nicht verfügbar.</span></p>;
 }
 
 function Home() {
@@ -25,27 +26,45 @@ function Home() {
   </Layout>;
 }
 
-function Overview() {
-  const [drafts, setDrafts] = useState<Draft[]>(() => {
-    try { return readDrafts(); } catch { return []; }
-  });
-  const [error, setError] = useState(() => {
-    try { readDrafts(); return ""; } catch (caught) { return message(caught); }
-  });
+function Overview({ storageEnabled, onStorageEnabledChange }: {
+  storageEnabled: boolean;
+  onStorageEnabledChange: (enabled: boolean) => void;
+}) {
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (!storageEnabled) {
+      setDrafts([]);
+      setLoaded(false);
+      setError("");
+      return;
+    }
+    setLoaded(false);
+    try { setDrafts(readDrafts()); setError(""); }
+    catch (caught) { setError(message(caught)); }
+    finally { setLoaded(true); }
+  }, [storageEnabled]);
+
   function save(next: Draft[]) {
+    if (!storageEnabled || !loaded) return;
     try {
       saveDrafts(next);
       setDrafts(next);
       setError("");
+      setNotice("");
     } catch (caught) { setError(message(caught)); }
   }
 
   function addExample() {
+    if (!storageEnabled || !loaded) return;
     const draft = newDraft(exampleQuiz);
     try {
       saveDrafts([...drafts, draft]);
+      setNotice("");
       navigate(`/admin/quizzes/${draft.id}`);
     } catch (caught) { setError(message(caught)); }
   }
@@ -57,12 +76,35 @@ function Overview() {
       <Link className="button primary" to="/admin/quizzes/new"><Plus size={19} /> Neues Quiz</Link>
     </div>
     <LocalNotice />
+    <section className="draft-storage" aria-labelledby="draft-storage-heading">
+      <h2 id="draft-storage-heading">Entwürfe auf diesem Gerät</h2>
+      <p>Wenn du die Funktion einschaltest, werden vorhandene lokale Entwürfe gelesen, aber nicht verändert.
+        Neue Entwürfe werden nur nach einem ausdrücklichen Speichern abgelegt und bleiben bis zum Löschen oder zum Entfernen
+        der Website-Daten in diesem Browser. Ausschalten löscht nichts.</p>
+      <label className="draft-storage-toggle">
+        <input type="checkbox" checked={storageEnabled}
+          onChange={(event) => { setNotice(""); onStorageEnabledChange(event.target.checked); }} />
+        Gespeicherte Entwürfe anzeigen und lokale Speicherung aktivieren
+      </label>
+      {storageEnabled && <button className="button danger" onClick={() => {
+        if (!window.confirm("Alle lokalen Quiz-Entwürfe auf diesem Gerät löschen?")) return;
+        try {
+          clearDrafts();
+          setDrafts([]);
+          setError("");
+          setNotice("Alle lokalen Quiz-Entwürfe wurden gelöscht.");
+          onStorageEnabledChange(false);
+        } catch (caught) { setError(message(caught)); }
+      }}>Alle lokalen Entwürfe löschen</button>}
+      {notice && <p className="draft-storage-status" role="status">{notice}</p>}
+    </section>
     {error && <p className="error-banner" role="alert">{error}</p>}
-    {drafts.length === 0 && !error ? <div className="empty">
+    {storageEnabled && !loaded ? <p role="status">Entwürfe werden gelesen …</p> :
+      storageEnabled && drafts.length === 0 && !error ? <div className="empty">
       <Sparkles size={36} aria-hidden="true" /><h2>Hier ist noch Platz für Ideen.</h2>
       <p>Starte mit einem eigenen Quiz oder entdecke unsere zehn Beispielfragen.</p>
       <button className="button secondary" onClick={addExample}>Beispielquiz verwenden</button>
-    </div> : <div className="grid">
+    </div> : storageEnabled && loaded && drafts.length > 0 ? <div className="grid">
       {drafts.map((draft) => <article className="card" key={draft.id}>
         <span className="badge">{draft.quiz.questions.length} Fragen</span>
         <h2>{draft.quiz.title}</h2><p>{draft.quiz.description || "Ohne Beschreibung"}</p>
@@ -79,43 +121,76 @@ function Overview() {
         </div>
       </article>)}
       <button className="card add-card" onClick={addExample}><Plus size={22} /> Beispielquiz hinzufügen</button>
-    </div>}
+    </div> : !storageEnabled ? <div className="empty">
+      <HardDrive size={36} aria-hidden="true" /><h2>Deine Entwürfe bleiben zunächst im Arbeitsspeicher.</h2>
+      <p>Aktiviere die Speicherfunktion, um vorhandene Entwürfe anzusehen oder Entwürfe ausdrücklich auf diesem Gerät zu speichern.</p>
+    </div> : null}
   </Layout>;
 }
 
-function EditorPage() {
+function EditorPage({ storageEnabled, onStorageEnabledChange }: {
+  storageEnabled: boolean;
+  onStorageEnabledChange: (enabled: boolean) => void;
+}) {
   const { quizId } = useParams();
   const navigate = useNavigate();
   const [error, setError] = useState("");
-  const [initial] = useState(() => {
+  const [initial, setInitial] = useState<{ draft?: Draft; error: string } | null>(
+    quizId === "new" ? { draft: undefined, error: "" } : null,
+  );
+  const [loading, setLoading] = useState(quizId !== "new");
+
+  useEffect(() => {
+    if (quizId === "new") {
+      setInitial({ draft: undefined, error: "" });
+      setLoading(false);
+      return;
+    }
+    if (!storageEnabled) return;
+    setLoading(true);
     try {
-      if (quizId === "new") return { draft: undefined, error: "" };
       const draft = readDrafts().find((item) => item.id === quizId);
-      return { draft, error: draft ? "" : "Dieser Entwurf wurde nicht gefunden." };
-    } catch (caught) { return { draft: undefined, error: message(caught) }; }
-  });
+      setInitial({ draft, error: draft ? "" : "Dieser Entwurf wurde nicht gefunden." });
+    } catch (caught) { setInitial({ draft: undefined, error: message(caught) }); }
+    finally { setLoading(false); }
+  }, [quizId, storageEnabled]);
 
   function save(quiz: Quiz) {
+    if (!storageEnabled) {
+      setError("Aktiviere zuerst die lokale Speicherfunktion. Bis dahin bleibt dein Quiz nur im Arbeitsspeicher.");
+      return;
+    }
     try {
       const drafts = readDrafts();
       if (quizId !== "new" && !drafts.some((draft) => draft.id === quizId)) {
         throw new Error("Dieser Entwurf wurde zwischenzeitlich gelöscht.");
       }
-      const draft = initial.draft ? { ...initial.draft, quiz } : newDraft(quiz);
-      saveDrafts(initial.draft ? drafts.map((item) => item.id === draft.id ? draft : item) : [...drafts, draft]);
+      const existingDraft = initial?.draft;
+      const draft = existingDraft ? { ...existingDraft, quiz } : newDraft(quiz);
+      saveDrafts(existingDraft ? drafts.map((item) => item.id === draft.id ? draft : item) : [...drafts, draft]);
       navigate("/admin");
     } catch (caught) { setError(message(caught)); }
   }
 
   return <Layout><Link className="back" to="/admin"><ArrowLeft size={17} /> Zur Übersicht</Link>
-    {initial.error ? <p role="alert" className="error-banner">{initial.error}</p> : <>
-      <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span>
-        <h1>{initial.draft ? "Quiz bearbeiten" : "Neues Quiz"}</h1>
-        <p>Eine richtige Antwort pro Frage. Den Rest erledigt die Spielfreude.</p></div></div>
+    {quizId !== "new" && !storageEnabled && !initial ? <>
       <LocalNotice />
-      {error && <p className="error-banner" role="alert">{error}</p>}
-      <QuizEditor initialQuiz={initial.draft?.quiz} onSave={save} />
-    </>}
+      <section className="draft-storage" aria-labelledby="existing-draft-heading">
+        <h1 id="existing-draft-heading">Vorhandenen Entwurf ansehen?</h1>
+        <p>Dieser Link kann einen bereits gespeicherten Entwurf öffnen. Er wird erst gelesen, wenn du die Speicherfunktion aktivierst.
+          Deine vorhandenen Daten bleiben bis dahin unverändert.</p>
+        <button className="button primary" onClick={() => onStorageEnabledChange(true)}>Entwurf auf diesem Gerät ansehen</button>
+      </section>
+    </> : loading ? <p role="status">Entwurf wird gelesen …</p> : initial ?
+      initial.error ? <p role="alert" className="error-banner">{initial.error}</p> : <>
+        <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span>
+          <h1>{initial.draft ? "Quiz bearbeiten" : "Neues Quiz"}</h1>
+          <p>Eine richtige Antwort pro Frage. Den Rest erledigt die Spielfreude.</p></div></div>
+        <LocalNotice />
+        {error && <p className="error-banner" role="alert">{error}</p>}
+        <QuizEditor initialQuiz={initial.draft?.quiz} onSave={save}
+          draftStorageEnabled={storageEnabled} onDraftStorageEnabledChange={onStorageEnabledChange} />
+      </> : null}
   </Layout>;
 }
 
@@ -133,6 +208,7 @@ function NotFound() {
 }
 
 export function App({ cloudConfigured = false }: { cloudConfigured?: boolean }) {
+  const [draftStorageEnabled, setDraftStorageEnabled] = useState(false);
   const { pathname } = useLocation();
   const previousPath = useRef(pathname);
   useEffect(() => {
@@ -145,8 +221,10 @@ export function App({ cloudConfigured = false }: { cloudConfigured?: boolean }) 
   if (cloudConfigured) return <CloudApp />;
   return <Routes>
     <Route path="/" element={<Home />} />
-    <Route path="/admin" element={<Overview />} />
-    <Route path="/admin/quizzes/:quizId" element={<EditorPage />} />
+    <Route path="/admin" element={<Overview storageEnabled={draftStorageEnabled}
+      onStorageEnabledChange={setDraftStorageEnabled} />} />
+    <Route path="/admin/quizzes/:quizId" element={<EditorPage storageEnabled={draftStorageEnabled}
+      onStorageEnabledChange={setDraftStorageEnabled} />} />
     <Route path="/join" element={<Unavailable />} />
     <Route path="/join/:joinCode" element={<Unavailable />} />
     <Route path="/play/:sessionId" element={<Unavailable />} />

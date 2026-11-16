@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowDown, ArrowUp, Check, CheckCircle2, CircleHelp, Plus, Save, Trash2 } from "lucide-react";
+import { useEffect } from "react";
 import { FormProvider, useFieldArray, useForm, useFormContext, useWatch } from "react-hook-form";
 import { newQuestion, quizSchema, type Quiz } from "./domain/quiz";
 import { Button } from "./components/ui/button";
@@ -107,11 +108,14 @@ function QuestionFields({ index, total, move, remove }: {
   </section>;
 }
 
-export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = false }: {
+export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = false, draftStorageEnabled = false,
+  onDraftStorageEnabledChange }: {
   initialQuiz?: Quiz;
   onSave: (quiz: Quiz) => void;
   saving?: boolean;
   cloudMode?: boolean;
+  draftStorageEnabled?: boolean;
+  onDraftStorageEnabledChange?: (enabled: boolean) => void;
 }) {
   const form = useForm<Quiz>({
     resolver: zodResolver(quizSchema),
@@ -120,6 +124,36 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
   const { fields, append, remove, move } = useFieldArray({ control: form.control, name: "questions" });
   const questions = useWatch({ control: form.control, name: "questions" });
   const chosenCount = questions.filter((question) => question.answers.some((answer) => answer.correct)).length;
+  const isDirty = form.formState.isDirty;
+
+  useEffect(() => {
+    if (cloudMode || !isDirty) return;
+    const warning = "Deine Änderungen sind noch nicht gespeichert. Wenn du die Seite verlässt, gehen sie verloren.";
+    function beforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    function confirmNavigation(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest("a");
+      if (!link || link.target || link.hasAttribute("download")) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.origin !== window.location.origin ||
+          (destination.pathname === window.location.pathname && destination.search === window.location.search)) return;
+      if (!window.confirm(warning)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", confirmNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", confirmNavigation, true);
+    };
+  }, [cloudMode, isDirty]);
+
   return <FormProvider {...form}>
     <form onSubmit={form.handleSubmit(onSave)} noValidate className="editor-layout" aria-label="Quiz bearbeiten">
       <aside className="editor-outline" aria-label="Quizübersicht">
@@ -161,9 +195,20 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
       <div className="editor-actions">
         <button type="button" className="button secondary" disabled={fields.length >= 100}
           onClick={() => append(newQuestion())}><Plus size={18} /> Frage hinzufügen</button>
+        {!cloudMode && <div className="draft-storage-editor">
+          <label className="draft-storage-toggle">
+            <input type="checkbox" checked={draftStorageEnabled ?? false}
+              onChange={(event) => onDraftStorageEnabledChange?.(event.target.checked)} />
+            Quiz-Entwürfe auf diesem Gerät speichern
+          </label>
+          <p>Erst nach dem Einschalten werden Entwürfe beim Klick auf „Entwurf speichern“ dauerhaft in diesem Browser abgelegt.
+            Bereits vorhandene Entwürfe bleiben erhalten; Ausschalten löscht sie nicht. Die Auswahl betrifft nur diese Speicherfunktion.</p>
+        </div>}
         <Button type="submit" className="button primary" disabled={saving}><Save size={18} />
           {saving ? "Wird gespeichert …" : cloudMode ? "Quiz speichern" : "Entwurf speichern"}</Button>
-        <p className="save-note">{cloudMode ? "Änderungen werden erst beim Speichern übernommen." : "Dein Entwurf wird beim Speichern nur in diesem Browser abgelegt."}</p>
+        <p className="save-note">{cloudMode ? "Änderungen werden erst beim Speichern übernommen." :
+          draftStorageEnabled ? "Dein Entwurf wird nach dem Speichern nur in diesem Browser abgelegt." :
+            "Ohne Aktivierung bleibt dein Quiz nur im Arbeitsspeicher und geht beim Verlassen verloren."}</p>
       </div>
       </div>
     </form>

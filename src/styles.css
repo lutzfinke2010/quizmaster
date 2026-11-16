@@ -109,6 +109,15 @@ summary::-webkit-details-marker { display: none; }
 .local-notice { display: flex; align-items: flex-start; gap: 12px; margin: -8px 0 26px; padding: 14px 18px; border: 1px solid #c3d2b4; border-radius: 14px; background: #eef3e2; color: var(--ink); font-size: .88rem; line-height: 1.55; }
 .local-notice svg { margin-top: 1px; color: var(--teal); }
 .local-notice strong { color: var(--teal); }
+.draft-storage { margin: 0 0 24px; padding: 20px; border: 1px solid #c3d2b4; border-radius: 16px; background: #f0f3e8; }
+.draft-storage h2 { margin: 0 0 8px; }
+.draft-storage > p, .draft-storage-editor p { margin: 0 0 14px; font-size: .88rem; line-height: 1.55; }
+.draft-storage-toggle { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin: 8px 0; color: var(--ink); font-weight: 750; cursor: pointer; }
+.draft-storage-toggle input { width: 20px; height: 20px; flex: none; margin: 2px 0 0; accent-color: var(--teal); }
+.draft-storage .button { margin-top: 10px; }
+.draft-storage-status { margin: 12px 0 0 !important; color: var(--teal); font-weight: 700; }
+.draft-storage-editor { flex: 1 1 100%; padding: 14px 16px; border: 1px solid #c3d2b4; border-radius: 14px; background: #f0f3e8; }
+.draft-storage-editor p { margin: 4px 0 0 30px; }
 .login-card .local-notice { margin: 18px 0 0; }
 .hero { display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: clamp(24px, 5vw, 76px); padding: 55px 0 85px; }
 .eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--teal); font-size: .72rem; font-weight: 850; letter-spacing: .14em; }

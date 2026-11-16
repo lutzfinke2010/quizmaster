@@ -20,12 +20,14 @@ export async function configureCloud(): Promise<boolean> {
   const response = await fetch("/amplify_outputs.json", { cache: "no-store" });
   if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return false;
   const outputs = outputsSchema.parse(await response.json());
-  // Eigene Provider, damit die Gast-Kennung nach 24 Stunden verfällt; dann muss der Token-Provider manuell konfiguriert werden.
+  let guestCredentialsProvider: CognitoAWSCredentialsAndIdentityIdProvider | undefined;
+  const identityStorage = createExpiringIdentityStorage(undefined, Date.now, undefined,
+    () => guestCredentialsProvider?.clearCredentials());
+  guestCredentialsProvider = new CognitoAWSCredentialsAndIdentityIdProvider(new DefaultIdentityIdStore(identityStorage));
   Amplify.configure(outputs, {
     Auth: {
       tokenProvider: cognitoUserPoolsTokenProvider,
-      credentialsProvider: new CognitoAWSCredentialsAndIdentityIdProvider(
-        new DefaultIdentityIdStore(createExpiringIdentityStorage())),
+      credentialsProvider: guestCredentialsProvider,
     },
   });
   const auth = Amplify.getConfig().Auth;

@@ -2,7 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, TransactGetCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getMyResult } from "./gameState";
+import { getMyAnswer, getMyResult } from "./gameState";
 
 const database = mockClient(DynamoDBDocumentClient);
 const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "eu-central-1" }));
@@ -63,5 +63,48 @@ describe("Persönliche freigegebene Gesamtpunkte", () => {
   it("meldet fehlende Gesamtpunkte statt einen Nullstand vorzutäuschen", async () => {
     delete items["PARTICIPANT#me"].totalPoints;
     await expect(getMyResult(db, "table", "session", "guest", 50_000)).rejects.toThrow();
+  });
+
+  it("liest bei einem Antwortwechsel während der Abfrage den neuen Stand", async () => {
+    items.META.status = "QUESTION_OPEN";
+    items["ANSWER#q2#me"] = { choiceId: "a1" };
+    let reads = 0;
+    database.on(GetCommand, { Key: { pk: "SESSION#session", sk: "ANSWER#q2#me" } }).callsFake(() => {
+      const previous = { ...items["ANSWER#q2#me"] };
+      if (reads++ === 0) {
+        items["ANSWER#q2#me"] = { choiceId: "a2" };
+        items.META.version = 6;
+      }
+      return { Item: previous };
+    });
+    expect(await getMyAnswer(db, "table", "session", "guest", 50_000))
+      .toEqual({ questionId: "q2", choiceId: "a2" });
+    expect(reads).toBe(2);
+  });
+
+  it("holt nach einem gleichzeitigen Phasen- und Fragenwechsel einen neuen Antwort-Snapshot", async () => {
+    items["ANSWER#q2#me"] = { choiceId: "a1" };
+    items["ANSWER#q3#me"] = { choiceId: "a2" };
+    database.on(GetCommand, { Key: { pk: "SESSION#session", sk: "ANSWER#q2#me" } }).callsFake(() => {
+      items.META = { ...items.META, version: 6, status: "QUESTION_OPEN", currentQuestionId: "q3" };
+      return { Item: items["ANSWER#q2#me"] };
+    });
+    expect(await getMyAnswer(db, "table", "session", "guest", 50_000))
+      .toEqual({ questionId: "q3", choiceId: "a2" });
+  });
+
+  it("begrenzt Wiederholungen bei ständig verändertem Antwort-Snapshot", async () => {
+    database.on(GetCommand).callsFake(() => {
+      items.META.version = Number(items.META.version) + 1;
+      return { Item: { choiceId: "a1" } };
+    });
+    await expect(getMyAnswer(db, "table", "session", "guest", 50_000)).rejects.toThrow("gleichzeitig geändert");
+    expect(database.commandCalls(GetCommand)).toHaveLength(4);
+  });
+
+  it("unterscheidet keine Antwort von fehlender Teilnahme", async () => {
+    expect(await getMyAnswer(db, "table", "session", "guest", 50_000))
+      .toEqual({ questionId: "q2", choiceId: null });
+    await expect(getMyAnswer(db, "table", "session", "stranger", 50_000)).rejects.toThrow("Keine gültige Teilnahme");
   });
 });

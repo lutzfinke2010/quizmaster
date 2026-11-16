@@ -29,16 +29,17 @@ export interface AnswerContext {
 
 export interface AnswerStore {
   read(input: AnswerInput, identityId: string): Promise<AnswerContext>;
-  accept(input: AnswerInput, identityId: string, participantId: string, receivedAt: number, expiresAt: number): Promise<void>;
+  accept(input: AnswerInput, identityId: string, participantId: string, receivedAt: number, expiresAt: number,
+    previousAnswer: AnswerContext["answer"]): Promise<void>;
 }
 
 export class AnswerError extends Error {
-  readonly code: "NOT_AUTHORIZED" | "NOT_OPEN" | "ALREADY_ANSWERED" | "REJECTED";
-  constructor(code: "NOT_AUTHORIZED" | "NOT_OPEN" | "ALREADY_ANSWERED" | "REJECTED") {
+  readonly code: "NOT_AUTHORIZED" | "NOT_OPEN" | "CONFLICT" | "REJECTED";
+  constructor(code: "NOT_AUTHORIZED" | "NOT_OPEN" | "CONFLICT" | "REJECTED") {
     super({
       NOT_AUTHORIZED: "Keine gültige Teilnahme an dieser Sitzung.",
       NOT_OPEN: "Die Frage ist nicht zur Beantwortung geöffnet.",
-      ALREADY_ANSWERED: "Die Antwort wurde bereits gespeichert und kann nicht geändert werden.",
+      CONFLICT: "Deine Antwort wurde inzwischen geändert. Bitte prüfe deine gespeicherte Antwort.",
       REJECTED: "Die Antwort konnte nicht angenommen werden.",
     }[code]);
     this.name = "AnswerError";
@@ -50,11 +51,22 @@ function existingAnswer(context: AnswerContext, input: AnswerInput, receivedAt: 
   if (!context.meta || !context.participant || context.meta.expiresAt <= receivedAt) {
     throw new AnswerError("NOT_AUTHORIZED");
   }
-  if (context.answer) {
-    if (context.answer.choiceId !== input.choiceId) throw new AnswerError("ALREADY_ANSWERED");
+  if (context.answer?.choiceId === input.choiceId) {
     return { acceptedAt: context.answer.receivedAt };
   }
   return null;
+}
+
+function requireOpen(context: AnswerContext, input: AnswerInput, receivedAt: number) {
+  if (!context.meta || !context.participant ||
+      context.meta.status !== "QUESTION_OPEN" ||
+      context.meta.currentQuestionId !== input.questionId ||
+      context.meta.opensAt == null || context.meta.closesAt == null ||
+      receivedAt < context.meta.opensAt || receivedAt >= context.meta.closesAt) {
+    throw new AnswerError("NOT_OPEN");
+  }
+  if (context.answer && receivedAt <= context.answer.receivedAt) throw new AnswerError("CONFLICT");
+  return { participantId: context.participant.participantId, expiresAt: context.meta.expiresAt };
 }
 
 /**
@@ -71,29 +83,29 @@ export async function submitAnswer(
   identity.parse(identityId);
   if (!Number.isSafeInteger(receivedAt) || receivedAt < 0) throw new Error("Ungültige Serverzeit.");
 
-  const context = await withTransactionConflictRetry(() => store.read(input, identityId));
-  const existing = existingAnswer(context, input, receivedAt);
-  if (existing) return existing;
-  if (!context.meta || !context.participant ||
-      context.meta.status !== "QUESTION_OPEN" ||
-      context.meta.currentQuestionId !== input.questionId ||
-      context.meta.opensAt == null || context.meta.closesAt == null ||
-      receivedAt < context.meta.opensAt || receivedAt >= context.meta.closesAt) {
-    throw new AnswerError("NOT_OPEN");
+  let context = await withTransactionConflictRetry(() => store.read(input, identityId));
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const existing = existingAnswer(context, input, receivedAt);
+    if (existing) return existing;
+    const { participantId, expiresAt } = requireOpen(context, input, receivedAt);
+    const previousAnswer = context.answer;
+    try {
+      await withTransactionConflictRetry(() =>
+        store.accept(input, identityId, participantId, receivedAt, expiresAt, previousAnswer));
+      return { acceptedAt: receivedAt };
+    } catch (error) {
+      // Reconcile a lost receipt or a competing write before attempting a new transaction.
+      const after = await withTransactionConflictRetry(() => store.read(input, identityId));
+      const retry = existingAnswer(after, input, receivedAt);
+      if (retry) return retry;
+      if (!isConditionalFailure(error)) throw error;
+      requireOpen(after, input, receivedAt);
+      if (after.answer?.choiceId === previousAnswer?.choiceId &&
+          after.answer?.receivedAt === previousAnswer?.receivedAt) throw new AnswerError("REJECTED");
+      context = after;
+    }
   }
-  const participantId = context.participant.participantId;
-  const expiresAt = context.meta.expiresAt;
-  try {
-    await withTransactionConflictRetry(() => store.accept(input, identityId, participantId, receivedAt, expiresAt));
-    return { acceptedAt: receivedAt };
-  } catch (error) {
-    // A competing request may have committed the same answer or won the race to answer.
-    const after = await withTransactionConflictRetry(() => store.read(input, identityId));
-    const retry = existingAnswer(after, input, receivedAt);
-    if (retry) return retry;
-    if (isConditionalFailure(error)) throw new AnswerError("REJECTED");
-    throw error;
-  }
+  throw new AnswerError("CONFLICT");
 }
 
 function keys(input: AnswerInput, identityId: string) {
@@ -116,13 +128,14 @@ export function buildAnswerTransaction(
   participantId: string,
   receivedAt: number,
   expiresAt: number,
+  previousAnswer: AnswerContext["answer"] = null,
 ): TransactWriteCommandInput {
   const itemKeys = keys(input, identityId);
   return { TransactItems: [
     { Update: {
       TableName: tableName,
       Key: itemKeys.meta,
-      UpdateExpression: "ADD answerCount :one, #version :one",
+      UpdateExpression: previousAnswer ? "ADD #version :one" : "ADD answerCount :one, #version :one",
       ConditionExpression: "#status = :open AND currentQuestionId = :question AND opensAt <= :received AND closesAt > :received AND expiresAt = :expiresAt AND expiresAt > :received",
       ExpressionAttributeNames: { "#status": "status", "#version": "version" },
       ExpressionAttributeValues: { ":one": 1, ":open": "QUESTION_OPEN", ":question": input.questionId, ":received": receivedAt, ":expiresAt": expiresAt },
@@ -142,7 +155,12 @@ export function buildAnswerTransaction(
     { Put: {
       TableName: tableName,
       Item: { ...answerKey(input, participantId), choiceId: input.choiceId, receivedAt, ttl: Math.ceil(expiresAt / 1000) },
-      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      ConditionExpression: previousAnswer
+        ? "choiceId = :previousChoice AND receivedAt = :previousReceived AND receivedAt < :received"
+        : "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      ...(previousAnswer ? { ExpressionAttributeValues: {
+        ":previousChoice": previousAnswer.choiceId, ":previousReceived": previousAnswer.receivedAt, ":received": receivedAt,
+      } } : {}),
     } },
   ] };
 }
@@ -188,9 +206,10 @@ export class DynamoAnswerStore implements AnswerStore {
       answer: answer ? answerSchema.parse(answer) : null };
   }
 
-  async accept(input: AnswerInput, identityId: string, participantId: string, receivedAt: number, expiresAt: number): Promise<void> {
+  async accept(input: AnswerInput, identityId: string, participantId: string, receivedAt: number, expiresAt: number,
+    previousAnswer: AnswerContext["answer"]): Promise<void> {
     await this.client.send(new TransactWriteCommand(
-      buildAnswerTransaction(this.tableName, input, identityId, participantId, receivedAt, expiresAt),
+      buildAnswerTransaction(this.tableName, input, identityId, participantId, receivedAt, expiresAt, previousAnswer),
     ));
   }
 }

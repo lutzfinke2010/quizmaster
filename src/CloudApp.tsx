@@ -13,7 +13,6 @@ import { ErrorBanner, Layout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
 import { GameView, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
-import { clearGuestIdentity } from "./guestIdentityStorage";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 
 function Home() {
@@ -263,7 +262,7 @@ function DeleteOwnData({ sessionId, status, onDeleted }: { sessionId: string; st
   const running = runningStatuses.includes(status);
   async function remove() {
     setBusy(true); setError("");
-    try { await cloud.deleteMyParticipation(sessionId); clearGuestIdentity(); onDeleted(); }
+    try { await cloud.deleteMyParticipation(sessionId); onDeleted(); }
     catch (caught) { setError(message(caught)); setBusy(false); }
   }
   return <section className="delete-own-data" aria-labelledby="delete-own-data-heading">
@@ -299,7 +298,17 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
   const [standing, setStanding] = useState<PersonalStanding | null>(null);
   const [deleted, setDeleted] = useState(false);
   const sending = useRef(false);
+  const answerRequest = useRef(0);
+  const unconfirmed = useRef<{ questionId: string; choiceId: string } | null>(null);
   const { state, offset, error: liveError, refresh, recoveryVersion } = useLiveState(sessionId, "guest");
+  const currentQuestion = useRef(state?.questionId);
+  currentQuestion.current = state?.questionId;
+  useEffect(() => {
+    answerRequest.current++;
+    sending.current = false; unconfirmed.current = null;
+    setSelection(null); setPending(null); setBusy(false); setAnswerError(""); setRestoredQuestion(null);
+  }, [state?.questionId]);
+  useEffect(() => () => { answerRequest.current++; }, []);
   useEffect(() => {
     let active = true;
     cloud.myParticipation(sessionId).then((value) => { if (active) { setParticipant(value); setError(""); } },
@@ -315,23 +324,30 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
       setRestoringAnswer(false); setRestoreError("");
       return;
     }
+    if (busy) return;
     let active = true;
+    const request = answerRequest.current;
+    const questionId = state.questionId;
+    const isCurrent = () => active && request === answerRequest.current && currentQuestion.current === questionId;
     setRestoringAnswer(true); setRestoreError("");
     cloud.myAnswer(sessionId).then((value) => {
-      if (active && value.questionId && value.questionId === state.questionId && value.choiceId) {
-        setSelection({ questionId: value.questionId, choiceId: value.choiceId });
-        setAnswerError("");
-      }
-      if (active) {
-        if (value.questionId === state.questionId) setRestoredQuestion(state.questionId!);
-        else {
-          setRestoreError("Die Frage wurde inzwischen geändert. Bitte den Spielstand erneut prüfen.");
-          refresh();
+      if (!isCurrent()) return;
+      if (value.questionId === questionId) {
+        setSelection(value.choiceId ? { questionId, choiceId: value.choiceId } : null);
+        setRestoredQuestion(questionId);
+        if (!unconfirmed.current || (unconfirmed.current.questionId === questionId &&
+            unconfirmed.current.choiceId === value.choiceId)) {
+          unconfirmed.current = null;
+          setAnswerError("");
         }
+      } else {
+        setRestoreError("Die Frage wurde inzwischen geändert. Bitte den Spielstand erneut prüfen.");
+        refresh();
       }
-    }, (caught) => { if (active) setRestoreError(message(caught)); }).finally(() => { if (active) setRestoringAnswer(false); });
+    }, (caught) => { if (isCurrent()) setRestoreError(message(caught)); })
+      .finally(() => { if (isCurrent()) setRestoringAnswer(false); });
     return () => { active = false; };
-  }, [sessionId, state?.questionId, state?.status, restoreAttempt, recoveryVersion]);
+  }, [sessionId, state?.questionId, state?.status, restoreAttempt, recoveryVersion, busy]);
   useEffect(() => {
     if (!state?.questionId || !["REVEAL", "LEADERBOARD", "FINISHED"].includes(state.status)) {
       setResultError("");
@@ -344,18 +360,31 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
   }, [sessionId, state?.questionId, state?.status, restoreAttempt, recoveryVersion]);
   async function answer(choiceId: string) {
     if (!state?.questionId || state.status !== "QUESTION_OPEN" || sending.current || restoringAnswer ||
-        restoreError || restoredQuestion !== state.questionId || selection?.questionId === state.questionId) return;
+        restoreError || restoredQuestion !== state.questionId || state.closesAt == null ||
+        Date.now() + offset >= state.closesAt ||
+        (selection?.questionId === state.questionId && selection.choiceId === choiceId)) return;
     const questionId = state.questionId;
+    const request = ++answerRequest.current;
+    const isCurrent = () => request === answerRequest.current && currentQuestion.current === questionId;
     sending.current = true;
+    unconfirmed.current = null;
     setBusy(true); setAnswerError(""); setPending({ questionId, choiceId });
-    try { await cloud.answer(sessionId, questionId, choiceId); setSelection({ questionId, choiceId }); refresh(); }
+    try {
+      await cloud.answer(sessionId, questionId, choiceId);
+      if (isCurrent()) { setSelection({ questionId, choiceId }); refresh(); }
+    }
     catch (caught) {
+      if (!isCurrent()) return;
+      unconfirmed.current = { questionId, choiceId };
       setAnswerError(`Antwort nicht bestätigt: ${message(caught)} Deine gespeicherte Antwort wird erneut geprüft. Solange die Frage offen ist, kannst du danach erneut antworten.`);
       setRestoredQuestion(null); setRestoreAttempt((attempt) => attempt + 1); refresh();
-    } finally { sending.current = false; setBusy(false); setPending(null); }
+    } finally {
+      if (isCurrent()) { sending.current = false; setBusy(false); setPending(null); }
+    }
   }
   if (deleted) return <Layout gameMode="player"><h1>Deine Spieldaten wurden gelöscht</h1>
-    <p>Teilnahme, Antworten und Punkte wurden entfernt. Die Browser-Kennung wurde zurückgesetzt.</p>
+    <p>Teilnahme, Antworten und Punkte wurden entfernt. Die technische Browser-Kennung bleibt bis zu ihrem Ablauf bestehen,
+      damit sie für andere offene Spielrunden verfügbar bleibt.</p>
     <Link className="button primary" to="/">Zur Startseite</Link></Layout>;
   return <Layout gameMode="player"><ErrorBanner error={liveError || restoreError || resultError || error || answerError} />
     {(restoreError || resultError || error || liveError) && <button className="button secondary" onClick={() => {

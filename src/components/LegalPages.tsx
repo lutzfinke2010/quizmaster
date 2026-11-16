@@ -39,12 +39,14 @@ export function ImpressumPage() {
 }
 
 const storageRows: { key: string; purpose: string; duration: string; who: string }[] = [
-  { key: "com.amplify.Cognito.<Identity-Pool-ID>.identityId", purpose: "Anonyme Gast-Kennung, damit deine Teilnahme und deine Antworten dir zugeordnet werden können",
-    duration: "Höchstens 24 Stunden, danach wird sie verworfen. Wird beim Löschen deiner Teilnahme entfernt.", who: "Mitspielende, Präsentationsansicht" },
-  { key: "quizrush.expiry.<…>", purpose: "Zeitpunkt, an dem die Gast-Kennung verfällt", duration: "Wie die Gast-Kennung", who: "Mitspielende, Präsentationsansicht" },
-  { key: "CognitoIdentityServiceProvider.<Client-ID>.*", purpose: "Anmeldung im Quizmaster-Bereich (Token der Sitzung)",
-    duration: "Bis zur Abmeldung bzw. Ablauf der Anmeldung", who: "Quizmaster" },
-  { key: "quizrush.local-drafts.v1", purpose: "Quiz-Entwürfe im lokalen Entwurfsmodus ohne Cloud", duration: "Bis du sie löschst", who: "Nur im lokalen Entwurfsmodus" },
+  { key: "com.amplify.Cognito.<Identity-Pool-ID>.identityId", purpose: "Technische Gast-Kennung für angeforderte Live-Spiel- und Präsentationsfunktionen; sie ist von Zugangsdaten und serverseitiger Spielteilnahme getrennt.",
+    duration: "24 Stunden ab erster Speicherung. Lesen oder erneutes Schreiben verlängert die Frist nicht. Eine einzelne gelöschte Teilnahme entfernt diese gemeinsame Kennung nicht.", who: "Mitspielende, Präsentationsansicht" },
+  { key: "quizrush.expiry.<…>", purpose: "Lokaler Ablaufzeitpunkt der Gast-Kennung",
+    duration: "Wird zusammen mit der Kennung entfernt; die Bereinigung erfolgt bei Fristablauf im offenen Tab oder bei der nächsten Ausführung nach Rückkehr.", who: "Mitspielende, Präsentationsansicht" },
+  { key: "CognitoIdentityServiceProvider.<Client-ID>.*", purpose: "SDK-verwaltete Quizmaster-Anmeldung einschließlich Access-, ID- und Refresh-Token",
+    duration: "Access- und ID-Token höchstens 60 Minuten, Refresh-Token höchstens einen Tag ab Anmeldung. Amplify kann Access- und ID-Tokens währenddessen erneuern; die Erneuerung verlängert die Refresh-Frist nicht. Abmeldung entfernt die lokale Sitzung.", who: "Quizmaster" },
+  { key: "quizrush.local-drafts.v1", purpose: "Quiz-Entwürfe im lokalen Entwurfsmodus; Zugriff erst nach Aktivierung, Speicherung erst nach ausdrücklichem Speichern",
+    duration: "Bis zur gezielten Löschung oder zum Entfernen der Website-Daten. Ausschalten der Funktion löscht vorhandene Entwürfe nicht.", who: "Nur im lokalen Entwurfsmodus" },
 ];
 
 export function PrivacyPolicyPage() {
@@ -69,7 +71,8 @@ export function PrivacyPolicyPage() {
       <p>Die Website wird über AWS Amplify Hosting ausgeliefert. Beim Aufruf verarbeitet der Hosting-Dienst technisch notwendige Verbindungsdaten
         (insbesondere IP-Adresse, Zeitpunkt, aufgerufene Adresse, Browser-Angaben), um die Seite auszuliefern und den Betrieb abzusichern.</p>
       <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (Interesse an einem sicheren und stabilen Betrieb). Die Startseite, das Impressum und diese
-        Datenschutzerklärung lösen keine Anfragen an die Spiel-Schnittstelle aus und erzeugen keine Gast-Kennung.</p>
+        Datenschutzerklärung erzeugen keine Gast-Kennung und lösen keine Anfrage an die Spiel-Schnittstelle aus. Beim App-Start wird außerdem
+        die öffentliche Konfigurationsdatei vom selben Website-Ursprung geladen; sie enthält keine Anmelde- oder Gastdaten.</p>
     </section>
     <section>
       <h2>4. Mitspielen</h2>
@@ -93,14 +96,37 @@ export function PrivacyPolicyPage() {
       <p>Für den Quizmaster-Bereich wird ein Konto mit E-Mail-Adresse und Passwort bei Amazon Cognito angelegt. Das Passwort wird nicht im Klartext
         gespeichert. Gespeichert werden außerdem deine Quizvorlagen sowie die von dir gestarteten Sitzungen mit Beitrittscode und Präsentationslink.
         Die Freigabe als Quizmaster erfolgt durch die Administration.</p>
+      <p>Erst wenn du eine Anmeldung startest, legt Amplify die zugehörigen Tokens im Browser-Speicher ab. Ein noch gültiges Refresh-Token kann
+        abgelaufene Access- und ID-Tokens erneuern; deren Ablauf beendet die gesamte Anmeldung daher nicht zwingend. Die im Backend definierte
+        Höchstdauer beträgt 60 Minuten für Access- und ID-Tokens sowie einen Tag für das Refresh-Token. Die Refresh-Frist wird durch Erneuerungen
+        nicht verlängert. Eine Funktion „Angemeldet bleiben“ gibt es nicht. Der Betreiber muss nach dem Backend-Deployment prüfen, dass der
+        Cognito-Pool diese Werte tatsächlich verwendet. Beim Abmelden ruft die Anwendung Amplifys Abmeldefunktion auf.</p>
       <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung des gewünschten Kontos) und lit. f (Missbrauchs- und Zugriffsschutz).</p>
     </section>
     <section>
       <h2>6. Speicherung im Browser und TDDDG</h2>
-      <p>{legal.appName} setzt keine Cookies und verwendet keine Analyse-, Werbe- oder Tracking-Dienste, keine externen Schriftarten und keine
-        externen Skripte. Es wird ausschließlich der lokale Speicher (localStorage) deines Browsers genutzt, soweit dies für den ausdrücklich
-        gewünschten Dienst unbedingt erforderlich ist (§ 25 Abs. 2 Nr. 2 TDDDG). Eine Einwilligung ist dafür nicht erforderlich; es gibt daher
-        keinen Cookie-Banner.</p>
+      <p>Der Frontend-Code verwendet Amplifys Standard-Browserspeicher (localStorage), nicht CookieStorage, und setzt selbst keine Cookies.
+        Im geprüften lokalen Browserlauf wurden weder Cookies noch Set-Cookie-Antwortheader beobachtet. Ob Hosting oder CDN im Produktivbetrieb
+        eigene Set-Cookie-Header ausliefern, ist damit nicht geprüft. Die Anwendung verwendet keine Analyse-, Werbe- oder Tracking-Dienste und lädt
+        keine externen Schriftarten. Beim Beitritt, bei Live-Spiel- und Präsentationsansichten sowie bei einer gestarteten Quizmaster-Anmeldung
+        werden für diese Funktionen Anfragen an AWS-Dienste gesendet.</p>
+      <p>§ 25 TDDDG betrifft das Speichern von Informationen in einer Endeinrichtung und den Zugriff darauf. Die Ausnahme in Absatz 2 Nummer 2 ist
+        auf den jeweils ausdrücklich gewünschten digitalen Dienst und die dafür unbedingt erforderlichen Zugriffe zu beziehen; nicht jeder
+        localStorage-Eintrag ist allein wegen der SDK-Nutzung automatisch erforderlich. Die technische Gast-Kennung wird erst beim angeforderten
+        Live-Zugriff benötigt. Die optionale Entwurfsspeicherung ist standardmäßig ausgeschaltet; bestehende Entwürfe werden erst nach bewusster
+        Aktivierung gelesen und neue erst nach ausdrücklichem Speichern abgelegt. Diese Funktionsauswahl ist keine pauschale Einwilligung und wird
+        nicht als automatisch rechtlich ausreichende TDDDG-Einwilligung ausgegeben. Die endgültige rechtliche Einordnung hängt auch vom konkreten
+        Dienstangebot und der Live-Konfiguration ab.</p>
+      <p>Temporäre AWS-Zugangsdaten werden vom SDK nur im Arbeitsspeicher gehalten und unabhängig von der lokalen Kennung erneuert bzw. verworfen.
+        Die serverseitige Spielteilnahme hat wiederum ihre eigene Ablaufzeit. Das Ablaufen der lokalen Kennung löscht daher weder serverseitige
+        Spieldaten noch ersetzt es deren serverseitige Ablaufprüfung.</p>
+      <p>Eine etwaige Ausnahme nach § 25 TDDDG ersetzt nicht die gesonderte Prüfung der anschließenden Verarbeitung personenbezogener Daten nach
+        der DSGVO. Deren Rechtsgrundlagen und Informationspflichten sind separat zu beurteilen; diese Datenschutzerklärung ist selbst keine
+        Einwilligung.</p>
+      <p>Maßstab dieser Information sind <a href="https://www.gesetze-im-internet.de/ttdsg/__25.html" rel="noopener noreferrer">§ 25 TDDDG</a>
+        {" "}und die <a href="https://www.datenschutzkonferenz-online.de/orientierungshilfen.html" rel="noopener noreferrer">
+          Orientierungshilfen der Datenschutzkonferenz</a>, insbesondere die dort aufgeführte Orientierungshilfe für digitale Dienste
+        (November 2024). Die konkrete rechtliche Einordnung ist nicht abschließend geprüft.</p>
       <div className="legal-table-wrap">
         <table className="legal-table">
           <thead><tr><th scope="col">Eintrag</th><th scope="col">Zweck</th><th scope="col">Dauer</th><th scope="col">Betrifft</th></tr></thead>
@@ -126,11 +152,14 @@ export function PrivacyPolicyPage() {
           Sitzung. Danach sind die Daten nicht mehr abrufbar; die physische Löschung in der Datenbank erfolgt automatisch, kann aber technisch
           zeitversetzt (in der Regel innerhalb einiger Tage) erfolgen.</li>
         <li>Deine eigene Teilnahme kannst du im Spiel jederzeit löschen, solange keine Frage läuft. Die Teilnahme wird sofort unzugänglich,
-          Antworten und Ergebnisse werden entfernt. Die anonyme Cognito-Kennung selbst wird dabei nicht gelöscht, enthält aber keine Angaben zu
-          deiner Person.</li>
+          Antworten und Ergebnisse werden entfernt. Die technische Gast-Kennung wird nicht gelöscht, da sie auch für andere noch offene Runden
+          verwendet werden kann; sie enthält keine direkt angegebenen Kontaktdaten.</li>
         <li>Technische Logs (Betrieb, Fehleranalyse): {legal.logRetentionDays} Tage, soweit die Aufbewahrung im Betrieb entsprechend eingerichtet ist.</li>
         <li>Quizvorlagen und Quizmaster-Konten: bis zur Löschung durch den Quizmaster bzw. auf Anfrage.</li>
-        <li>Gast-Kennung im Browser: höchstens 24 Stunden.</li>
+        <li>Gast-Kennung im Browser: höchstens 24 Stunden ab Speicherung. Die Anwendung prüft den Fristablauf im geöffneten Tab und bei Rückkehr
+          zur Seite. Ist der Browser geschlossen, kann JavaScript nicht punktgenau löschen; die logische Frist gilt unabhängig davon, und die
+          physische Bereinigung erfolgt bei der nächsten Ausführung. Die lokale Frist nutzt die Browseruhr und ist keine serverseitige
+          Sicherheitsgrenze. Serverseitige Zugriffe auf Spielteilnahmen werden zusätzlich anhand serverseitiger Ablaufzeiten geprüft.</li>
       </ul>
     </section>
     <section>

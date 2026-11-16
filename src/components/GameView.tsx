@@ -32,12 +32,7 @@ export function Avatar({ avatarId }: { avatarId: string }) {
     onError={() => setFailedId(avatarId)} />;
 }
 
-export function Timer({ deadline, offset }: { deadline: number; offset: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(timer);
-  }, []);
+export function Timer({ deadline, offset, now }: { deadline: number; offset: number; now: number }) {
   const seconds = Math.max(0, Math.ceil((deadline - now - offset) / 1000));
   return <span className="timer" role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
     {seconds}<small>Sekunden</small></span>;
@@ -115,7 +110,7 @@ function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer }: {
 }) {
   return <div className="answer-grid">{state.question?.answers.map((answer, index) => {
     const isSelected = selected === answer.id;
-    const isPending = pendingChoice === answer.id && !selected;
+    const isPending = pendingChoice === answer.id;
     const content = <><span className="answer-letter">{String.fromCharCode(65 + index)}</span>
       <span className="answer-content"><span className="answer-text">{answer.text}</span>
         {isSelected && <span className="answer-state"><Check size={15} aria-hidden="true" />Deine Antwort · abgegeben</span>}
@@ -123,7 +118,7 @@ function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer }: {
       </span></>;
     const className = `answer-tile${isSelected ? " is-selected" : ""}${isPending ? " is-pending" : ""}`;
     return onAnswer ? <button key={answer.id} type="button" className={className}
-      aria-disabled={locked} aria-pressed={isSelected || isPending}
+      aria-disabled={locked} aria-pressed={pendingChoice ? isPending : isSelected}
       onClick={() => { if (!locked) onAnswer(answer.id); }}>{content}</button> :
       <div key={answer.id} className={className}>{content}</div>;
   })}</div>;
@@ -181,10 +176,18 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
   standing?: PersonalStanding | null; joinCode?: string; presentation?: boolean;
 }) {
   const phase = state.status;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (phase !== "QUESTION_OPEN" && phase !== "COUNTDOWN") return;
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, [phase, state.questionId]);
+  const timeRemaining = phase === "QUESTION_OPEN" && state.closesAt != null && now + offset < state.closesAt;
   const currentPlayer = state.leaderboard.find((player) => player.participantId === participant?.participantId);
   const score = currentPlayer?.points ?? result?.totalPoints ?? standing?.player.points;
   const rank = currentPlayer?.rank ?? standing?.player.rank;
-  const choiceIndex = state.question?.answers.findIndex((answer) => answer.id === (selected ?? pendingChoice)) ?? -1;
+  const choiceIndex = state.question?.answers.findIndex((answer) => answer.id === (pendingChoice ?? selected)) ?? -1;
   const choice = choiceIndex >= 0 ? state.question?.answers[choiceIndex] : undefined;
   const active = ["QUESTION_OPEN", "QUESTION_CLOSED", "SCORING"].includes(phase);
   return <div className={`game-view${personal ? " game-personal" : ""}${presentation ? " game-presentation" : ""}`}>
@@ -215,28 +218,30 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
         <span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
         <div className="result-sticker" aria-hidden="true"><Sparkles size={32} /></div>
         <h1>Gleich geht’s los!</h1>
-        {state.opensAt != null && <Timer deadline={state.opensAt} offset={offset} />}
+        {state.opensAt != null && <Timer deadline={state.opensAt} offset={offset} now={now} />}
         <p>Mach dich bereit für die nächste Frage.</p>
       </section>}
       {active && state.question && <section className="question-phase" aria-labelledby="question-title">
         <div className="question-meta"><span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
-          {phase === "QUESTION_OPEN" && state.closesAt != null && <Timer deadline={state.closesAt} offset={offset} />}</div>
+          {phase === "QUESTION_OPEN" && state.closesAt != null && <Timer deadline={state.closesAt} offset={offset} now={now} />}</div>
         <h1 id="question-title">{state.question.text}</h1>
         <QuestionAnswers state={state} selected={selected} pendingChoice={pendingChoice}
-          locked={phase !== "QUESTION_OPEN" || Boolean(selected) || Boolean(answerBusy)} onAnswer={onAnswer} />
-        {personal && <div className={`answer-feedback${pendingChoice && !selected ? " pending" : ""}`} role="status" aria-atomic="true">
-          {selected ? <CheckCircle2 size={22} aria-hidden="true" /> : <Clock3 size={22} aria-hidden="true" />}
-          <span>{selected ? <><strong>Antwort ist drin</strong>Deine Antwort: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : "wird geladen …"}
-            <small>Gleich erfährst du, ob du richtig liegst.</small></> :
-            pendingChoice ? <><strong>Wird gesendet …</strong>Deine Auswahl: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : ""}</> :
+          locked={!timeRemaining || Boolean(answerBusy)} onAnswer={onAnswer} />
+        {personal && <div className={`answer-feedback${pendingChoice ? " pending" : ""}`} role="status" aria-atomic="true">
+          {selected && !pendingChoice ? <CheckCircle2 size={22} aria-hidden="true" /> : <Clock3 size={22} aria-hidden="true" />}
+          <span>{pendingChoice ? <><strong>Wird gesendet …</strong>Deine Auswahl: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : ""}
+            {selected && <small>Bis zur Bestätigung bleibt deine bisherige Antwort gespeichert.</small>}</> :
+            selected ? <><strong>Antwort ist drin</strong>Deine Antwort: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : "wird geladen …"}
+              <small>{timeRemaining ? "Bis zum Zeitablauf kannst du deine Antwort ändern." : "Gleich erfährst du, ob du richtig liegst."}</small></> :
             answerRestoreFailed ? "Deine gespeicherte Antwort ist gerade nicht verfügbar. Bitte erneut prüfen." :
             answerBusy ? "Deine gespeicherte Antwort wird geprüft …" :
-            phase === "QUESTION_OPEN" ? "Tippe auf eine Antwort. Sie wird direkt abgegeben und kann nicht geändert werden." :
+            timeRemaining ? "Tippe auf eine Antwort. Sie wird direkt abgegeben und ist bis zum Zeitablauf änderbar." :
             "Keine Antwort abgegeben. Die Auflösung folgt gleich."}</span>
         </div>}
         {phase !== "QUESTION_OPEN" && <p className="game-hint" role="status">Kurz durchatmen. Die Antworten werden ausgewertet …</p>}
         <AnswerProgress state={state} />
-        {personal && phase === "QUESTION_OPEN" && <p className="game-hint">Die Antwortzeit wird auf dem Server gemessen. Der Netzwerkweg zählt mit.</p>}
+        {personal && phase === "QUESTION_OPEN" && <p className="game-hint">Für die Punkte zählt deine letzte Änderung.
+          Die Antwortzeit wird auf dem Server gemessen. Der Netzwerkweg zählt mit.</p>}
       </section>}
       {phase === "REVEAL" && <Reveal state={state} result={result} personal={personal} selected={selected} />}
       {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal} />}
