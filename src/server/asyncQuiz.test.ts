@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as participation from "./participation";
 import {
   endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
 } from "./asyncQuiz";
@@ -94,6 +95,17 @@ function setupDatabase() {
     const key = keyOf(input.Key.pk, input.Key.sk);
     const current = records.get(key);
     const values = input.ExpressionAttributeValues ?? {};
+    if (input.UpdateExpression === "SET maxParticipants = :limit") {
+      expect(input.ConditionExpression).toBe("#status = :active AND expiresAt > :now AND maxParticipants < :limit");
+      expect(input.ReturnValues).toBe("ALL_NEW");
+      if (!current || current.status !== values[":active"] || Number(current.expiresAt) <= Number(values[":now"]) ||
+          Number(current.maxParticipants) >= Number(values[":limit"])) {
+        throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
+      }
+      const updated = { ...current, maxParticipants: values[":limit"] };
+      records.set(key, updated);
+      return { Attributes: { ...updated } };
+    }
     if (input.UpdateExpression?.includes("currentQuestionStartedAt")) {
       if (!current || current.status !== values[":progress"] || current.answeredCount !== values[":index"] ||
           current.currentQuestionIndex === values[":index"]) {
@@ -186,6 +198,7 @@ describe("Quiz per Link", () => {
     records.clear();
     setupDatabase();
   });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it("öffnet eine Bot-Vorschau ohne Versuch oder Teilnehmerstatistik zu erzeugen", async () => {
     const info = await getAsyncPublicInfo(db, "table", token, Date.now());
@@ -207,11 +220,13 @@ describe("Quiz per Link", () => {
     const request = { quizId, requestId: "b22f156b-61a2-42d7-ae36-98aac6c22fb8",
       expiresAt: Date.now() + 60_000, timeZone: "Europe/Berlin" };
     const principal = { subject: "admin", groups: ["Quizmasters"] };
-    const created = await publishAsyncQuiz(db, "table", request, principal, 30, 100, Date.now());
-    const retry = await publishAsyncQuiz(db, "table", request, principal, 30, 100, Date.now());
+    const created = await publishAsyncQuiz(db, "table", request, principal, 30, Date.now());
+    const retry = await publishAsyncQuiz(db, "table", request, principal, 30, Date.now());
     expect(retry).toEqual(created);
+    expect(created.maxParticipants).toBe(250);
     expect(created.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const publication = records.get(keyOf(`ASYNC#${created.publicationId}`, "META"));
+    expect(publication?.maxParticipants).toBe(250);
     expect(publication?.snapshot).toEqual(records.get(keyOf("OWNER#admin", `QUIZ#${quizId}`))?.quiz);
     records.set(keyOf("OWNER#admin", `QUIZ#${quizId}`), {
       ...records.get(keyOf("OWNER#admin", `QUIZ#${quizId}`)), quiz: { title: "Geändert", questions: [] },
@@ -219,8 +234,13 @@ describe("Quiz per Link", () => {
     expect((records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))!.snapshot as { title: string }).title).toBe("Snapshot");
     expect([...records.values()].filter((item) => item.pk === "OWNER#admin" &&
       String(item.sk).startsWith("ASYNC#"))).toHaveLength(1);
+    records.set(keyOf(`ASYNC#${created.publicationId}`, "META"), { ...publication, maxParticipants: 100 });
+    const requestKey = keyOf("OWNER#admin", `ASYNC_REQUEST#${request.requestId}`);
+    records.set(requestKey, { ...records.get(requestKey), maxParticipants: 100 });
+    expect(await publishAsyncQuiz(db, "table", request, principal, 30, Date.now())).toEqual(created);
+    expect(records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))?.maxParticipants).toBe(250);
     await expect(publishAsyncQuiz(db, "table", { ...request, expiresAt: request.expiresAt + 1 },
-      principal, 30, 100, Date.now())).rejects.toThrow("bereits für eine andere Veröffentlichung verwendet");
+      principal, 30, Date.now())).rejects.toThrow("bereits für eine andere Veröffentlichung verwendet");
   });
 
   it("startet idempotent mit eigenem Fortschritt und gibt vor Quizende keine Lösung aus", async () => {
@@ -247,23 +267,132 @@ describe("Quiz per Link", () => {
     expect((await getAsyncPublicInfo(db, "table", token, Date.now())).joinCode).toBe("004281");
   });
 
-  it("begrenzt Starts auf die konfigurierte Teilnehmerzahl", async () => {
-    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 1 });
+  it("erlaubt genau 250 eindeutige Teilnahmen und die Wiederaufnahme bei voller Runde", async () => {
+    const names = new Set<string>();
+    for (let index = 0; index < 250; index++) {
+      const state = await startAsyncQuiz(db, "table", token, `guest-${index}`, Date.now());
+      names.add(state.displayName);
+      expect(state.maxParticipants).toBe(250);
+    }
+    expect(names.size).toBe(250);
+    expect([...records.values()].filter((item) => String(item.sk).startsWith("ATTEMPT#"))).toHaveLength(250);
+    expect([...records.values()].filter((item) => String(item.sk).startsWith("NAME#"))).toHaveLength(250);
+    const before = await getMyAsyncState(db, "table", token, "guest-0", Date.now());
+    const resumed = await startAsyncQuiz(db, "table", token, "guest-0", Date.now());
+    expect(resumed.displayName).toBe(before?.displayName);
+    expect(resumed.avatarId).toBe(before?.avatarId);
+    await expect(startAsyncQuiz(db, "table", token, "guest-250", Date.now())).rejects.toThrow("maximale Teilnehmerzahl");
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(250);
+  });
+
+  it("vergibt den letzten von 250 Plätzen auch bei parallelen Starts nur einmal", async () => {
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 250, startedCount: 249 });
+    const outcomes = await Promise.allSettled(Array.from({ length: 5 }, (_, index) =>
+      startAsyncQuiz(db, "table", token, `concurrent-${index}`, Date.now())));
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    for (const result of outcomes.filter((outcome) => outcome.status === "rejected")) {
+      expect(result.reason.message).toContain("maximale Teilnehmerzahl");
+    }
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(250);
+    expect([...records.values()].filter((item) => String(item.sk).startsWith("ATTEMPT#"))).toHaveLength(1);
+  });
+
+  it("ergänzt bei einer Namenskollision eine Zahl, ohne bestehende Namen zu ändern", async () => {
+    vi.spyOn(participation, "displayNameFor").mockReturnValue("Flinker Fuchs");
+    const first = await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    const second = await startAsyncQuiz(db, "table", token, "another-guest", Date.now());
+    expect(first.displayName).toBe("Flinker Fuchs");
+    expect(second.displayName).toMatch(/^Flinker Fuchs \d{2,3}$/);
+    expect((await getMyAsyncState(db, "table", token, identityId, Date.now()))?.displayName).toBe(first.displayName);
+    expect(records.has(keyOf(pk, `NAME#${first.displayName}`))).toBe(true);
+    expect(records.has(keyOf(pk, `NAME#${second.displayName}`))).toBe(true);
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(2);
+  });
+
+  it.each(["public", "code", "results", "overview", "state"] as const)(
+    "hebt Bestandsrunden beim Zugriff über %s dauerhaft auf 250 an", async (surface) => {
+      const original = { ...records.get(keyOf(pk, "META")), startedCount: 100, joinCode: "004281" };
+      records.set(keyOf(pk, "META"), original);
+      records.set(keyOf("CODE#004281", "META"), { pk: "CODE#004281", sk: "META", publicationId, kind: "ASYNC", createdAt: 1 });
+      records.set(keyOf("OWNER#admin", `ASYNC#${publicationId}`), { pk: "OWNER#admin", sk: `ASYNC#${publicationId}`, publicationId, token });
+      const principal = { subject: "admin", groups: ["Quizmasters"] };
+      let result: { maxParticipants: number } | null;
+      if (surface === "overview") {
+        result = (await listAsyncPublications(db, "table", principal, Date.now()))[0];
+      } else if (surface === "results") {
+        result = await getAsyncPublicationResults(db, "table", { publicationId }, principal, Date.now());
+      } else if (surface === "state") {
+        result = await getMyAsyncState(db, "table", token, identityId, Date.now());
+      } else {
+        result = await getAsyncPublicInfo(db, "table", surface === "code" ? "004281" : token, Date.now());
+      }
+      expect(result?.maxParticipants ?? null).toBe(surface === "state" ? null : 250);
+      expect(records.get(keyOf(pk, "META"))).toEqual({ ...original, maxParticipants: 250 });
+      const writes = database.commandCalls(UpdateCommand).length;
+      await getAsyncPublicInfo(db, "table", token, Date.now());
+      expect(database.commandCalls(UpdateCommand)).toHaveLength(writes);
+    },
+  );
+
+  it.each([
+    { status: "ENDED", maxParticipants: 100 },
+    { expiresAt: 1, maxParticipants: 100 },
+    { maxParticipants: 500 },
+  ])("ändert abgeschlossene Runden und höhere Limits nicht: %j", async (extra) => {
+    const original = { ...records.get(keyOf(pk, "META")), ...extra };
+    records.set(keyOf(pk, "META"), original);
+    const info = await getAsyncPublicInfo(db, "table", token, Date.now());
+    expect(info.maxParticipants).toBe(extra.maxParticipants);
+    expect(records.get(keyOf(pk, "META"))).toEqual(original);
+    expect(database.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("hebt das Limit auch bei gleichzeitigen Zugriffen nur einmal an", async () => {
+    const infos = await Promise.all(Array.from({ length: 5 }, () => getAsyncPublicInfo(db, "table", token, Date.now())));
+    expect(infos.every((info) => info.maxParticipants === 250)).toBe(true);
+    expect(records.get(keyOf(pk, "META"))).toMatchObject({ maxParticipants: 250, startedCount: 0 });
+  });
+
+  it.each([
+    { status: "ENDED", maxParticipants: 100 },
+    { expiresAt: 1, maxParticipants: 100 },
+    { maxParticipants: 500 },
+  ])("respektiert Änderungen zwischen Lesen und Anheben: %j", async (change) => {
+    database.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      assertValidExpressions(input);
+      records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), ...change });
+      throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
+    });
+    const info = await getAsyncPublicInfo(db, "table", token, Date.now());
+    expect(info.maxParticipants).toBe(change.maxParticipants);
+    expect(records.get(keyOf(pk, "META"))).toMatchObject(change);
+    expect(database.commandCalls(UpdateCommand)).toHaveLength(1);
+  });
+
+  it.each(["token", "code"])("gibt Speicherfehler beim Anheben über %s weiter", async (reference) => {
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), joinCode: "004281" });
+    records.set(keyOf("CODE#004281", "META"), { publicationId });
+    database.on(UpdateCommand).rejects(new Error("Speicher nicht verfügbar"));
+    await expect(getAsyncPublicInfo(db, "table", reference === "code" ? "004281" : token, Date.now()))
+      .rejects.toThrow("Speicher nicht verfügbar");
+    expect(records.get(keyOf(pk, "META"))?.maxParticipants).toBe(100);
+  });
+
+  it("erlaubt nach Anhebung einer zuvor vollen Bestandsrunde weitere Starts", async () => {
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), startedCount: 100 });
     await startAsyncQuiz(db, "table", token, identityId, Date.now());
-    await expect(startAsyncQuiz(db, "table", token, "eu-central-1:another-guest", Date.now()))
-      .rejects.toThrow("maximale Teilnehmerzahl");
-    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(1);
+    expect(records.get(keyOf(pk, "META"))).toMatchObject({ maxParticipants: 250, startedCount: 101 });
   });
 
   it("wendet die Teilnahmegrenze auch beim Beitritt über den Quiz-Code an", async () => {
-    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 1, joinCode: "004281" });
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 250, startedCount: 249, joinCode: "004281" });
     records.set(keyOf("CODE#004281", "META"), { pk: "CODE#004281", sk: "META", publicationId, kind: "ASYNC", createdAt: 1 });
     await startAsyncQuiz(db, "table", token, identityId, Date.now());
     await expect(startAsyncQuiz(db, "table", "004 281", "eu-central-1:another-guest", Date.now()))
       .rejects.toThrow("maximale Teilnehmerzahl");
     const resumed = await startAsyncQuiz(db, "table", "004281", identityId, Date.now());
     expect(resumed.displayName).toBeTruthy();
-    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(1);
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(250);
   });
 
   it("speichert die erste Antwort und erkennt denselben Retry ohne Überschreiben", async () => {
@@ -364,7 +493,7 @@ describe("Quiz per Link", () => {
     const principal = { subject: "admin", groups: ["Quizmasters"] };
     await expect(publishAsyncQuiz(db, "table", { quizId: "4ee86a5f-31ed-4e31-b6c1-5b2699256747",
       requestId: "c22f156b-61a2-42d7-ae36-98aac6c22fb8", expiresAt: Date.now() + 91 * 86_400_000,
-      timeZone: "Europe/Berlin" }, principal, 30, 100, Date.now())).rejects.toThrow("höchstens 90 Tage");
+      timeZone: "Europe/Berlin" }, principal, 30, Date.now())).rejects.toThrow("höchstens 90 Tage");
   });
 
   it("liefert Ergebnisse aus aggregierten Zählern mit stabiler Versuchskennung", async () => {
@@ -416,7 +545,7 @@ describe("Quiz per Link", () => {
         quiz: { title: "Neu", description: "", questions: [{ text: "Frage",
           answers: [{ text: "R", correct: true }, { text: "F", correct: false }], durationSeconds: 20, explanation: "" }] } });
       const created = await publishAsyncQuiz(db, "table", { quizId, requestId: "d22f156b-61a2-42d7-ae36-98aac6c22fb8",
-        expiresAt: start + 60_000, timeZone: "Europe/Berlin" }, principal, 30, 100, start);
+        expiresAt: start + 60_000, timeZone: "Europe/Berlin" }, principal, 30, start);
       expect(records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))).toMatchObject({
         scoringVersion: "ASYNC_SPEED_V1", scoring: { basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30_000 },
       });

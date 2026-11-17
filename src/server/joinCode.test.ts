@@ -24,6 +24,9 @@ const conditions: Record<string, (item: Item | undefined, values: Values) => boo
     !!item && item.ownerId === v[":owner"] && item.joinCode === undefined,
   "#status = :preparing AND ownerId = :owner": (item, v) => item?.status === v[":preparing"] && item?.ownerId === v[":owner"],
   "sessionId = :session": (item, v) => item?.sessionId === v[":session"],
+  "#status = :active AND expiresAt > :now AND maxParticipants < :limit": (item, v) =>
+    !!item && item.status === v[":active"] && Number(item.expiresAt) > Number(v[":now"]) &&
+    Number(item.maxParticipants) < Number(v[":limit"]),
 };
 
 function check(condition: string | undefined, item: Item | undefined, values: Values = {}) {
@@ -35,6 +38,7 @@ function check(condition: string | undefined, item: Item | undefined, values: Va
 
 function update(item: Item, expression: string, values: Values): Item {
   if (expression === "SET joinCode = :code") return { ...item, joinCode: values[":code"] };
+  if (expression === "SET maxParticipants = :limit") return { ...item, maxParticipants: values[":limit"] };
   if (expression === "SET #status = :lobby ADD #version :one") {
     return { ...item, status: values[":lobby"], version: Number(item.version ?? 0) + Number(values[":one"]) };
   }
@@ -73,7 +77,7 @@ const db = {
         throw Object.assign(new Error("Conditional check failed"), { name: "ConditionalCheckFailedException" });
       }
       records.set(key, update(records.get(key) ?? { ...command.input.Key }, command.input.UpdateExpression ?? "", values));
-      return {};
+      return command.input.ReturnValues === "ALL_NEW" ? { Attributes: structuredClone(records.get(key)) } : {};
     }
     if (command instanceof TransactWriteCommand) {
       const writes: Array<() => void> = [];
@@ -120,7 +124,7 @@ const codeItem = (code: string) => records.get(`CODE#${code}#META`);
 const publishEnd = Date.now() + 3_600_000;
 const publish = (codes: () => string, requestId = "b22f156b-61a2-42d7-ae36-98aac6c22fb8") =>
   publishAsyncQuiz(db, "table", { quizId, requestId, expiresAt: publishEnd, timeZone: "Europe/Berlin" },
-    principal, 30, 100, Date.now(), codes);
+    principal, 30, Date.now(), codes);
 
 function seedLegacyPublication(extra: Item = {}) {
   const tokenHash = createHash("sha256").update(legacyToken).digest("hex");

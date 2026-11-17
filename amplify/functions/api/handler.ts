@@ -146,8 +146,7 @@ async function dispatch(raw: unknown, now: number): Promise<unknown> {
       return getPresentationState(client, tableName, args.presentationToken, now);
     case "publishAsyncQuiz":
       return publishAsyncQuiz(client, tableName, args, quizmaster(event.identity),
-        z.coerce.number().int().min(1).max(365).parse(process.env.ASYNC_RETENTION_DAYS ?? "30"),
-        z.coerce.number().int().min(1).max(1000).parse(process.env.MAX_PARTICIPANTS ?? "100"), now);
+        z.coerce.number().int().min(1).max(365).parse(process.env.ASYNC_RETENTION_DAYS ?? "30"), now);
     case "listAsyncPublications":
       return listAsyncPublications(client, tableName, quizmaster(event.identity), now);
     case "endAsyncPublication":

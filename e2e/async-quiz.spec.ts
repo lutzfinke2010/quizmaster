@@ -30,7 +30,7 @@ async function mockAsync(page: Page, options: {
       const question = (index, startedAt) => index < QUESTIONS.length ? { questionIndex: index, text: QUESTIONS[index].text, startedAt,
         answers: QUESTIONS[index].answers.map((text, i) => ({ id: "c" + i, text })) } : null;
       const base = { title: "Feierabend-Quiz", description: "Drei kurze Fragen.", questionCount: QUESTIONS.length, expiresAt,
-        timeZone: "Europe/Berlin", status: "ACTIVE", retentionAt: expiresAt + 30 * 86400000, endedAt: null, maxParticipants: 100, ...scoring };
+        timeZone: "Europe/Berlin", status: "ACTIVE", retentionAt: expiresAt + 30 * 86400000, endedAt: null, maxParticipants: 250, ...scoring };
       function guest(attempt) {
         return { ...base, displayName: "Flinker Fuchs", avatarId: "avatar-001", startedAt: attempt.startedAt, completedAt: null,
           attemptStatus: attempt.answered >= QUESTIONS.length ? "COMPLETED" : "IN_PROGRESS", answeredCount: attempt.answered,
@@ -91,7 +91,7 @@ async function mockAsync(page: Page, options: {
           const end = start + ${options.pageSize ?? 8};
           const completedCount = participants.filter((player) => player.status === "COMPLETED").length;
           return { publicationId: "p1", title: "Feierabend-Quiz", status, isFinal, createdAt: Date.now() - 86400000,
-            expiresAt, endedAt: isFinal ? Date.now() : null, timeZone: "Europe/Berlin", updatedAt: Date.now(), participantCount: participants.length, maxParticipants: 100,
+            expiresAt, endedAt: isFinal ? Date.now() : null, timeZone: "Europe/Berlin", updatedAt: Date.now(), participantCount: participants.length, maxParticipants: 250,
             completedCount, partialCount: participants.length - completedCount, nextCursor: end < participants.length ? String(end) : null,
             totalParticipants: participants.length, ...scoring,
             leaders: participants.slice(0, 5).map((player) => ({ ...player, answers: [] })), participants: participants.slice(start, end),
@@ -122,6 +122,7 @@ for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }
     await page.setViewportSize(viewport);
     await mockAsync(page);
     await page.goto("/q/token");
+    await expect(page.getByText("Maximal 250 Teilnahmen.", { exact: false })).toBeVisible();
     await expect(page.getByText(/Richtig antworten bringt 1\.000 Punkte/)).toBeVisible();
     await page.getByRole("button", { name: "Quiz starten" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcher Planet");
@@ -245,6 +246,7 @@ test("Zwischenstand zeigt ein Podest mit Gleichständen und alle übrigen Plätz
   await mockAsync(page);
   await page.goto("/admin/async/p1");
   await expect(page.getByRole("heading", { name: "Zwischenstand" })).toBeVisible();
+  await expect(page.getByText(/8 von 250 gestartet/)).toBeVisible();
   await expect(page.getByText("Vorläufig", { exact: true })).toBeVisible();
   await expect(page.locator(".podium")).toHaveAttribute("aria-label", "Führende der Runde");
   await expect(page.locator(".podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);

@@ -14,7 +14,7 @@ import { batchGetAll, mapWithConcurrency } from "./batchGet";
 import {
   JOIN_CODE_FREE_CONDITION, JOIN_CODE_PATTERN, isJoinCodeLike, joinCodeKey, normalizeJoinCode, reserveJoinCode,
 } from "./joinCode";
-import { ASYNC_MAX_DURATION_MS, ASYNC_MAX_DURATION_DAYS } from "../domain/limits";
+import { ASYNC_MAX_DURATION_MS, ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_PARTICIPANTS } from "../domain/limits";
 import { ASYNC_LEGACY_SCORING, ASYNC_SPEED_V1, scoreAsyncSpeedAnswer, type AsyncScoringRule } from "../domain/scoring";
 
 const uuidSchema = z.string().uuid();
@@ -168,16 +168,41 @@ function attemptIdFor(publicationId: string, identity: string): string {
   return hash(`${publicationId}#${identity}`).slice(0, 24);
 }
 
+class PublicationUnavailableError extends Error {}
+
 async function getPublication(
   client: DynamoDBDocumentClient, tableName: string, publicationId: string, now: number,
 ): Promise<Publication> {
   const result = await client.send(new GetCommand({
     TableName: tableName, Key: publicationKey(publicationId), ConsistentRead: true,
   }));
-  if (!result.Item) throw new Error("Veröffentlichung nicht gefunden oder nicht mehr verfügbar.");
+  if (!result.Item) throw new PublicationUnavailableError("Veröffentlichung nicht gefunden oder nicht mehr verfügbar.");
   const publication = asPublication(result.Item);
-  if (publication.retentionAt <= now) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
-  return publication;
+  if (publication.retentionAt <= now) throw new PublicationUnavailableError("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
+  return ensureParticipantLimit(client, tableName, publication);
+}
+
+/** Hebt laufende Bestandsrunden einmalig an; abgeschlossene Runden und höhere Sonderlimits bleiben unverändert. */
+async function ensureParticipantLimit(
+  client: DynamoDBDocumentClient, tableName: string, publication: Publication,
+): Promise<Publication> {
+  const now = Date.now();
+  if (statusOf(publication, now) !== "ACTIVE" || publication.maxParticipants >= ASYNC_MAX_PARTICIPANTS) return publication;
+  try {
+    const result = await client.send(new UpdateCommand({
+      TableName: tableName, Key: publicationKey(publication.publicationId),
+      UpdateExpression: "SET maxParticipants = :limit",
+      ConditionExpression: "#status = :active AND expiresAt > :now AND maxParticipants < :limit",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":limit": ASYNC_MAX_PARTICIPANTS, ":active": "ACTIVE", ":now": now },
+      ReturnValues: "ALL_NEW",
+    }));
+    return asPublication(result.Attributes);
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
+    // Ein paralleler Zugriff hat das Limit bereits angehoben oder die Runde ist inzwischen beendet.
+    return getPublication(client, tableName, publication.publicationId, Date.now());
+  }
 }
 
 function statusOf(publication: Publication, now: number): "ACTIVE" | "ENDED" | "EXPIRED" {
@@ -217,7 +242,6 @@ export async function publishAsyncQuiz(
   raw: unknown,
   principal: unknown,
   retentionDays: number,
-  maxParticipants: number,
   now: number,
   joinCodeCandidates?: () => string,
 ): Promise<PublishReceipt> {
@@ -229,7 +253,7 @@ export async function publishAsyncQuiz(
     timeZone: zoneSchema,
   }).strict().parse(raw);
   z.number().int().min(1).max(365).parse(retentionDays);
-  z.number().int().min(1).max(1000).parse(maxParticipants);
+  const maxParticipants = ASYNC_MAX_PARTICIPANTS;
   assertTime(now);
   const ownerPk = `OWNER#${ownerId}`;
   const requestKey = { pk: ownerPk, sk: `ASYNC_REQUEST#${input.requestId}` };
@@ -245,8 +269,9 @@ export async function publishAsyncQuiz(
     if (saved.retentionAt <= Date.now()) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
     // Vorgänge aus der Zeit vor den Quiz-Codes erhalten ihren Code einmalig nachträglich.
     const joinCode = saved.joinCode ?? await ensureJoinCodeFor(client, tableName, saved.publicationId, ownerId, Date.now());
+    const publication = await getPublication(client, tableName, saved.publicationId, Date.now());
     return { publicationId: saved.publicationId, token: saved.token, joinCode, expiresAt: saved.expiresAt,
-      timeZone: saved.timeZone, retentionDays: saved.retentionDays, maxParticipants: saved.maxParticipants };
+      timeZone: saved.timeZone, retentionDays: saved.retentionDays, maxParticipants: publication.maxParticipants };
   };
   const previous = await replay();
   if (previous) return previous;
@@ -369,7 +394,8 @@ async function resolveToken(
   const pointer = await client.send(new GetCommand({ TableName: tableName, Key: joinCodeKey(code), ConsistentRead: true }));
   const publicationId = z.string().uuid().safeParse(pointer.Item?.publicationId);
   if (!publicationId.success) throw new Error(unknownReference);
-  const publication = await getPublication(client, tableName, publicationId.data, now).catch(() => {
+  const publication = await getPublication(client, tableName, publicationId.data, now).catch((error: unknown) => {
+    if (!(error instanceof PublicationUnavailableError)) throw error;
     throw new Error(unknownReference);
   });
   if (publication.joinCode !== code) throw new Error(unknownReference);
@@ -829,7 +855,7 @@ export async function listAsyncPublications(
     return publicationId.success && token.success ? [{ publicationId: publicationId.data, token: token.data }] : [];
   });
   // TTL deletion is asynchronous and unordered: skip index rows whose publication is already gone or past retention.
-  // Reiner Lesepfad: Aufbewahrungsfristen werden ausschließlich in `endAsyncPublication` synchronisiert.
+  // Aufbewahrungsfristen werden ausschließlich in `endAsyncPublication` synchronisiert.
   const stored = await batchGetAll(client, tableName, candidates.map(({ publicationId }) => publicationKey(publicationId)));
   const result = [];
   for (const candidate of candidates) {
@@ -838,7 +864,8 @@ export async function listAsyncPublications(
     if (!parsed?.success) continue;
     const publication = asPublication(item);
     if (publication.ownerId !== ownerId || publication.retentionAt <= now) continue;
-    result.push(await summaries(client, tableName, publication, candidate.token, now));
+    const current = await ensureParticipantLimit(client, tableName, publication);
+    result.push(await summaries(client, tableName, current, candidate.token, now));
   }
   return result.sort((left, right) => right.createdAt - left.createdAt);
 }
