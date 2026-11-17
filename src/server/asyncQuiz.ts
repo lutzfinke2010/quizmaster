@@ -90,7 +90,7 @@ const attemptSchema = z.object({
   status: z.enum(["IN_PROGRESS", "COMPLETED"]),
   completedAt: z.number().int().positive().optional(),
   points: z.number().int().nonnegative().optional(),
-  // Nur ASYNC_SPEED_V1: serverseitiger Start der aktuell freigegebenen Frage dieses Versuchs.
+  // Nur ASYNC_SPEED_V1: Index und serverseitiger Start der zuletzt geöffneten Frage dieses Versuchs.
   currentQuestionIndex: z.number().int().nonnegative().optional(),
   currentQuestionStartedAt: z.number().int().positive().optional(),
 });
@@ -127,6 +127,16 @@ function questionPayload(publication: Publication, questionIndex: number, starte
     answers: question.answers.map((answer, index) => ({ id: `a${index}`, text: answer.text })),
     startedAt,
   };
+}
+
+/**
+ * ASYNC_SPEED_V1 gibt eine Frage erst heraus, wenn die Person sie ausdrücklich geöffnet hat (persistierter Start);
+ * so bleibt sie während der Pause zwischen zwei Fragen verborgen. Ohne Tempo-Wertung gibt es keinen Timer.
+ */
+function releasedQuestion(publication: Publication, attempt: Attempt, questionIndex: number) {
+  const startedAt = questionStartOf(attempt, questionIndex);
+  if (isSpeedScoring(publication) && startedAt === null) return null;
+  return questionPayload(publication, questionIndex, startedAt);
 }
 
 function hash(value: string): string {
@@ -443,8 +453,7 @@ function guestState(publication: Publication, attempt: Attempt, answers: AnswerR
   const roundStatus = statusOf(publication, now);
   const complete = attempt.answeredCount === publication.snapshot.questions.length;
   const nextIndex = complete ? -1 : attempt.answeredCount;
-  const question = roundStatus === "ACTIVE" && nextIndex >= 0
-    ? questionPayload(publication, nextIndex, questionStartOf(attempt, nextIndex)) : null;
+  const question = roundStatus === "ACTIVE" && nextIndex >= 0 ? releasedQuestion(publication, attempt, nextIndex) : null;
   const resultAvailable = roundStatus !== "ACTIVE";
   const answerByQuestion = new Map(answers.map((answer) => [answer.questionIndex, answer]));
   const hidden = { points: null, basePoints: null, bonusPoints: null, elapsedMs: null };
@@ -498,8 +507,8 @@ function guestState(publication: Publication, attempt: Attempt, answers: AnswerR
 }
 
 /**
- * ASYNC_SPEED_V1: Stellt sicher, dass die aktuell freigegebene Frage einen persistierten Startzeitpunkt hat.
- * Setzt ihn nur, wenn er für diese Frage noch fehlt – Refresh, zweiter Tab oder erneutes Abrufen setzen ihn nie zurück.
+ * ASYNC_SPEED_V1: Öffnet die nächste unbeantwortete Frage und persistiert ihren Startzeitpunkt.
+ * Setzt ihn nur, wenn er für diese Frage noch fehlt – zweiter Tab oder erneutes Öffnen setzen ihn nie zurück.
  */
 async function ensureQuestionStart(
   client: DynamoDBDocumentClient, tableName: string, publication: Publication, attempt: Attempt,
@@ -529,6 +538,10 @@ async function ensureQuestionStart(
   }
 }
 
+/**
+ * Startet den eigenen Versuch bzw. öffnet nach einer Pause die nächste Frage („Weiter“).
+ * Nur dieser ausdrückliche Schritt startet bei ASYNC_SPEED_V1 den Fragetimer – nie Linkaufruf, Refresh oder Antwort.
+ */
 export async function startAsyncQuiz(
   client: DynamoDBDocumentClient, tableName: string, token: unknown, identityId: string, now: number,
 ) {
@@ -596,9 +609,8 @@ export async function getMyAsyncState(
   assertTime(now);
   const publication = await resolveToken(client, tableName, token, now);
   const identity = identityHash(identityId);
-  const stored = await getAttempt(client, tableName, publication, identityId);
-  if (!stored) return null;
-  const attempt = await ensureQuestionStart(client, tableName, publication, stored);
+  const attempt = await getAttempt(client, tableName, publication, identityId);
+  if (!attempt) return null;
   const answers = await listAttemptAnswers(client, tableName, publication.publicationId, identity);
   const serverTime = Date.now();
   if (publication.retentionAt <= serverTime) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
@@ -606,8 +618,8 @@ export async function getMyAsyncState(
 }
 
 /**
- * Antwortbestätigung inklusive des danach bestätigten Fortschritts: Die nächste freigegebene Frage samt
- * serverseitigem Startzeitpunkt kommt direkt mit, damit der Client ohne Zwischenseite weiterschalten kann.
+ * Antwortbestätigung inklusive des danach bestätigten Fortschritts. Bei ASYNC_SPEED_V1 ist die Folgefrage noch
+ * nicht geöffnet (Pause zwischen den Fragen); sie wird erst über startAsyncQuiz freigegeben.
  */
 function answerReceipt(publication: Publication, attempt: Attempt, answeredQuestionIndex: number, acceptedAt: number) {
   const serverTime = Date.now();
@@ -616,7 +628,7 @@ function answerReceipt(publication: Publication, attempt: Attempt, answeredQuest
   const complete = attempt.answeredCount >= questionCount;
   const nextIndex = complete ? -1 : attempt.answeredCount;
   const question = nextIndex >= 0 && roundStatus === "ACTIVE" && attempt.status === "IN_PROGRESS"
-    ? questionPayload(publication, nextIndex, questionStartOf(attempt, nextIndex)) : null;
+    ? releasedQuestion(publication, attempt, nextIndex) : null;
   return {
     acceptedAt, answeredCount: attempt.answeredCount, questionIndex: answeredQuestionIndex,
     attemptStatus: complete ? "COMPLETED" : roundStatus === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
@@ -630,8 +642,7 @@ async function confirmedReceipt(
 ) {
   const latest = await client.send(new GetCommand({ TableName: tableName, Key: attemptKey, ConsistentRead: true }));
   if (!latest.Item) throw new Error("Kein eigener Quizversuch gefunden.");
-  const attempt = await ensureQuestionStart(client, tableName, publication, attemptSchema.parse(latest.Item));
-  return answerReceipt(publication, attempt, answeredQuestionIndex, acceptedAt);
+  return answerReceipt(publication, attemptSchema.parse(latest.Item), answeredQuestionIndex, acceptedAt);
 }
 
 export async function submitAsyncAnswer(
@@ -658,14 +669,13 @@ export async function submitAsyncAnswer(
     const saved = answerRecordSchema.parse(prior.Item);
     if (saved.choiceId !== input.choiceId) throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
     // Idempotenter Retry: gespeicherter Annahmezeitpunkt und gespeicherte Punkte bleiben unverändert.
-    return answerReceipt(publication, await ensureQuestionStart(client, tableName, publication, attempt),
-      input.questionIndex, saved.acceptedAt);
+    return answerReceipt(publication, attempt, input.questionIndex, saved.acceptedAt);
   }
   if (statusOf(publication, now) !== "ACTIVE") throw new Error("Die Quizfrist ist abgelaufen. Es werden keine neuen Antworten angenommen.");
   if (input.questionIndex !== attempt.answeredCount) throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
   const speed = isSpeedScoring(publication);
   const questionStartedAt = questionStartOf(attempt, input.questionIndex);
-  // Ohne gespeicherten Fragebeginn wird keine Antwortzeit erfunden; der Client lädt den Stand neu (setzt den Start).
+  // Ohne gespeicherten Fragebeginn (Frage nie geöffnet) wird keine Antwortzeit erfunden.
   if (speed && questionStartedAt === null) {
     throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
   }
@@ -678,9 +688,8 @@ export async function submitAsyncAnswer(
     ...(score ? { questionStartedAt, elapsedMs: score.elapsedMs, basePoints: score.basePoints,
       bonusPoints: score.bonusPoints, points: score.points } : {}),
     ttl: Math.ceil(publication.retentionAt / 1000) };
-  // ASYNC_SPEED_V1: Die Folgefrage wird atomar mit dem bestätigten Fortschritt freigegeben (Start = Annahmezeitpunkt).
-  const setParts = completed ? ["#status = :completed", "completedAt = :now"]
-    : ["#status = :progress", ...(speed ? ["currentQuestionIndex = :nextIndex", "currentQuestionStartedAt = :nextStart"] : [])];
+  // Die Folgefrage bleibt bis zum ausdrücklichen „Weiter“ geschlossen; ihr Timer startet erst dann.
+  const setParts = completed ? ["#status = :completed", "completedAt = :now"] : ["#status = :progress"];
   try {
     await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: tableName, Key: attemptKey,
@@ -693,7 +702,6 @@ export async function submitAsyncAnswer(
           ":points": score ? score.points : correct ? 1 : 0,
           ...(completed ? { ":completed": "COMPLETED", ":now": acceptedAt } : {}),
           ...(speed ? { ":questionStart": questionStartedAt } : {}),
-          ...(speed && !completed ? { ":nextIndex": input.questionIndex + 1, ":nextStart": acceptedAt } : {}),
         } } },
       // Aggregierte Antwortverteilung und Abschlusszähler; Async-Runden haben geringe Schreibraten je Veröffentlichung.
       { Update: { TableName: tableName, Key: publicationKey(publication.publicationId),
@@ -729,7 +737,6 @@ export async function submitAsyncAnswer(
   }
   const confirmed: Attempt = {
     ...attempt, answeredCount: input.questionIndex + 1, status: completed ? "COMPLETED" : "IN_PROGRESS",
-    ...(speed && !completed ? { currentQuestionIndex: input.questionIndex + 1, currentQuestionStartedAt: acceptedAt } : {}),
   };
   return answerReceipt(publication, confirmed, input.questionIndex, acceptedAt);
 }

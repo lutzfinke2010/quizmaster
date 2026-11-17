@@ -120,12 +120,14 @@ function Ranking({ state, participant, personal }: { state: GameState; participa
   </section>;
 }
 
-function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer, compact = false }: {
-  state: GameState; selected?: string | null; pendingChoice?: string | null; locked: boolean;
-  onAnswer?: (choiceId: string) => void; compact?: boolean;
+export type AnswerOption = { id: string; text: string };
+
+/** Antwortkacheln A–D, gemeinsam für Live-Fragen und das Quiz zum Mitmachen. */
+export function AnswerTiles({ answers, selected, pendingChoice, locked, onAnswer, columns }: {
+  answers: ReadonlyArray<AnswerOption>; selected?: string | null; pendingChoice?: string | null; locked: boolean;
+  onAnswer?: (choiceId: string) => void; columns?: 1 | 2;
 }) {
-  const columns = compact && state.question ? ` answer-columns-${answerColumns(state.question.answers)}` : "";
-  return <div className={`answer-grid${columns}`}>{state.question?.answers.map((answer, index) => {
+  return <div className={`answer-grid${columns ? ` answer-columns-${columns}` : ""}`}>{answers.map((answer, index) => {
     const isSelected = selected === answer.id;
     const isPending = pendingChoice === answer.id;
     const content = <><span className="answer-letter">{String.fromCharCode(65 + index)}</span>
@@ -139,6 +141,14 @@ function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer, com
       onClick={() => { if (!locked) onAnswer(answer.id); }}>{content}</button> :
       <div key={answer.id} className={className}>{content}</div>;
   })}</div>;
+}
+
+function QuestionAnswers({ state, compact = false, ...tiles }: {
+  state: GameState; selected?: string | null; pendingChoice?: string | null; locked: boolean;
+  onAnswer?: (choiceId: string) => void; compact?: boolean;
+}) {
+  const answers = state.question?.answers ?? [];
+  return <AnswerTiles answers={answers} columns={compact && state.question ? answerColumns(answers) : undefined} {...tiles} />;
 }
 
 function Reveal({ state, result, personal, selected }: {

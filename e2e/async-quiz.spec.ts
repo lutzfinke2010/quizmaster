@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Quiz zum Mitmachen mit ASYNC_SPEED_V1: kompakte Fragenansicht, automatischer Fragewechsel aus der
- * Antwortbestätigung, Tempo-Bonus-Anzeige, Admin-Top-5 und Siegerpodest. Das Backend wird im Browser simuliert.
+ * Quiz zum Mitmachen mit ASYNC_SPEED_V1: Fragenansicht im Live-Design (Antwortkacheln, Abgabe per Tipp),
+ * Pause zwischen den Fragen, Tempo-Bonus-Anzeige, Admin-Top-5 und Siegerpodest. Das Backend wird im Browser simuliert.
+ * Wie der Server öffnet der Mock eine Folgefrage (und ihren Tempo-Timer) erst über startAsyncQuiz.
  */
 async function mockAsync(page: Page, options: {
   questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean;
@@ -34,7 +35,9 @@ async function mockAsync(page: Page, options: {
         return { ...base, displayName: "Flinker Fuchs", avatarId: "avatar-001", startedAt: attempt.startedAt, completedAt: null,
           attemptStatus: attempt.answered >= QUESTIONS.length ? "COMPLETED" : "IN_PROGRESS", answeredCount: attempt.answered,
           nextQuestionIndex: attempt.answered < QUESTIONS.length ? attempt.answered : null,
-          question: question(attempt.answered, attempt.questionStart), points: null, serverTime: Date.now(),
+          question: LEGACY ? question(attempt.answered, null)
+            : attempt.openedIndex === attempt.answered ? question(attempt.answered, attempt.questionStart) : null,
+          points: null, serverTime: Date.now(),
           answers: attempt.answers, results: [] };
       }
       export async function configureCloud() { return true; }
@@ -44,22 +47,31 @@ async function mockAsync(page: Page, options: {
         myAsyncState: async () => { const attempt = load(); return attempt ? guest(attempt) : null; },
         extendGuestIdentityUntil: async () => undefined,
         startAsyncQuiz: async () => {
-          const attempt = load() ?? { startedAt: Date.now(), questionStart: Date.now(), answered: 0, answers: [] };
+          const attempt = load() ?? { startedAt: Date.now(), questionStart: Date.now(), openedIndex: 0, answered: 0, answers: [] };
+          if (attempt.openedIndex !== attempt.answered && attempt.answered < QUESTIONS.length) {
+            attempt.openedIndex = attempt.answered; attempt.questionStart = Date.now();
+          }
           save(attempt); return guest(attempt);
         },
         submitAsyncAnswer: async (token, questionIndex, choiceId) => {
           const delay = Number(sessionStorage.getItem("submit-delay") || "0");
           if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+          if (sessionStorage.getItem("submit-fail")) {
+            sessionStorage.removeItem("submit-fail");
+            throw new Error("Netzwerkfehler.");
+          }
           const attempt = load();
-          if (questionIndex !== attempt.answered) throw new Error("Quizfortschritt hat sich geändert.");
+          if (questionIndex !== attempt.answered || (!LEGACY && attempt.openedIndex !== questionIndex)) {
+            throw new Error("Quizfortschritt hat sich geändert.");
+          }
           const acceptedAt = Date.now();
           attempt.answers.push({ questionIndex, choiceId, acceptedAt });
-          attempt.answered += 1; attempt.questionStart = acceptedAt;
+          attempt.answered += 1;
           save(attempt);
           sessionStorage.setItem("submits", String(Number(sessionStorage.getItem("submits") || "0") + 1));
           const done = attempt.answered >= QUESTIONS.length;
           return { acceptedAt, answeredCount: attempt.answered, questionIndex, attemptStatus: done ? "COMPLETED" : "IN_PROGRESS",
-            status: "ACTIVE", nextQuestionIndex: done ? null : attempt.answered, question: question(attempt.answered, acceptedAt),
+            status: "ACTIVE", nextQuestionIndex: done ? null : attempt.answered, question: LEGACY ? question(attempt.answered, null) : null,
             serverTime: Date.now() };
         },
         asyncPublicationResults: async (publicationId, cursor) => {
@@ -94,86 +106,138 @@ async function mockAsync(page: Page, options: {
 
 async function expectQuestionFits(page: Page) {
   const fit = await page.evaluate(() => {
-    const button = document.querySelector(".question-submit")!.getBoundingClientRect();
-    return { bottom: button.bottom, height: window.innerHeight, scrollWidth: document.documentElement.scrollWidth, width: window.innerWidth };
+    const feedback = document.querySelector(".answer-feedback")!.getBoundingClientRect();
+    return { bottom: feedback.bottom, height: window.innerHeight, scrollWidth: document.documentElement.scrollWidth, width: window.innerWidth };
   });
   expect(fit.bottom, JSON.stringify(fit)).toBeLessThanOrEqual(fit.height);
   expect(fit.scrollWidth).toBeLessThanOrEqual(fit.width);
 }
 
+const attemptState = (page: Page) => page.evaluate(() =>
+  JSON.parse(sessionStorage.getItem("async-attempt") || "null") as { openedIndex: number; questionStart: number; answered: number });
+const tileTops = (page: Page) => page.locator(".answer-tile").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+
 for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 }]) {
-  test(`Quiz zum Mitmachen: Frage, vier Antworten und Absenden passen ohne Scrollen bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
+  test(`Quiz zum Mitmachen: Frage und vier Antwortkacheln passen ohne Scrollen bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await mockAsync(page);
     await page.goto("/q/token");
     await expect(page.getByText(/Richtig antworten bringt 1\.000 Punkte/)).toBeVisible();
     await page.getByRole("button", { name: "Quiz starten" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcher Planet");
-    await expect(page.getByRole("radio")).toHaveCount(4);
+    await expect(page.locator(".game-view.game-personal .compact-question")).toBeVisible();
+    await expect(page.locator("button.answer-tile")).toHaveCount(4);
+    await expect(page.locator(".answer-letter")).toHaveText(["A", "B", "C", "D"]);
+    await expect(page.locator(".question-meta-progress")).toHaveText("Frage 1/3");
     await expect(page.locator(".speed-bonus")).toContainText("Tempo-Bonus");
+    await expect(page.locator(".answer-feedback")).toHaveText("Tippe auf eine Antwort – sie wird direkt abgegeben.");
+    await expect(page.getByText("Hinweise und Fortschritt")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Antwort abgeben" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Zur Startseite/ })).toHaveCount(0);
-    await page.getByRole("radio", { name: "Saturn" }).check();
     await expectQuestionFits(page);
     await page.screenshot({ path: test.info().outputPath(`async-${viewport.width}.png`), animations: "disabled" });
   });
 }
 
-test("Quiz zum Mitmachen springt nach der Bestätigung direkt zur nächsten Frage – ohne Zwischenseite", async ({ page }) => {
+test("Quiz zum Mitmachen: Tipp gibt sofort ab, danach Pause bis „Weiter“ – der Tempo-Timer startet erst beim Öffnen", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await mockAsync(page);
   await page.goto("/q/token");
   await page.getByRole("button", { name: "Quiz starten" }).click();
-  await page.getByRole("radio", { name: "Saturn" }).check();
   await page.evaluate(() => { sessionStorage.setItem("submit-delay", "400"); window.scrollTo(0, 400); });
-  const submit = page.getByRole("button", { name: "Antwort abgeben" });
-  await submit.click();
-  await expect(page.getByRole("button", { name: "Wird gespeichert …" })).toBeDisabled();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie viele Beine hat eine Spinne?");
-  await expect(page.getByText("Antwort gespeichert", { exact: false })).toHaveCount(1);
-  await expect(page.getByRole("heading", { name: "Wie viele Beine hat eine Spinne?" })).toBeFocused();
-  expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Antwort abgeben" })).toBeDisabled();
-  expect(await page.evaluate(() => sessionStorage.getItem("submits"))).toBe("1");
-  // Zwei kurze Antworten stehen nebeneinander.
-  const boxes = await page.locator(".async-option").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
-  expect(Math.abs(boxes[0] - boxes[1])).toBeLessThan(2);
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-tile.is-pending")).toContainText("Wird gesendet …");
+  await expect(page.locator(".answer-feedback")).toContainText("Wird gesendet … B · Saturn");
+  await expect(page.getByRole("button", { name: /Mars/ })).toHaveAttribute("aria-disabled", "true");
 
-  // Neuladen setzt den Timer nicht zurück und zeigt dieselbe Frage.
+  // Pause statt direkter Folgefrage; die nächste Frage ist noch nicht geladen.
+  const pauseHeading = page.getByRole("heading", { level: 1, name: "Antwort gespeichert" });
+  await expect(pauseHeading).toBeVisible();
+  await expect(pauseHeading).toBeFocused();
+  await expect(page.getByText("Deine Antwort: B · Saturn")).toBeVisible();
+  await expect(page.getByText("1 von 3", { exact: false })).toBeVisible();
+  await expect(page.getByText("Der Tempo-Bonus startet erst, wenn du die nächste Frage öffnest.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Wie viele Beine hat eine Spinne?")).toHaveCount(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("submits"))).toBe("1");
+  expect((await attemptState(page)).openedIndex).toBe(0);
+  await page.screenshot({ path: test.info().outputPath("async-pause-375.png"), animations: "disabled" });
+
+  // Neuladen während der Pause öffnet die Frage nicht und startet keinen Timer.
   await page.reload();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie viele Beine hat eine Spinne?");
-  await page.getByRole("radio", { name: "Acht" }).check();
+  await expect(page.getByRole("heading", { level: 1, name: "Bereit für Frage 2?" })).toBeVisible();
+  await expect(page.getByText("Wie viele Beine hat eine Spinne?")).toHaveCount(0);
+  expect((await attemptState(page)).openedIndex).toBe(0);
+
+  await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
+  const second = page.getByRole("heading", { level: 1, name: "Wie viele Beine hat eine Spinne?" });
+  await expect(second).toBeFocused();
+  await expect(page.locator(".question-meta-progress")).toHaveText("Frage 2/3");
+  await expect(page.locator(".speed-bonus")).toContainText("Tempo-Bonus");
+  const opened = await attemptState(page);
+  expect(opened.openedIndex).toBe(1);
+  // Zwei kurze Antworten stehen nebeneinander.
+  const pair = await tileTops(page);
+  expect(Math.abs(pair[0] - pair[1])).toBeLessThan(2);
+
+  // Neuladen während einer Frage zeigt dieselbe Frage und setzt den Timer nicht zurück.
+  await page.reload();
+  await expect(second).toBeVisible();
+  expect((await attemptState(page)).questionStart).toBe(opened.questionStart);
+
   await page.evaluate(() => sessionStorage.setItem("submit-delay", "0"));
-  await page.getByRole("button", { name: "Antwort abgeben" }).click();
+  await page.getByRole("button", { name: /Acht/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Antwort gespeichert" })).toBeVisible();
+  await page.getByRole("button", { name: "Weiter zu Frage 3" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/Blau und Gelb/);
   // Drei Antworten: einspaltig.
-  const tops = await page.locator(".async-option").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+  const tops = await tileTops(page);
   expect(tops[1]).toBeGreaterThan(tops[0]);
-  await page.getByRole("radio", { name: "Grün" }).check();
-  await page.getByRole("button", { name: "Antwort abgeben" }).click();
+  await page.getByRole("button", { name: /Grün/ }).click();
   await expect(page.getByRole("heading", { name: "Quiz abgeschlossen" })).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem("submits"))).toBe("3");
 });
 
-test("Lange Antworten stehen einspaltig und das Absenden bleibt erreichbar", async ({ page }) => {
+test("Nicht bestätigte Antwort lässt sich durch erneutes Tippen senden", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await mockAsync(page);
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.evaluate(() => sessionStorage.setItem("submit-fail", "1"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByText(/Antwort nicht bestätigt: Netzwerkfehler/)).toBeVisible();
+  await expect(page.locator(".answer-feedback")).toContainText("Nicht gespeichert: B · Saturn");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcher Planet");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Antwort gespeichert" })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("submits"))).toBe("1");
+});
+
+test("Lange Antworten stehen einspaltig und bleiben mit Hinweis erreichbar", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await mockAsync(page, { questions: [{ text: "Welche Aussage über Photosynthese trifft zu?", answers: [
     "Pflanzen wandeln Licht in chemische Energie um", "Sie findet ausschließlich nachts statt",
     "Sie benötigt keinerlei Wasser", "Sie produziert vor allem Stickstoff"] }] });
   await page.goto("/q/token");
   await page.getByRole("button", { name: "Quiz starten" }).click();
-  const tops = await page.locator(".async-option").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+  const tops = await tileTops(page);
   expect(tops[1]).toBeGreaterThan(tops[0]);
-  await expect(page.getByRole("button", { name: "Antwort abgeben" })).toBeVisible();
+  await expectQuestionFits(page);
+  await page.screenshot({ path: test.info().outputPath("async-long-360.png"), animations: "disabled" });
 });
 
-test("Ältere Veröffentlichungen zeigen keinen Tempo-Bonus", async ({ page }) => {
+test("Ältere Veröffentlichungen zeigen keinen Tempo-Bonus, pausieren aber ebenfalls", async ({ page }) => {
   await mockAsync(page, { legacy: true });
   await page.goto("/q/token");
   await expect(page.getByText(/Richtig antworten bringt/)).toHaveCount(0);
   await page.getByRole("button", { name: "Quiz starten" }).click();
-  await expect(page.getByRole("radio")).toHaveCount(4);
+  await expect(page.locator("button.answer-tile")).toHaveCount(4);
   await expect(page.locator(".speed-bonus")).toHaveCount(0);
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Antwort gespeichert" })).toBeVisible();
+  await expect(page.getByText("Tempo-Bonus", { exact: false })).toHaveCount(0);
+  await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie viele Beine hat eine Spinne?");
 });
 
 test("Admin-Ergebnisse zeigen zuerst die Top 5, Details bleiben eingeklappt", async ({ page }) => {

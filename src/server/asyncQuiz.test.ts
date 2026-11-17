@@ -173,10 +173,6 @@ function setupDatabase() {
         answeredCount: Number(current.answeredCount) + 1,
         status: update.ExpressionAttributeValues?.[":completed"] ?? "IN_PROGRESS",
         ...(update.ExpressionAttributeValues?.[":now"] ? { completedAt: update.ExpressionAttributeValues[":now"] } : {}),
-        ...(update.ExpressionAttributeValues?.[":nextStart"] !== undefined ? {
-          currentQuestionIndex: update.ExpressionAttributeValues[":nextIndex"],
-          currentQuestionStartedAt: update.ExpressionAttributeValues[":nextStart"],
-        } : {}),
       });
     }
     for (const item of puts) records.set(keyOf(item.pk, item.sk), item);
@@ -303,6 +299,8 @@ describe("Quiz per Link", () => {
     const attemptKey = keyOf(pk, `ATTEMPT#${createHash("sha256").update(identityId).digest("hex")}`);
     const first = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
     expect(first.answeredCount).toBe(1);
+    // Ohne Tempo-Wertung gibt es keinen Timer; die Folgefrage darf direkt mitkommen.
+    expect(first.question?.questionIndex).toBe(1);
     expect(records.get(attemptKey)).toMatchObject({ status: "IN_PROGRESS", answeredCount: 1 });
     expect(records.get(attemptKey)?.completedAt).toBeUndefined();
     const state = await getMyAsyncState(db, "table", token, identityId, Date.now());
@@ -438,26 +436,37 @@ describe("Quiz per Link", () => {
       expect(JSON.stringify(first)).not.toContain("Zweite Frage?");
     });
 
-    it("wertet Tempo serverseitig, liefert die nächste Frage im Receipt und verrät Punkte erst nach Quizende", async () => {
+    it("wertet Tempo serverseitig, pausiert vor der nächsten Frage und verrät Punkte erst nach Quizende", async () => {
       await startAsyncQuiz(db, "table", token, identityId, Date.now());
       vi.setSystemTime(start + 15_000);
       const receipt = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
       expect(receipt).toMatchObject({ acceptedAt: start + 15_000, answeredCount: 1, questionIndex: 0,
-        attemptStatus: "IN_PROGRESS", nextQuestionIndex: 1, question: { questionIndex: 1, text: "Zweite Frage?", startedAt: start + 15_000 } });
-      expect(JSON.stringify(receipt)).not.toMatch(/points|correct/i);
+        attemptStatus: "IN_PROGRESS", nextQuestionIndex: 1, question: null });
+      expect(JSON.stringify(receipt)).not.toMatch(/points|correct|Zweite Frage/i);
       expect(records.get(answerKey(0))).toMatchObject({ questionStartedAt: start, elapsedMs: 15_000,
         basePoints: 1000, bonusPoints: 250, points: 1250 });
 
       vi.setSystemTime(start + 50_000);
       const retry = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
-      expect(retry).toMatchObject({ acceptedAt: start + 15_000, answeredCount: 1, question: { questionIndex: 1, startedAt: start + 15_000 } });
+      expect(retry).toMatchObject({ acceptedAt: start + 15_000, answeredCount: 1, question: null });
       expect(records.get(answerKey(0))).toMatchObject({ points: 1250, acceptedAt: start + 15_000 });
-      expect(records.get(attemptKey())).toMatchObject({ points: 1250, currentQuestionIndex: 1, currentQuestionStartedAt: start + 15_000 });
+      // Pause: Refresh öffnet die Folgefrage nicht und startet keinen Timer.
+      const paused = await getMyAsyncState(db, "table", token, identityId, Date.now());
+      expect(paused).toMatchObject({ attemptStatus: "IN_PROGRESS", answeredCount: 1, nextQuestionIndex: 1, question: null });
+      expect(JSON.stringify(paused)).not.toContain("Zweite Frage?");
+      expect(records.get(attemptKey())).toMatchObject({ points: 1250, currentQuestionIndex: 0, currentQuestionStartedAt: start });
 
-      vi.setSystemTime(start + 75_000);
+      vi.setSystemTime(start + 60_000);
+      const resumed = await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      expect(resumed.question).toMatchObject({ questionIndex: 1, text: "Zweite Frage?", startedAt: start + 60_000 });
+      vi.setSystemTime(start + 70_000);
+      expect((await getMyAsyncState(db, "table", token, identityId, Date.now()))?.question?.startedAt).toBe(start + 60_000);
+      expect((await startAsyncQuiz(db, "table", token, identityId, Date.now())).question?.startedAt).toBe(start + 60_000);
+
+      vi.setSystemTime(start + 100_000);
       const last = await submitAsyncAnswer(db, "table", { token, questionIndex: 1, choiceId: "a1" }, identityId, Date.now());
       expect(last).toMatchObject({ answeredCount: 2, attemptStatus: "COMPLETED", nextQuestionIndex: -1, question: null });
-      expect(records.get(answerKey(1))).toMatchObject({ elapsedMs: 60_000, basePoints: 1000, bonusPoints: 0, points: 1000 });
+      expect(records.get(answerKey(1))).toMatchObject({ elapsedMs: 40_000, basePoints: 1000, bonusPoints: 0, points: 1000 });
 
       const running = await getMyAsyncState(db, "table", token, identityId, Date.now());
       expect(running?.points).toBeNull();
@@ -469,7 +478,7 @@ describe("Quiz per Link", () => {
       expect(final?.points).toBe(2250);
       expect(final?.results.map(({ basePoints, bonusPoints, points, elapsedMs }) => ({ basePoints, bonusPoints, points, elapsedMs })))
         .toEqual([{ basePoints: 1000, bonusPoints: 250, points: 1250, elapsedMs: 15_000 },
-          { basePoints: 1000, bonusPoints: 0, points: 1000, elapsedMs: 60_000 }]);
+          { basePoints: 1000, bonusPoints: 0, points: 1000, elapsedMs: 40_000 }]);
       const results = await getAsyncPublicationResults(db, "table", { publicationId, cursor: null }, principal, Date.now());
       expect(results.scoringVersion).toBe("ASYNC_SPEED_V1");
       expect(results.participants[0]).toMatchObject({ points: 2250, rank: 1 });
@@ -491,7 +500,16 @@ describe("Quiz per Link", () => {
       await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
       await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a1" }, identityId, Date.now()))
         .rejects.toThrow("bereits eine andere Antwort");
-      expect(records.get(attemptKey())).toMatchObject({ answeredCount: 1, currentQuestionIndex: 1 });
+      expect(records.get(attemptKey())).toMatchObject({ answeredCount: 1, currentQuestionIndex: 0 });
+    });
+
+    it("nimmt keine Antwort auf eine noch nicht geöffnete Frage an", async () => {
+      await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+      await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 1, choiceId: "a1" }, identityId, Date.now()))
+        .rejects.toThrow("Quizfortschritt hat sich geändert");
+      expect(records.has(answerKey(1))).toBe(false);
+      expect(records.get(attemptKey())).toMatchObject({ answeredCount: 1, status: "IN_PROGRESS" });
     });
 
     it("liefert globale Top 5 mit geteilten Rängen unabhängig von der Ergebnisseite", async () => {

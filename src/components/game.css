@@ -74,11 +74,6 @@
 .async-player-card h2 { overflow-wrap: anywhere; }
 .async-player-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .async-player-identity .avatar { width: 42px; height: 42px; flex: none; object-fit: contain; }
-.async-options { display: grid; gap: 10px; width: 100%; margin: 16px 0 22px; }
-.async-option { display: flex; align-items: flex-start; gap: 12px; min-height: 64px; width: 100%; padding: 16px; border: 1.5px solid var(--game-border); border-radius: 14px; background: var(--game-surface); cursor: pointer; overflow-wrap: anywhere; }
-.async-option.selected { background: var(--game-soft); border: 2px solid var(--teal); padding: 15px; }
-.async-option input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--teal); }
-.async-option span { min-width: 0; line-height: 1.4; }
 .async-own-results { padding-left: 22px; }
 .async-own-results li { margin: 14px 0; overflow-wrap: anywhere; }
 .async-own-results p { margin: 6px 0; }
@@ -218,19 +213,30 @@
 .compact-question h1, .game-personal .compact-question h1 { margin: 2px 0 4px; font-size: clamp(1.25rem, 4.6vw, 1.6rem); line-height: 1.25; }
 .compact-question h1:focus { outline: none; }
 .compact-question h1:focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
-.compact-question .answer-grid, .game-personal .compact-question .answer-grid, .compact-question .async-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; }
-.compact-question .answer-grid.answer-columns-2, .compact-question .async-options.answer-columns-2,
+.compact-question .answer-grid, .game-personal .compact-question .answer-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; }
+.compact-question .answer-grid.answer-columns-2,
 .game-view .compact-question .answer-grid.answer-columns-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .compact-question .answer-tile, .game-personal .compact-question .answer-tile { min-height: 48px; padding: 8px 12px; gap: 10px; font-size: 1rem; }
 .compact-question .answer-letter { width: 26px; height: 26px; }
 .compact-question .answer-state { font-size: .75rem; }
-.compact-question .async-option { align-items: center; min-height: 48px; padding: 10px 12px; }
-.compact-question .async-option.selected { padding: 9.5px 11.5px; }
 .compact-question .answer-feedback, .game-personal .compact-question .answer-feedback { align-items: center; margin-top: 0; padding: 8px 12px; font-size: .82rem; line-height: 1.4; }
 .compact-question .answer-feedback strong { display: inline; font-size: inherit; }
-.compact-question .question-submit { width: 100%; min-height: 48px; }
 .compact-question .error-banner, .compact-question .deadline-warning { margin: 0; }
 .deadline-warning.compact { padding: 6px 10px; font-size: .8rem; }
+/* Pause zwischen zwei Fragen im Quiz zum Mitmachen: im Stil der Live-Zwischenphasen, Weiter-Button gut erreichbar. */
+.async-pause { display: flex; flex-direction: column; gap: 10px; width: min(100%, 720px); margin-inline: auto; text-align: center; overflow-wrap: anywhere; }
+.game-personal .game-phase:has(> .async-pause) { padding: 0; }
+.async-pause .question-metabar { text-align: left; }
+.async-pause .question-meta-player .avatar { width: 30px; height: 30px; flex: none; object-fit: contain; }
+.game-view .async-pause .result-sticker { width: 64px; height: 64px; margin: 18px auto 6px; }
+.async-pause h1, .game-personal .async-pause h1 { margin: 4px 0 0; font-size: clamp(1.5rem, 5.5vw, 2rem); line-height: 1.2; }
+.async-pause h1:focus { outline: none; }
+.async-pause h1:focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+.async-pause-answer { margin: 0; color: var(--teal); font-size: .95rem; }
+.async-pause .answer-progress { margin: 8px 0 4px; text-align: left; }
+.async-pause .error-banner, .async-pause .deadline-warning { margin: 0; text-align: left; }
+.async-continue { width: 100%; min-height: 56px; margin-top: 4px; font-size: 1.05rem; }
+.async-pause-hint { margin: 2px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .question-help { font-size: .82rem; }
 .question-help summary { display: inline-flex; align-items: center; min-height: 44px; color: var(--teal); font-weight: 750; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
 .question-help p { margin: 4px 0 8px; font-size: .82rem; }
