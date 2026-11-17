@@ -62,6 +62,7 @@ const asyncPublicInfo = z.object({
   title: z.string(), description: z.string(), questionCount: z.number(), expiresAt: z.number(),
   timeZone: z.string(), status: z.string(), retentionAt: z.number(), endedAt: z.number().nullable().optional(),
   maxParticipants: z.number(), serverTime: z.number().nullable().optional(),
+  joinCode: z.string().nullish(),
   ...asyncScoringInfo,
 });
 const asyncGuestAnswer = z.object({
@@ -95,7 +96,7 @@ const asyncAnswerReceipt = z.object({
   question: asyncQuestion.nullish(), serverTime: z.number().nullish(),
 });
 const asyncPublicationSummary = z.object({
-  publicationId: z.string(), quizId: z.string(), title: z.string(), token: z.string(),
+  publicationId: z.string(), quizId: z.string(), title: z.string(), token: z.string(), joinCode: z.string().nullish(),
   createdAt: z.number(), expiresAt: z.number(), timeZone: z.string(), status: z.string(),
   retentionAt: z.number(), endedAt: z.number().nullable().optional(),
   participantCount: z.number(), maxParticipants: z.number(), completedCount: z.number(), partialCount: z.number(),
@@ -125,9 +126,10 @@ const asyncResults = z.object({
   ...asyncScoringInfo,
 });
 const asyncPublishReceipt = z.object({
-  publicationId: z.string(), token: z.string(), expiresAt: z.number(), timeZone: z.string(), retentionDays: z.number(),
-  maxParticipants: z.number(),
+  publicationId: z.string(), token: z.string(), joinCode: z.string(), expiresAt: z.number(), timeZone: z.string(),
+  retentionDays: z.number(), maxParticipants: z.number(),
 });
+const joinCodeResolution = z.object({ mode: z.enum(["LIVE", "ASYNC"]), joinCode: z.string() });
 export type AsyncPublicInfo = z.infer<typeof asyncPublicInfo>;
 export type AsyncGuestState = z.infer<typeof asyncGuestState>;
 export type AsyncPublicationSummary = z.infer<typeof asyncPublicationSummary>;
@@ -250,16 +252,22 @@ export const cloud = {
       error: onError,
     }),
   asyncPublicInfo: (token: string) => operation(
-    `query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime
+    `query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime joinCode
       scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
     "getAsyncPublicInfo", { token }, "identityPool", asyncPublicInfo),
   publishAsyncQuiz: (quizId: string, requestId: string, expiresAt: number, timeZone: string) => operation(
-    "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone) { publicationId token expiresAt timeZone retentionDays maxParticipants } }",
+    "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone) { publicationId token joinCode expiresAt timeZone retentionDays maxParticipants } }",
     "publishAsyncQuiz", { quizId, requestId, expiresAt, timeZone }, "userPool", asyncPublishReceipt),
   listAsyncPublications: () => operation(
-    `query { listAsyncPublications { publicationId quizId title token createdAt expiresAt timeZone status
+    `query { listAsyncPublications { publicationId quizId title token joinCode createdAt expiresAt timeZone status
       retentionAt endedAt participantCount maxParticipants completedCount partialCount } }`,
     "listAsyncPublications", {}, "userPool", z.array(asyncPublicationSummary)),
+  ensureAsyncJoinCode: (publicationId: string) => operation(
+    "mutation EnsureJoinCode($publicationId: ID!) { ensureAsyncJoinCode(publicationId: $publicationId) { publicationId joinCode } }",
+    "ensureAsyncJoinCode", { publicationId }, "userPool", z.object({ publicationId: z.string(), joinCode: z.string() })),
+  resolveJoinCode: (joinCode: string) => operation(
+    "query ResolveJoinCode($joinCode: String!) { resolveJoinCode(joinCode: $joinCode) { mode joinCode } }",
+    "resolveJoinCode", { joinCode }, "identityPool", joinCodeResolution),
   endAsyncPublication: (publicationId: string) => operation(
     "mutation EndAsync($publicationId: ID!) { endAsyncPublication(publicationId: $publicationId) { status endedAt } }",
     "endAsyncPublication", { publicationId }, "userPool", z.object({ status: z.string(), endedAt: z.number() })),

@@ -239,11 +239,34 @@ describe("Quiz per Link", () => {
     expect(first.points).toBeNull();
   });
 
+  it("führt Quiz-Code und alten langen Link zu demselben Versuch derselben Runde", async () => {
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), joinCode: "004281" });
+    records.set(keyOf("CODE#004281", "META"), { pk: "CODE#004281", sk: "META", publicationId, kind: "ASYNC", createdAt: 1 });
+    const viaCode = await startAsyncQuiz(db, "table", "004281", identityId, Date.now());
+    const viaToken = await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    expect(viaToken.displayName).toBe(viaCode.displayName);
+    expect(viaToken.avatarId).toBe(viaCode.avatarId);
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(1);
+    expect((await getAsyncPublicInfo(db, "table", "004281", Date.now())).joinCode).toBe("004281");
+    expect((await getAsyncPublicInfo(db, "table", token, Date.now())).joinCode).toBe("004281");
+  });
+
   it("begrenzt Starts auf die konfigurierte Teilnehmerzahl", async () => {
     records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 1 });
     await startAsyncQuiz(db, "table", token, identityId, Date.now());
     await expect(startAsyncQuiz(db, "table", token, "eu-central-1:another-guest", Date.now()))
       .rejects.toThrow("maximale Teilnehmerzahl");
+    expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(1);
+  });
+
+  it("wendet die Teilnahmegrenze auch beim Beitritt über den Quiz-Code an", async () => {
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), maxParticipants: 1, joinCode: "004281" });
+    records.set(keyOf("CODE#004281", "META"), { pk: "CODE#004281", sk: "META", publicationId, kind: "ASYNC", createdAt: 1 });
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    await expect(startAsyncQuiz(db, "table", "004 281", "eu-central-1:another-guest", Date.now()))
+      .rejects.toThrow("maximale Teilnehmerzahl");
+    const resumed = await startAsyncQuiz(db, "table", "004281", identityId, Date.now());
+    expect(resumed.displayName).toBeTruthy();
     expect(records.get(keyOf(pk, "META"))?.startedCount).toBe(1);
   });
 

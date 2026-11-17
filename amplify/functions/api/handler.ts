@@ -16,9 +16,10 @@ import { logger, setLogContext } from "../../../src/server/logger";
 import { toClientError } from "../../../src/server/clientError";
 import { guestIdentity, quizmasterIdentity } from "../../../src/server/appsyncIdentity";
 import {
-  endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, getMyAsyncState,
-  listAsyncPublications, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
+  endAsyncPublication, ensureAsyncJoinCode, getAsyncPublicInfo, getAsyncPublicationResults, getMyAsyncState,
+  listAsyncPublications, publishAsyncQuiz, resolveJoinCode, startAsyncQuiz, submitAsyncAnswer,
 } from "../../../src/server/asyncQuiz";
+import { isJoinCodeLike } from "../../../src/server/joinCode";
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -153,9 +154,19 @@ async function dispatch(raw: unknown, now: number): Promise<unknown> {
       return endAsyncPublication(client, tableName, args, quizmaster(event.identity), now);
     case "getAsyncPublicationResults":
       return getAsyncPublicationResults(client, tableName, args, quizmaster(event.identity), now);
-    case "getAsyncPublicInfo":
-      await reader(event.identity, now);
+    case "ensureAsyncJoinCode":
+      return ensureAsyncJoinCode(client, tableName, args, quizmaster(event.identity), now);
+    case "resolveJoinCode": {
+      const identityId = guest(event.identity);
+      await enforceRateLimit(client, tableName, identityId, "lookup", now);
+      return resolveJoinCode(client, tableName, args.joinCode, now);
+    }
+    case "getAsyncPublicInfo": {
+      const identityId = await reader(event.identity, now);
+      // Kurze Codes sind erratbar: Aufrufe per Code zusätzlich mit dem knappen Lookup-Kontingent begrenzen.
+      if (isJoinCodeLike(args.token)) await enforceRateLimit(client, tableName, identityId, "lookup", now);
       return getAsyncPublicInfo(client, tableName, args.token, now);
+    }
     case "startAsyncQuiz": {
       const identityId = guest(event.identity);
       await enforceRateLimit(client, tableName, identityId, "join", now);

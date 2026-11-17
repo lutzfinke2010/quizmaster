@@ -46,3 +46,15 @@ export function formatDateTimeInZone(timestamp: number, timeZone: string): strin
     dateStyle: "medium", timeStyle: "short", timeZone,
   }).format(timestamp);
 }
+
+/** Absoluter Zeitpunkt mit erkennbarer Zeitzone, z. B. „24.12.2025, 18:00 Uhr MEZ“ (kein relativer Text, kein Countdown). */
+export function formatDateTimeWithZone(timestamp: number, timeZone: string, style: "short" | "long" = "short"): string {
+  const date = new Intl.DateTimeFormat("de-DE", style === "long"
+    ? { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone }
+    : { day: "2-digit", month: "2-digit", year: "numeric", timeZone }).format(timestamp);
+  const parts = new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone, timeZoneName: "short",
+  }).formatToParts(timestamp);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${date}, ${value("hour")}:${value("minute")} Uhr ${value("timeZoneName")}`.trim();
+}

@@ -31,8 +31,12 @@ customHeaders:
     headers:
       - key: X-Robots-Tag
         value: noindex, nofollow
-  # Async-Teilnahmelinks enthalten ein Zugangstoken im Pfad und dürfen nicht indexiert werden.
+  # Teilnahmelinks für „Quiz zum Mitmachen“ (/q/<Quiz-Code> oder alter langer Token) und Einladungen nicht indexieren.
   - pattern: '/q/**'
+    headers:
+      - key: X-Robots-Tag
+        value: noindex, nofollow
+  - pattern: '/einladung/**'
     headers:
       - key: X-Robots-Tag
         value: noindex, nofollow

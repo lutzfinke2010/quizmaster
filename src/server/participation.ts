@@ -1,5 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { joinCodeKey, normalizeJoinCode } from "./joinCode";
 import {
   BatchWriteCommand, GetCommand, QueryCommand, TransactGetCommand, TransactWriteCommand, type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
@@ -137,11 +138,14 @@ export async function getMyParticipation(
 export async function joinSession(
   client: DynamoDBDocumentClient, tableName: string, rawCode: unknown, identityId: string, now: number,
 ): Promise<Participation> {
-  const code = codeSchema.parse(rawCode);
+  const code = normalizeJoinCode(rawCode);
   identitySchema.parse(identityId);
   assertTime(now);
-  const codeKey = { pk: `CODE#${code}`, sk: "META" };
+  const codeKey = joinCodeKey(code);
   const mapping = await client.send(new GetCommand({ TableName: tableName, Key: codeKey, ConsistentRead: true }));
+  if (typeof mapping.Item?.publicationId === "string") {
+    throw new Error("Dieser Quiz-Code gehört zu einem Quiz zum Mitmachen. Öffne ihn über „Mitspielen“ auf der Startseite.");
+  }
   const parsed = z.object({ sessionId: sessionIdSchema, expiresAt: z.number().int() }).safeParse(mapping.Item);
   if (!parsed.success || parsed.data.expiresAt <= now) throw new Error("Der Spielcode ist ungültig oder abgelaufen.");
   const sessionId = parsed.data.sessionId;

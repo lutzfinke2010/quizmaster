@@ -344,7 +344,7 @@ test("Beitritt und Präsentation passen auf schmale Bildschirme", async ({ page 
   await mockGame(page);
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/join/123456");
-  await expect(page.getByLabel("Spielcode")).toHaveValue("123456");
+  await expect(page.getByLabel("Quiz-Code")).toHaveValue("123456");
   await expectNoHorizontalOverflow(page);
   await screenshot(page, "join.png");
   await page.goto("/present/design");

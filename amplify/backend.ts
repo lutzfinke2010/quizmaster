@@ -140,7 +140,7 @@ new Policy(Stack.of(api), "QuizmasterIdentityPoolAccess", {
     actions: ["appsync:GraphQL"],
     resources: [
       ...["getMyParticipation", "getGameState", "getMyResult", "getMyAnswer", "getLeaderboard", "getPresentationState",
-        "getAsyncPublicInfo", "getMyAsyncState"]
+        "getAsyncPublicInfo", "getMyAsyncState", "resolveJoinCode"]
         .map((field) => `${api.arn}/types/Query/fields/${field}`),
       ...["joinSession", "deleteMyParticipation", "submitAnswer", "startAsyncQuiz", "submitAsyncAnswer"]
         .map((field) => `${api.arn}/types/Mutation/fields/${field}`),

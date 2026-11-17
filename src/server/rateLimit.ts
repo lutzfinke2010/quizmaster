@@ -5,9 +5,10 @@ import { isConditionalFailure } from "./transactionRetry";
 /**
  * Anfragen je Identity und Minute. Lesepfade erhalten ein großzügiges Kontingent, damit Polling/Reloads nach
  * Live-Events nie blockiert werden, missbräuchliche Schleifen aber gebremst werden. Da Gast-Identitäten beliebig
- * neu erzeugt werden können, ist die WAF-IP-Grenze (backend.ts) die eigentliche Obergrenze.
+ * neu erzeugt werden können, ist die WAF-IP-Grenze (backend.ts) die eigentliche Obergrenze. `lookup` bremst
+ * zusätzlich das Durchprobieren kurzer Quiz-Codes (Codeauflösung und Rundeninfos per Code).
  */
-export const RATE_LIMITS = { join: 20, answer: 30, delete: 10, read: 300 } as const;
+export const RATE_LIMITS = { join: 20, answer: 30, delete: 10, read: 300, lookup: 30 } as const;
 export type RateLimitedOperation = keyof typeof RATE_LIMITS;
 
 export async function enforceRateLimit(

@@ -1,11 +1,12 @@
-import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   GetCommand, PutCommand, TransactWriteCommand, UpdateCommand, type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import { requireQuizmaster } from "./adminPrincipal";
 import { QuizStore } from "./quizStore";
-import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
+import { withTransactionConflictRetry } from "./transactionRetry";
+import { JOIN_CODE_FREE_CONDITION, joinCodeKey, reserveJoinCode } from "./joinCode";
 
 const requestSchema = z.object({ quizId: z.string().uuid() }).strict();
 const settingsSchema = z.object({
@@ -21,6 +22,7 @@ const settingsSchema = z.object({
 export async function createSession(
   client: DynamoDBDocumentClient, tableName: string, rawRequest: unknown,
   principal: unknown, rawSettings: unknown, now: number,
+  joinCodeCandidates?: () => string,
 ): Promise<{ sessionId: string; joinCode: string; presentationToken: string }> {
   const request = requestSchema.parse(rawRequest);
   const settings = settingsSchema.parse(rawSettings);
@@ -37,48 +39,36 @@ export async function createSession(
   const ttl = Math.ceil(expiresAt / 1000);
   const pk = `SESSION#${sessionId}`;
   const metaKey = { pk, sk: "META" };
-  let joinCode = "";
-
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const candidate = String(randomInt(100_000, 1_000_000));
-    try {
-      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
-        { Put: {
-          TableName: tableName,
-          Item: { pk: `CODE#${candidate}`, sk: "META", sessionId, expiresAt, ttl },
-          ConditionExpression: "attribute_not_exists(pk) OR expiresAt <= :now",
-          ExpressionAttributeValues: { ":now": now },
-        } },
-        { Put: {
-          TableName: tableName,
-          Item: { ...metaKey, ownerId, quizId: request.quizId, title: quiz.title, description: quiz.description,
-            status: "PREPARING", version: 0, questionIndex: -1, questionCount: quiz.questions.length,
-            participantCount: 0, maxParticipants: settings.maxParticipants, joinCode: candidate, createdAt: now,
-            presentationTokenHash, expiresAt, ttl },
-          ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-        } },
-        { Put: {
-          TableName: tableName,
-          Item: { pk: `OWNER#${ownerId}`, sk: `SESSIONTOKEN#${sessionId}`, presentationToken, expiresAt, ttl },
-          ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-        } },
-        { Put: {
-          TableName: tableName,
-          Item: { pk: `PRESENT#${presentationTokenHash}`, sk: "META", sessionId, expiresAt, ttl },
-          ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-        } },
-      ] })));
-      joinCode = candidate;
-      break;
-    } catch (error) {
-      if (!isConditionalFailure(error)) throw error;
-      const existing = await client.send(new GetCommand({
-        TableName: tableName, Key: { pk: `CODE#${candidate}`, sk: "META" }, ConsistentRead: true,
-      }));
-      if (!existing.Item || typeof existing.Item.expiresAt !== "number" || existing.Item.expiresAt <= now) throw error;
-    }
-  }
-  if (!joinCode) throw new Error("Es konnte kein freier Spielcode reserviert werden.");
+  // Gemeinsame Codevergabe mit Quizrunden: Live-Codes überschreiben nie einen Quiz-Code einer veröffentlichten Runde.
+  const joinCode = await reserveJoinCode(client, tableName, now, async (candidate) => {
+    await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+      { Put: {
+        TableName: tableName,
+        Item: { ...joinCodeKey(candidate), sessionId, expiresAt, ttl },
+        ConditionExpression: JOIN_CODE_FREE_CONDITION,
+        ExpressionAttributeValues: { ":now": now },
+      } },
+      { Put: {
+        TableName: tableName,
+        Item: { ...metaKey, ownerId, quizId: request.quizId, title: quiz.title, description: quiz.description,
+          status: "PREPARING", version: 0, questionIndex: -1, questionCount: quiz.questions.length,
+          participantCount: 0, maxParticipants: settings.maxParticipants, joinCode: candidate, createdAt: now,
+          presentationTokenHash, expiresAt, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      } },
+      { Put: {
+        TableName: tableName,
+        Item: { pk: `OWNER#${ownerId}`, sk: `SESSIONTOKEN#${sessionId}`, presentationToken, expiresAt, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      } },
+      { Put: {
+        TableName: tableName,
+        Item: { pk: `PRESENT#${presentationTokenHash}`, sk: "META", sessionId, expiresAt, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      } },
+    ] })));
+    return candidate;
+  }, undefined, joinCodeCandidates);
 
   try {
     for (const [index, question] of quiz.questions.entries()) {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
-import { ArrowRight, Clock3, KeyRound, Plus, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
 import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncParticipantResult, type AsyncPublicationResults, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
@@ -12,10 +12,13 @@ import { HomeContent } from "./components/HomeContent";
 import { Avatar, GameView, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
-import { formatDateTimeInZone, possibleInstants } from "./domain/localTime";
+import { formatDateTimeInZone, formatDateTimeWithZone, possibleInstants } from "./domain/localTime";
 import { legal } from "./config/legal";
 import { useLiveState } from "./hooks/useLiveState";
-import { CopyLinkButton, CopyLinkField, useCopyLink } from "./components/CopyLink";
+import { CopyAction } from "./components/CopyLink";
+import { displayQuizLink, formatJoinCode, normalizeJoinCodeInput, shortQuizLink } from "./shareLinks";
+import { InvitationPage } from "./components/Invitation";
+import { useNoIndex } from "./hooks/useNoIndex";
 import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits";
 import { ASYNC_SPEED_V1, type AsyncScoringRule } from "./domain/scoring";
 import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
@@ -31,45 +34,66 @@ function Home() {
   return <Layout><HomeContent /></Layout>;
 }
 
-function useNoIndex() {
-  useEffect(() => {
-    let tag = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-    const existed = Boolean(tag);
-    const previous = tag?.content;
-    if (!tag) {
-      tag = document.createElement("meta");
-      tag.name = "robots";
-      document.head.append(tag);
-    }
-    tag.content = "noindex,nofollow";
-    return () => {
-      if (!tag) return;
-      if (existed && previous !== undefined) tag.content = previous;
-      else tag.remove();
-    };
-  }, []);
+
+const asyncStatusText = (status: string) => status === "ACTIVE" ? "Aktiv" : status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen";
+
+/** Status einer Quizrunde zum aktuellen Zeitpunkt: Eine abgelaufene Frist zählt sofort als beendet. */
+function liveAsyncStatus(status: string, expiresAt: number, now: number): string {
+  return status === "ACTIVE" && now >= expiresAt ? "EXPIRED" : status;
+}
+
+function JoinCodeBlock({ joinCode, title }: { joinCode: string; title: string }) {
+  return <div className="join-code-block">
+    <span className="join-code-label">Quiz-Code</span>
+    <strong className="join-code-digits" aria-label={`Quiz-Code ${joinCode.split("").join(" ")}`}>{formatJoinCode(joinCode)}</strong>
+    <CopyAction text={joinCode} label="Code kopieren" copiedMessage="Code kopiert." fieldLabel={`Quiz-Code für ${title}`} />
+  </div>;
 }
 
 function AsyncPublicationCard({ publication, busy, onEnd }: {
   publication: AsyncPublicationSummary; busy: boolean; onEnd: () => void;
 }) {
-  const href = `${window.location.origin}/q/${publication.token}`;
-  const { copied, copy, inputRef } = useCopyLink(href);
-  const status = publication.status === "ACTIVE" ? "Aktiv" :
-    publication.status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen";
-  return <article className="card async-publication-card">
-    <span className="badge">{status}</span><h3>{publication.title}</h3>
-    <p>Veröffentlicht: {formatDateTimeInZone(publication.createdAt, publication.timeZone)}</p>
-    <p><Clock3 size={16} aria-hidden="true" /> {publication.status === "ACTIVE" ? "Deadline" : "Beendet"}: {formatDateTimeInZone(publication.endedAt ?? publication.expiresAt, publication.timeZone)} ({publication.timeZone})</p>
-    <p>{publication.participantCount} von {publication.maxParticipants} Teilnahmen gestartet · {publication.completedCount} abgeschlossen · {publication.partialCount} unvollständig</p>
-    <CopyLinkField href={href} label={`Teilnahmelink für ${publication.title}`} inputRef={inputRef} />
-    {copied && <p role="status">Link kopiert.</p>}
+  const [assigned, setAssigned] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState("");
+  const status = liveAsyncStatus(publication.status, publication.expiresAt, Date.now());
+  const active = status === "ACTIVE";
+  const joinCode = publication.joinCode ?? assigned;
+  const requestJoinCode = useCallback(() => {
+    let live = true;
+    cloud.ensureAsyncJoinCode(publication.publicationId).then((result) => { if (live) setAssigned(result.joinCode); },
+      (caught) => { if (live) setAssignError(message(caught)); });
+    return () => { live = false; };
+  }, [publication.publicationId]);
+  // Runden aus der Zeit vor den Quiz-Codes: Code einmalig serverseitig vergeben und erst nach Bestätigung anzeigen.
+  useEffect(() => {
+    if (!active || joinCode) return;
+    return requestJoinCode();
+  }, [active, joinCode, requestJoinCode]);
+  return <article className={`card async-publication-card${active ? "" : " is-ended"}`}>
+    <span className={`badge async-status-${status.toLowerCase()}`}>{asyncStatusText(status)}</span>
+    <h3>{publication.title}</h3>
+    <p className="async-card-deadline"><Clock3 size={16} aria-hidden="true" />
+      {active ? "Mitspielen bis" : "Beendet am"}{" "}
+      <strong>{formatDateTimeWithZone(active ? publication.expiresAt : publication.endedAt ?? publication.expiresAt, publication.timeZone)}</strong></p>
+    {active && (joinCode ? <>
+      <JoinCodeBlock joinCode={joinCode} title={publication.title} />
+      <p className="async-card-link">{displayQuizLink(joinCode)}</p>
+    </> : assignError ? <div className="error-banner" role="alert">Quiz-Code konnte nicht vergeben werden: {assignError}
+      {" "}<button type="button" className="button secondary small" onClick={() => { setAssignError(""); requestJoinCode(); }}>Erneut versuchen</button></div>
+      : <p className="hint" role="status">Quiz-Code wird vergeben …</p>)}
+    <p className="async-card-participants"><Users size={16} aria-hidden="true" />
+      {publication.participantCount}/{publication.maxParticipants} gestartet · {publication.completedCount} fertig · {publication.partialCount} offen</p>
     <div className="actions">
-      <CopyLinkButton onCopy={copy} />
-      <Link className="button primary small" to={`/admin/async/${publication.publicationId}`}>Ergebnisse ansehen</Link>
-      {publication.status === "ACTIVE" && Date.now() < publication.expiresAt &&
-        <button className="button danger small" disabled={busy} onClick={onEnd}>Vorzeitig beenden</button>}
+      {active && joinCode && <a className="button primary small" href={`/einladung/${joinCode}`} target="_blank" rel="noopener">
+        <PresentationIcon size={16} aria-hidden="true" />Einladung anzeigen</a>}
+      {active && joinCode && <CopyAction text={shortQuizLink(joinCode)} label="Link kopieren" copiedMessage="Link kopiert."
+        fieldLabel={`Teilnahmelink für ${publication.title}`} />}
+      <Link className={`button ${active ? "secondary" : "primary"} small`} to={`/admin/async/${publication.publicationId}`}>Ergebnisse ansehen</Link>
     </div>
+    {active && <details className="async-card-more">
+      <summary>Weitere Aktionen</summary>
+      <button type="button" className="button danger small" disabled={busy} onClick={onEnd}>Vorzeitig beenden</button>
+    </details>}
   </article>;
 }
 
@@ -101,7 +125,10 @@ function Overview() {
     <div className="actions"><Link className="button primary" to="/admin/quizzes/new"><Plus size={18} aria-hidden="true" /> Neues Quiz</Link>
       <button className="button secondary" disabled={busy} onClick={() => void logout()}>Abmelden</button></div></div>
     <ErrorBanner error={error} />
-    <p>Wähle den Modus: <strong>Live-Quiz</strong> – alle spielen gleichzeitig. <strong>Quiz per Link</strong> – jeder spielt im eigenen Tempo bis zum Ablaufdatum.</p>
+    <ul className="mode-compare" aria-label="Spielmodi">
+      <li><strong>Live-Quiz</strong> – alle spielen gleichzeitig</li>
+      <li><strong>Quiz zum Mitmachen</strong> – jeder spielt in seinem Tempo</li>
+    </ul>
     <div className="grid">
       {quizzes.map((record) => <article className="card" key={record.quizId}><span className="badge">{record.questionCount} Fragen</span>
         <h2>{record.title}</h2><p>{record.description || "Ohne Beschreibung"}</p><div className="actions">
@@ -109,7 +136,7 @@ function Overview() {
           <button className="button small primary" disabled={busy} onClick={() => void run(async () => {
             const session = await cloud.createSession(record.quizId); navigate(`/admin/sessions/${session.sessionId}`);
           })}>Live-Quiz starten</button>
-          <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}/publish`}>Quiz per Link veröffentlichen</Link>
+          <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}/publish`}>Quizrunde veröffentlichen</Link>
           <button className="button small secondary" disabled={busy} onClick={() => void run(async () => { await cloud.duplicateQuiz(record.quizId); })}>Duplizieren</button>
           <button className="button small secondary" disabled={busy} onClick={() => {
             if (window.confirm(`„${record.title}“ wirklich löschen?`)) void run(async () => { await cloud.deleteQuiz(record.quizId, record.version); });
@@ -124,13 +151,13 @@ function Overview() {
         <span className="badge">{phaseLabels[session.status] ?? session.status}</span><p>Spielcode {session.joinCode}</p>
         <Link className="button secondary small" to={`/admin/sessions/${session.sessionId}`}>Sitzung öffnen</Link></article>)}
     </div>}
-    <div className="section-heading"><div><span className="eyebrow">QUIZ PER LINK</span><h2>Veröffentlichte Runden</h2>
-      <p>Asynchron spielen – jeder im eigenen Tempo bis zum Ablaufdatum.</p></div></div>
-    {asyncPublications.length === 0 ? <p>Noch keine Quizze per Link veröffentlicht.</p> : <div className="grid">
+    <div className="section-heading"><div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h2>Veröffentlichte Quizrunden</h2>
+      <p>Teile deine Quizrunde. Alle spielen in ihrem Tempo bis zum angegebenen Ende.</p></div></div>
+    {asyncPublications.length === 0 ? <p>Noch keine Quizrunden veröffentlicht.</p> : <div className="grid async-publication-grid">
       {asyncPublications.map((publication) => <AsyncPublicationCard key={publication.publicationId} publication={publication}
         busy={busy} onEnd={() => {
           if (window.confirm(`„${publication.title}“ jetzt für alle Teilnehmenden beenden? Offene Teilnahmen enden sofort, ` +
-            "weitere Antworten werden nicht mehr angenommen und der Link zeigt danach nur noch die Endseite mit Ergebnissen.")) {
+            "weitere Antworten werden nicht mehr angenommen und Link, QR-Code und Quiz-Code zeigen danach nur noch die Endseite mit Ergebnissen.")) {
             void run(async () => { await cloud.endAsyncPublication(publication.publicationId); });
           }
         }} />)}
@@ -194,9 +221,9 @@ function PublishAsyncPage() {
     event.preventDefault();
     if (!record || !selectedInstant) return;
     const expiresAt = Number(selectedInstant);
-    if (expiresAt <= Date.now()) { setError("Das Ablaufdatum muss in der Zukunft liegen."); return; }
+    if (expiresAt <= Date.now()) { setError("Das Ende muss in der Zukunft liegen."); return; }
     if (expiresAt > Date.now() + ASYNC_MAX_DURATION_MS) {
-      setError(`Das Ablaufdatum darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage in der Zukunft liegen.`); return;
+      setError(`Das Ende darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage in der Zukunft liegen.`); return;
     }
     if (!requestId.current || requestId.current.expiresAt !== expiresAt || requestId.current.timeZone !== timeZone) {
       requestId.current = { expiresAt, timeZone, id: crypto.randomUUID() };
@@ -208,24 +235,27 @@ function PublishAsyncPage() {
       requestId.current = null;
     } catch (caught) { setError(message(caught)); } finally { setBusy(false); }
   }
-  const link = publication ? `${window.location.origin}/q/${publication.token}` : "";
-  const { copied: linkCopied, copy: copyLink, inputRef: linkInput } = useCopyLink(link);
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
-    <div className="section-heading"><div><span className="eyebrow">QUIZ PER LINK</span><h1>Quiz veröffentlichen</h1>
-      <p>Alle Gäste spielen unabhängig im eigenen Tempo. Das Live-Quiz bleibt davon unberührt.</p></div></div>
+    <div className="section-heading"><div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h1>Quizrunde veröffentlichen</h1>
+      <p>Spiele in deinem Tempo: Alle Gäste spielen unabhängig bis zum angegebenen Ende. Das Live-Quiz bleibt davon unberührt.</p></div></div>
     <ErrorBanner error={error} />
     {loading ? <p>Quiz wird geladen …</p> : !record ? <p>Quiz nicht gefunden.</p> : publication ? <section className="card async-published">
       <span className="badge">Veröffentlicht</span><h2>{record.quiz.title}</h2>
-      <p>Deadline: {formatDateTimeInZone(publication.expiresAt, publication.timeZone)} ({publication.timeZone})</p>
-      <p>Maximale Teilnehmerzahl: {publication.maxParticipants}</p>
-      <p>Ergebnisse werden {publication.retentionDays} Tage nach dem Ablaufdatum aufbewahrt.</p>
-      <CopyLinkField href={link} label="Teilnahmelink" inputRef={linkInput} />
-      <CopyLinkButton onCopy={copyLink} className="button primary" iconSize={17} />
-      {linkCopied && <p role="status">Link kopiert.</p>}
+      <p className="async-card-deadline"><Clock3 size={16} aria-hidden="true" /> Mitspielen bis{" "}
+        <strong>{formatDateTimeWithZone(publication.expiresAt, publication.timeZone)}</strong></p>
+      <JoinCodeBlock joinCode={publication.joinCode} title={record.quiz.title} />
+      <p className="async-card-link">{displayQuizLink(publication.joinCode)}</p>
+      <div className="actions">
+        <a className="button primary" href={`/einladung/${publication.joinCode}`} target="_blank" rel="noopener">
+          <PresentationIcon size={17} aria-hidden="true" />Einladung anzeigen</a>
+        <CopyAction text={shortQuizLink(publication.joinCode)} label="Link kopieren" copiedMessage="Link kopiert."
+          fieldLabel="Teilnahmelink" className="button secondary" iconSize={17} />
+      </div>
+      <p>Maximale Teilnehmerzahl: {publication.maxParticipants}. Ergebnisse werden {publication.retentionDays} Tage nach dem Ende aufbewahrt.</p>
       <p><Link to="/admin">Zur Übersicht und Ergebnisverwaltung</Link></p>
     </section> : <form className="card async-publish-form" onSubmit={(event) => void publish(event)}>
       <span className="badge">{record.quiz.questions.length} Fragen</span><h2>{record.quiz.title}</h2>
-      <label className="field" htmlFor="async-deadline">Ablaufdatum und Uhrzeit</label>
+      <label className="field" htmlFor="async-deadline">Mitspielen bis (Datum und Uhrzeit)</label>
       <input id="async-deadline" type="datetime-local" required value={localDate} disabled={busy}
         min={bounds.min} max={bounds.max} aria-describedby="async-deadline-hint"
         onChange={(event) => setLocalDate(event.target.value)} />
@@ -246,7 +276,7 @@ function PublishAsyncPage() {
         Richtige Antworten und Punkte werden Gästen erst nach Ende der Runde angezeigt.</p>
       <p>Ergebnisse werden {legal.asyncResultsRetentionDays} Tage nach dem tatsächlichen Rundenende aufbewahrt.</p>
       <button className="button primary" disabled={busy || !selectedInstant || instants.length === 0}>
-        {busy ? "Wird veröffentlicht …" : "Quiz veröffentlichen"}
+        {busy ? "Wird veröffentlicht …" : "Quizrunde veröffentlichen"}
       </button>
     </form>}
   </Layout>;
@@ -428,7 +458,7 @@ function AsyncQuizPage() {
           {rule && question.startedAt != null &&
             <SpeedBonus key={`${question.questionIndex}-${question.startedAt}`} startedAt={question.startedAt} offset={clockOffset} rule={rule} />}
         </div>
-        {nearDeadline && <p className="deadline-warning compact" role="status">Weniger als zehn Minuten bis zur Deadline.</p>}
+        {nearDeadline && <p className="deadline-warning compact" role="status">Weniger als zehn Minuten bis zum Ende.</p>}
         <h1 id="async-question-title" ref={headingRef} tabIndex={-1}>{question.text}</h1>
         <fieldset className={`async-options answer-columns-${columns}`} disabled={busy}>
           <legend className="sr-only">Antwortmöglichkeiten zu Frage {question.questionIndex + 1}</legend>
@@ -446,7 +476,7 @@ function AsyncQuizPage() {
         {status}
         <details className="question-help">
           <summary>Hinweise zum Quiz</summary>
-          <p>{info.title} · Deadline: {formatDateTimeInZone(info.expiresAt, info.timeZone)} ({info.timeZone})</p>
+          <p>{info.title} · Mitspielen bis {formatDateTimeWithZone(info.expiresAt, info.timeZone)}</p>
           <p>Bestätigte Antworten sind endgültig. Ob du richtig liegst, siehst du nach Ende der Runde.</p>
           {rule && <p>{speedIntro(rule)} Der Tempo-Bonus sinkt in den ersten {Math.round(rule.bonusWindowMs / 1000)} Sekunden
             je Frage auf null; die Zeit misst der Server ab Freigabe der Frage, einschließlich Übertragung.</p>}
@@ -455,10 +485,11 @@ function AsyncQuizPage() {
     </Layout>;
   }
   return <Layout gameMode="player"><Link className="back" to="/">← Zur Startseite</Link>
-    {loading ? <p>Quiz wird geladen …</p> : !info ? <div className="empty"><h1>Teilnahmelink nicht verfügbar</h1>
-      <p>Dieser Link ist ungültig oder die Ergebnisse wurden bereits gelöscht.</p></div> : <>
-      <div className="async-quiz-heading"><span className="eyebrow">QUIZ PER LINK · IM EIGENEN TEMPO</span><h1>{info.title}</h1>
-        <p>{info.description}</p><p><Clock3 size={17} aria-hidden="true" /> Deadline: {formatDateTimeInZone(info.expiresAt, info.timeZone)} ({info.timeZone})</p>
+    {loading ? <p>Quiz wird geladen …</p> : !info ? <div className="empty"><h1>Quizrunde nicht verfügbar</h1>
+      <p>{error || "Dieser Link oder Quiz-Code ist ungültig oder die Ergebnisse wurden bereits gelöscht."}</p>
+      <p><Link className="button secondary" to="/join">Quiz-Code eingeben</Link></p></div> : <>
+      <div className="async-quiz-heading"><span className="eyebrow">QUIZ ZUM MITMACHEN · SPIELE IN DEINEM TEMPO</span><h1>{info.title}</h1>
+        <p>{info.description}</p><p><Clock3 size={17} aria-hidden="true" /> Mitspielen bis {formatDateTimeWithZone(info.expiresAt, info.timeZone)}</p>
         <p>{info.questionCount} Fragen. Deine Antworten werden einzeln gespeichert. Maximal {info.maxParticipants} Teilnahmen.</p></div>
       <ErrorBanner error={error} />
       {status}
@@ -469,7 +500,7 @@ function AsyncQuizPage() {
           <p>{state.answeredCount} von {state.questionCount} Fragen beantwortet.
             {state.attemptStatus === "EXPIRED_PARTIAL" && " Nicht beantwortete Fragen zählen als 0 Punkte."}</p>
           {state.status === "ACTIVE" && <p>Deine Antworten sind gespeichert. Auflösung und Ergebnis siehst du nach Ende der Runde
-            ({formatDateTimeInZone(state.expiresAt, state.timeZone)}, {state.timeZone}) über diesen Link.</p>}
+            ({formatDateTimeWithZone(state.expiresAt, state.timeZone)}) über diesen Link oder denselben Quiz-Code.</p>}
           {state.status !== "ACTIVE" && <><p className="async-own-total">Dein Ergebnis: <strong>{rule
             ? `${pointsText(state.points ?? 0)} Punkte`
             : `${state.points ?? 0} von ${state.questionCount} Punkten`}</strong></p>
@@ -489,18 +520,17 @@ function AsyncQuizPage() {
           </>}
         </> : <p role="status">Die nächste Frage wird geladen …</p>}
       </section> : info.status === "ACTIVE" && canAnswer ? <section className="card async-player-card">
-        <h2>Du spielst in deinem Tempo</h2><p>Deine Antworten werden gespeichert. Du kannst bis zum Ablaufdatum teilnehmen.</p>
+        <h2>Du spielst in deinem Tempo</h2><p>Deine Antworten werden gespeichert. Du kannst bis {formatDateTimeWithZone(info.expiresAt, info.timeZone)} mitspielen.</p>
         {rule && <p className="async-speed-intro"><Zap size={17} aria-hidden="true" /> {speedIntro(rule)}</p>}
         <button className="button primary" disabled={busy} onClick={() => void start()}>
           {busy ? "Quiz wird geöffnet …" : "Quiz starten"}
         </button>
       </section> : <section className="card async-player-card"><h2>Diese Quizrunde ist beendet</h2>
-        <p>Die Quizrunde endete am {formatDateTimeInZone(info.endedAt ?? info.expiresAt, info.timeZone)} ({info.timeZone}).</p></section>}
+        <p>Die Quizrunde endete am {formatDateTimeWithZone(info.endedAt ?? info.expiresAt, info.timeZone)}.</p></section>}
     </>}
   </Layout>;
 }
 
-const asyncStatusText = (status: string) => status === "ACTIVE" ? "Aktiv" : status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen";
 const attemptStatusText = (status: string) => status === "COMPLETED" ? "abgeschlossen" : status === "IN_PROGRESS" ? "läuft" : "Frist abgelaufen";
 
 function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncParticipantResult; rule: AsyncScoringRule | null; questionCount: number }) {
@@ -580,7 +610,7 @@ function AsyncAdminResultsPage() {
     <ErrorBanner error={error} />
     {loading ? <p>Ergebnisse werden geladen …</p> : !results ? <p>Ergebnisse nicht verfügbar.</p> : <div className="async-admin-results">
       <div className="async-admin-head">
-        <div><span className="eyebrow">QUIZ PER LINK</span><h1>{results.title}</h1></div>
+        <div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h1>{results.title}</h1></div>
         <span className={`badge async-status-${results.status.toLowerCase()}`}>{asyncStatusText(results.status)}</span>
         <button className="button secondary small" disabled={refreshing} onClick={() => void reload()}>
           {refreshing ? "Wird aktualisiert …" : "Aktualisieren"}</button>
@@ -663,7 +693,7 @@ function AsyncAdminResultsPage() {
       <details className="card async-admin-section" open={open.info} onToggle={toggle("info")}>
         <summary><h2>Quizinformationen</h2></summary>
         <p>Veröffentlicht: {formatDateTimeInZone(results.createdAt, results.timeZone)} ·
-          Deadline: {formatDateTimeInZone(results.expiresAt, results.timeZone)} ({results.timeZone})
+          Mitspielen bis: {formatDateTimeWithZone(results.expiresAt, results.timeZone)} ({results.timeZone})
           {results.endedAt && results.endedAt !== results.expiresAt &&
             ` · Tatsächliches Ende: ${formatDateTimeInZone(results.endedAt, results.timeZone)}`}</p>
         <p>Aktualisiert: {new Date(results.updatedAt).toLocaleString("de-DE")}</p>
@@ -682,18 +712,29 @@ function Join() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
   async function submit(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    try { const participant = await cloud.join(code); navigate(`/play/${participant.sessionId}`); }
+    event.preventDefault();
+    const normalized = normalizeJoinCodeInput(code);
+    if (normalized.error) { setError(normalized.error); return; }
+    setBusy(true); setError("");
+    try {
+      // Der Server ordnet den Code eindeutig zu; die Gäste müssen den Modus nicht kennen.
+      const resolved = await cloud.resolveJoinCode(normalized.code);
+      if (resolved.mode === "ASYNC") { navigate(`/q/${resolved.joinCode}`); return; }
+      const participant = await cloud.join(resolved.joinCode);
+      navigate(`/play/${participant.sessionId}`);
+    }
     catch (caught) { setError(message(caught)); } finally { setBusy(false); }
   }
   return <Layout><div className="login-card join-card"><span className="login-icon"><KeyRound size={27} aria-hidden="true" /></span>
-    <span className="eyebrow">DEIN PLATZ IST NOCH FREI</span><h1>Spiel beitreten</h1><p>Gib den sechsstelligen Spielcode ein. Ein Konto ist nicht nötig.</p>
-    <ErrorBanner error={error} /><form onSubmit={submit}><label className="field">Spielcode
-      <input className="code-input" inputMode="numeric" autoComplete="off" pattern="[0-9]{6}" maxLength={6} required value={code}
-        placeholder="123456" disabled={busy} aria-describedby="join-code-hint"
-        onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
-      <span className="hint" id="join-code-hint">Den Code bekommst du von deinem Quizmaster.</span>
-      <button className="button primary" disabled={busy}>{busy ? "Du trittst bei …" : "Beitreten"}<ArrowRight size={18} aria-hidden="true" /></button></form>
+    <span className="eyebrow">DEIN PLATZ IST NOCH FREI</span><h1>Mitspielen</h1>
+    <p>Gib den sechsstelligen Quiz-Code ein – für Live-Quiz und Quiz zum Mitmachen. Ein Konto ist nicht nötig.</p>
+    <ErrorBanner error={error} /><form onSubmit={(event) => void submit(event)} noValidate><label className="field">Quiz-Code
+      <input className="code-input" type="text" inputMode="numeric" autoComplete="off" autoCorrect="off" spellCheck={false}
+        maxLength={12} required value={code} placeholder="482 619" disabled={busy} aria-describedby="join-code-hint"
+        aria-invalid={error ? true : undefined}
+        onChange={(event) => { setCode(event.target.value); if (error) setError(""); }} /></label>
+      <span className="hint" id="join-code-hint">Den Code bekommst du von deinem Quizmaster, z. B. 482 619.</span>
+      <button className="button primary" disabled={busy}>{busy ? "Wird geprüft …" : "Mitspielen"}<ArrowRight size={18} aria-hidden="true" /></button></form>
       <PrivacyNote /></div></Layout>;
 }
 
@@ -919,6 +960,7 @@ export function CloudApp() {
     <Route path="/admin/async/:publicationId" element={<AdminGate><AsyncAdminResultsPage /></AdminGate>} />
     <Route path="/admin/sessions/:sessionId" element={<AdminGate><AdminSession /></AdminGate>} />
     <Route path="/q/:token" element={<AsyncQuizPage />} />
+    <Route path="/einladung/:code" element={<InvitationPage />} />
     <Route path="/join" element={<Join />} /><Route path="/join/:joinCode" element={<Join />} />
     <Route path="/play/:sessionId" element={<Play />} /><Route path="/present/:presentationToken" element={<Presentation />} />
     <Route path="/impressum" element={<Layout><ImpressumPage /></Layout>} />

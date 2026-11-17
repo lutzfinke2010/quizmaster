@@ -123,9 +123,9 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     const player2 = await second.newPage();
     await player1.goto(`/join/${code}`);
     await player2.goto("/join");
-    await player2.getByLabel("Spielcode").fill(code);
-    await player1.getByRole("button", { name: "Beitreten" }).click();
-    await player2.getByRole("button", { name: "Beitreten" }).click();
+    await player2.getByLabel("Quiz-Code").fill(code);
+    await player1.getByRole("button", { name: "Mitspielen" }).click();
+    await player2.getByRole("button", { name: "Mitspielen" }).click();
     await expect(player1).toHaveURL(/\/play\//);
     await expect(player2).toHaveURL(/\/play\//);
     await expect(page.getByText("2 Teilnehmende")).toBeVisible({ timeout: 30_000 });

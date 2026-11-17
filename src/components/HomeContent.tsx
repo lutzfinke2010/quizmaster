@@ -11,10 +11,10 @@ export function HomeContent({ localMode = false }: { localMode?: boolean }) {
         <p>Ein bisschen Wissen. Ein bisschen Bauchgefühl. Und ganz viel Spaß zusammen. Mach aus deiner nächsten Runde eine Quizshow.</p>
         <div className="actions">
           <Link className="button primary" to={localMode ? "/admin" : "/join"}>
-            {localMode ? "Quiz vorbereiten" : "Spiel beitreten"} <ArrowRight size={19} aria-hidden="true" />
+            {localMode ? "Quiz vorbereiten" : "Mitspielen"} <ArrowRight size={19} aria-hidden="true" />
           </Link>
           <Link className="button secondary" to={localMode ? "/join" : "/admin"}>
-            {localMode ? "Spiel beitreten" : "Quiz vorbereiten"}
+            {localMode ? "Mitspielen" : "Quiz vorbereiten"}
           </Link>
         </div>
         <TrustChips localMode={localMode} />
@@ -41,7 +41,7 @@ export function HomeContent({ localMode = false }: { localMode?: boolean }) {
         <li><span className="step-icon step-peach"><PencilLine aria-hidden="true" /></span>
           <div><span className="step-number">01 / VORBEREITEN</span><h3>Deine Fragen. Dein Quiz.</h3><p>Eigene Ideen sammeln oder mit einem Beispielquiz loslegen.</p></div></li>
         <li><span className="step-icon step-purple"><Users aria-hidden="true" /></span>
-          <div><span className="step-number">02 / ZUSAMMENKOMMEN</span><h3>Code teilen. Alle dabei.</h3><p>Im Live-Spiel geht’s per Spielcode oder QR-Code direkt in die Runde.</p></div></li>
+          <div><span className="step-number">02 / ZUSAMMENKOMMEN</span><h3>Code teilen. Alle dabei.</h3><p>Live-Quiz oder Quiz zum Mitmachen: per Quiz-Code oder QR-Code direkt in die Runde.</p></div></li>
         <li><span className="step-icon step-lime"><PartyPopper aria-hidden="true" /></span>
           <div><span className="step-number">03 / LOSRÄTSELN</span><h3>Mitfiebern. Weiterwissen.</h3><p>Antwort auswählen, Auflösung entdecken und gemeinsam feiern.</p></div></li>
       </ol>

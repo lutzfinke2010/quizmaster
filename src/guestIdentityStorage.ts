@@ -1,6 +1,6 @@
 import { defaultStorage, type KeyValueStorageInterface } from "aws-amplify/utils";
 
-/** Standardlebensdauer; aktive Quiz-per-Link-Versuche verlängern sie bis zur Ergebnislöschung. */
+/** Standardlebensdauer; aktive Versuche bei Quiz zum Mitmachen verlängern sie bis zur Ergebnislöschung. */
 export const guestIdentityMaxAgeMs = 24 * 60 * 60 * 1000;
 const expiryPrefix = "quizrush.expiry.";
 const maxTimeoutMs = 2_147_483_647;

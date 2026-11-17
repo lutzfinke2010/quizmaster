@@ -200,7 +200,7 @@
   .game-view .game-footnote { padding: 12px 18px; }
   .game-personal .game-footnote { padding-inline: 0; }
 }
-/* Kompakte Fragenansicht (Live-Mitspielende und Quiz per Link): Frage, Antworten und Aktion ohne Scrollen. */
+/* Kompakte Fragenansicht (Live-Mitspielende und Quiz zum Mitmachen): Frage, Antworten und Aktion ohne Scrollen. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .compact-question { display: flex; flex-direction: column; gap: 8px; width: min(100%, 720px); margin-inline: auto; overflow-wrap: anywhere; }
 .game-personal .game-phase:has(> .compact-question) { padding: 0; }
@@ -283,3 +283,102 @@
 .delete-own-data h2 { margin: 0 0 10px; font-size: 1.05rem; }
 .delete-own-data p { margin: 0 0 12px; line-height: 1.55; }
 .delete-own-data .delete-hint { margin: 10px 0 0; color: var(--muted); font-size: .85rem; }
+
+/* Quiz zum Mitmachen: kompakte Karten, Quiz-Code und Kopieraktionen */
+.mode-compare { display: grid; gap: 4px; margin: 0 0 18px; padding: 0; list-style: none; color: var(--muted); }
+.async-publication-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.async-publication-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.async-publication-card h3 { margin: 0; font-size: 1.2rem; line-height: 1.3; }
+.card.async-publication-card p, .card.async-published p { flex: none; margin: 0; }
+.card.async-publication-card .actions { margin-top: auto; padding-top: 6px; }
+.card.async-publication-card { min-height: 0; }
+.async-card-deadline, .async-card-participants { display: flex; align-items: center; gap: 7px; font-size: .9rem; }
+.async-card-deadline strong { color: var(--ink); }
+.async-card-link { font-size: .85rem; font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.async-publication-card .actions, .async-published .actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.async-publication-card.is-ended .async-card-deadline strong { color: var(--muted); }
+.async-card-more { font-size: .85rem; color: var(--muted); }
+.async-card-more summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
+.async-card-more[open] summary { margin-bottom: 6px; }
+.async-published { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.join-code-block { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #f5f7ed; }
+.join-code-label { flex-basis: 100%; font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.join-code-digits { font-size: clamp(2rem, 5vw, 2.4rem); line-height: 1.1; font-weight: 850; letter-spacing: .06em; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.copy-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: 100%; }
+.copy-status { font-size: .85rem; font-weight: 700; color: #285d46; }
+.copy-fallback { flex-basis: 100%; display: grid; gap: 6px; margin: 0; font-size: .8rem; }
+.copy-fallback input { width: 100%; min-width: 0; padding: 8px 10px; border: 2px solid var(--teal); border-radius: 8px; background: #fff; font: inherit; font-size: .9rem; }
+
+/* Einladung: klar abgegrenzte, screenshotfähige 16:9-Fläche */
+.invitation-page { --toolbar-h: 60px; --stage-pad: 16px; min-height: 100vh; min-height: 100dvh; background: #e6e9dc; color: var(--ink); }
+.invitation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: var(--toolbar-h); padding: 8px var(--stage-pad); }
+.invitation-toolbar-hint { font-size: .8rem; color: var(--muted); }
+.invitation-page.is-fullscreen .invitation-toolbar { display: none; }
+.invitation-stage { display: grid; place-items: center; min-height: calc(100dvh - var(--toolbar-h)); padding: 0 var(--stage-pad) var(--stage-pad); background: #e6e9dc; }
+.invitation-stage:fullscreen { min-height: 100vh; padding: 0; background: #e6e9dc; }
+.invitation-status { max-width: 560px; padding: 32px; border-radius: 20px; background: var(--paper); text-align: center; }
+.invitation-status .button { margin-top: 8px; }
+.invitation-card {
+  --u: 1cqw;
+  container-type: size;
+  position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: calc(var(--u) * 1.6);
+  width: min(100%, calc((100dvh - var(--toolbar-h) - var(--stage-pad)) * 16 / 9));
+  aspect-ratio: 16 / 9; overflow: hidden;
+  padding: 3.4% 4.2% 3%; border-radius: 1.6vmin; background: var(--paper);
+  box-shadow: 0 0 0 1px #d4dbc8, 0 18px 50px rgb(32 60 56 / 14%);
+}
+.invitation-card::before { content: ""; position: absolute; right: -6%; top: -18%; width: 34%; aspect-ratio: 1; border-radius: 50%; background: var(--lime); opacity: .55; pointer-events: none; }
+.invitation-card:not(.is-ready):not(.is-ended) { visibility: hidden; }
+.invitation-stage:fullscreen .invitation-card { width: min(100vw, calc(100vh * 16 / 9)); border-radius: 0; box-shadow: none; }
+.invitation-card > * { position: relative; min-width: 0; }
+.invitation-brand img { display: block; width: calc(var(--u) * 15); height: auto; }
+.invitation-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 4.5); min-height: 0; }
+.invitation-text { display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: 0; }
+.invitation-eyebrow { font-size: calc(var(--u) * 1.35); font-weight: 850; letter-spacing: .14em; color: #2f6b5d; }
+.invitation-title { margin: calc(var(--u) * .7) 0 calc(var(--u) * 1.1); color: var(--ink); font-size: calc(var(--u) * 4.6); line-height: 1.06; letter-spacing: -.035em; overflow-wrap: break-word; hyphens: auto; text-wrap: balance; }
+.invitation-title.size-lg { font-size: calc(var(--u) * 3.7); }
+.invitation-title.size-xl { font-size: calc(var(--u) * 2.9); line-height: 1.1; }
+.invitation-lead { margin: 0 0 calc(var(--u) * 2.2); font-size: calc(var(--u) * 1.75); line-height: 1.35; color: var(--ink); font-weight: 650; }
+.invitation-code { display: flex; flex-direction: column; align-items: flex-start; gap: calc(var(--u) * .5); width: fit-content; max-width: 100%; padding: calc(var(--u) * 1.4) calc(var(--u) * 2.2); border-radius: calc(var(--u) * 1.4); background: var(--teal); color: #fff; }
+.invitation-code-label { font-size: calc(var(--u) * 1.15); font-weight: 850; letter-spacing: .14em; color: var(--lime); }
+.invitation-code-digits { font-size: calc(var(--u) * 7.2); line-height: 1; font-weight: 900; letter-spacing: .04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.invitation-code-how { font-size: calc(var(--u) * 1.35); font-weight: 650; color: #eaf3e3; }
+.invitation-qr { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 1); margin: 0; }
+.invitation-qr-box { width: calc(var(--u) * 25); aspect-ratio: 1; padding: 0; border-radius: calc(var(--u) * 1); background: #fff; box-shadow: 0 0 0 1px #d4dbc8; overflow: hidden; }
+.invitation-qr-box svg { display: block; width: 100%; height: 100%; }
+.invitation-qr figcaption { font-size: calc(var(--u) * 1.6); font-weight: 850; color: var(--ink); }
+.invitation-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; margin: 0; padding: calc(var(--u) * 1.3) 0 0; gap: calc(var(--u) * .6) calc(var(--u) * 3); border-top: 2px solid #dfe5d4; font-size: calc(var(--u) * 1.45); color: var(--ink); }
+.invitation-footer strong { font-weight: 850; }
+.invitation-link { font-weight: 800; color: var(--teal); overflow-wrap: anywhere; }
+.invitation-card.is-ended { grid-template-rows: auto 1fr; }
+.invitation-ended { display: flex; flex-direction: column; justify-content: center; max-width: 80%; }
+.invitation-ended p { margin: 0; font-size: calc(var(--u) * 1.8); color: var(--ink); }
+.invitation-ended .invitation-ended-status { margin-bottom: calc(var(--u) * 1); font-size: calc(var(--u) * 2.8); font-weight: 850; }
+@supports not (container-type: size) {
+  .invitation-card { --u: calc(min(100vw - 32px, (100vh - 76px) * 16 / 9) / 100); }
+}
+/* Smartphone/Hochformat: gestapelte, lesbare Ansicht statt Miniatur der 16:9-Folie */
+@media (max-width: 760px), (max-aspect-ratio: 4 / 5) {
+  .invitation-page { --toolbar-h: auto; --stage-pad: 12px; }
+  .invitation-stage { display: block; min-height: 0; }
+  .invitation-card {
+    --u: 4px; container-type: normal; display: flex; flex-direction: column; width: 100%; aspect-ratio: auto; overflow: hidden;
+    gap: 18px; padding: 22px 20px; border-radius: 18px;
+  }
+  .invitation-card::before { width: 45%; top: -8%; }
+  .invitation-brand img { width: 150px; }
+  .invitation-main { display: flex; flex-direction: column; align-items: stretch; gap: 22px; }
+  .invitation-eyebrow { font-size: .8rem; }
+  .invitation-title, .invitation-title.size-lg, .invitation-title.size-xl { font-size: clamp(1.7rem, 7.5vw, 2.4rem); }
+  .invitation-lead { font-size: 1.05rem; margin-bottom: 16px; }
+  .invitation-code { width: 100%; padding: 16px 18px; border-radius: 16px; }
+  .invitation-code-label { font-size: .75rem; }
+  .invitation-code-digits { font-size: clamp(2.6rem, 14vw, 3.6rem); }
+  .invitation-code-how { font-size: .95rem; }
+  .invitation-qr-box { width: min(78vw, 300px); border-radius: 12px; }
+  .invitation-qr figcaption { font-size: 1.05rem; }
+  .invitation-footer { flex-direction: column; font-size: 1rem; }
+  .invitation-ended { max-width: none; }
+  .invitation-ended p { font-size: 1.05rem; }
+  .invitation-ended .invitation-ended-status { font-size: 1.5rem; }
+}

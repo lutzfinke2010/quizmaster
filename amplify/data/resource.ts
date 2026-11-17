@@ -64,14 +64,17 @@ const schema = a.schema({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
-    serverTime: a.float().required(),
+    joinCode: a.string(), serverTime: a.float().required(),
     scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
     bonusWindowMs: a.integer().required(),
   }),
   AsyncPublishReceipt: a.customType({
-    publicationId: a.id().required(), token: a.string().required(), expiresAt: a.float().required(),
-    timeZone: a.string().required(), retentionDays: a.integer().required(), maxParticipants: a.integer().required(),
+    publicationId: a.id().required(), token: a.string().required(), joinCode: a.string().required(),
+    expiresAt: a.float().required(), timeZone: a.string().required(), retentionDays: a.integer().required(),
+    maxParticipants: a.integer().required(),
   }),
+  AsyncJoinCode: a.customType({ publicationId: a.id().required(), joinCode: a.string().required() }),
+  JoinCodeResolution: a.customType({ mode: a.string().required(), joinCode: a.string().required() }),
   AsyncEndReceipt: a.customType({ status: a.string().required(), endedAt: a.float().required() }),
   AsyncQuestion: a.customType({
     questionIndex: a.integer().required(), text: a.string().required(), answers: a.ref("PublicAnswer").array().required(),
@@ -93,7 +96,7 @@ const schema = a.schema({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
-    serverTime: a.float().required(),
+    joinCode: a.string(), serverTime: a.float().required(),
     displayName: a.string().required(), avatarId: a.string().required(),
     startedAt: a.float().required(), answeredCount: a.integer().required(), attemptStatus: a.string().required(),
     nextQuestionIndex: a.integer().required(), answers: a.ref("AsyncGuestAnswer").array().required(),
@@ -109,7 +112,7 @@ const schema = a.schema({
   }),
   AsyncPublicationSummary: a.customType({
     publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(), token: a.string().required(),
-    createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
+    joinCode: a.string(), createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
     status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
     participantCount: a.integer().required(), maxParticipants: a.integer().required(),
     completedCount: a.integer().required(), partialCount: a.integer().required(),
@@ -216,6 +219,10 @@ const schema = a.schema({
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   listAsyncPublications: a.query().returns(a.ref("AsyncPublicationSummary").array())
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  ensureAsyncJoinCode: a.mutation().arguments({ publicationId: a.id().required() }).returns(a.ref("AsyncJoinCode"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  resolveJoinCode: a.query().arguments({ joinCode: a.string().required() }).returns(a.ref("JoinCodeResolution"))
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
   endAsyncPublication: a.mutation().arguments({ publicationId: a.id().required() }).returns(a.ref("AsyncEndReceipt"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   getAsyncPublicationResults: a.query().arguments({ publicationId: a.id().required(), cursor: a.string() })

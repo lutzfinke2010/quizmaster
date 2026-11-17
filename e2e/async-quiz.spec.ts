@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Quiz per Link mit ASYNC_SPEED_V1: kompakte Fragenansicht, automatischer Fragewechsel aus der
+ * Quiz zum Mitmachen mit ASYNC_SPEED_V1: kompakte Fragenansicht, automatischer Fragewechsel aus der
  * Antwortbestätigung, Tempo-Bonus-Anzeige und Admin-Top-5. Das Backend wird im Browser simuliert.
  */
 async function mockAsync(page: Page, options: { questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean } = {}) {
@@ -92,7 +92,7 @@ async function expectQuestionFits(page: Page) {
 }
 
 for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 }]) {
-  test(`Quiz per Link: Frage, vier Antworten und Absenden passen ohne Scrollen bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
+  test(`Quiz zum Mitmachen: Frage, vier Antworten und Absenden passen ohne Scrollen bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await mockAsync(page);
     await page.goto("/q/token");
@@ -108,7 +108,7 @@ for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }
   });
 }
 
-test("Quiz per Link springt nach der Bestätigung direkt zur nächsten Frage – ohne Zwischenseite", async ({ page }) => {
+test("Quiz zum Mitmachen springt nach der Bestätigung direkt zur nächsten Frage – ohne Zwischenseite", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await mockAsync(page);
   await page.goto("/q/token");

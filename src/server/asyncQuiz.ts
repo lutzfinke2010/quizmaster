@@ -11,11 +11,17 @@ import { logger } from "./logger";
 import { QuizStore } from "./quizStore";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 import { batchGetAll, mapWithConcurrency } from "./batchGet";
+import {
+  JOIN_CODE_FREE_CONDITION, JOIN_CODE_PATTERN, isJoinCodeLike, joinCodeKey, normalizeJoinCode, reserveJoinCode,
+} from "./joinCode";
 import { ASYNC_MAX_DURATION_MS, ASYNC_MAX_DURATION_DAYS } from "../domain/limits";
 import { ASYNC_LEGACY_SCORING, ASYNC_SPEED_V1, scoreAsyncSpeedAnswer, type AsyncScoringRule } from "../domain/scoring";
 
 const uuidSchema = z.string().uuid();
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+const joinCodeSchema = z.string().regex(JOIN_CODE_PATTERN);
+/** Langer Teilnahmelink-Token oder Quiz-Code; die genaue Prüfung erfolgt in `resolveToken`. */
+const participationRefSchema = z.string().min(1).max(64);
 const identitySchema = z.string().min(1).max(128);
 const avatarLabels = new Map(avatars.avatars.map(({ id, label }) => [id, label]));
 const zoneSchema = z.string().min(1).max(100);
@@ -38,6 +44,8 @@ const publicationSchema = z.object({
   snapshot: snapshotSchema,
   status: z.enum(["ACTIVE", "ENDED"]),
   tokenHash: z.string().regex(/^[a-f0-9]{64}$/),
+  // Fehlt bei Runden aus der Zeit vor den Quiz-Codes, bis `ensureAsyncJoinCode` ihn einmalig vergibt.
+  joinCode: joinCodeSchema.optional(),
   createdAt: z.number().int().nonnegative(),
   expiresAt: z.number().int().positive(),
   timeZone: zoneSchema,
@@ -179,10 +187,19 @@ function metadata(publication: Publication, now: number) {
     retentionAt: publication.retentionAt,
     endedAt: publication.endedAt ?? (status === "EXPIRED" ? publication.expiresAt : null),
     maxParticipants: publication.maxParticipants,
+    joinCode: publication.joinCode ?? null,
     serverTime: now,
     ...scoringInfo(publication),
   };
 }
+
+type PublishReceipt = {
+  publicationId: string; token: string; joinCode: string; expiresAt: number; timeZone: string;
+  retentionDays: number; maxParticipants: number;
+};
+const savedRequestSchema = z.object({ publicationId: uuidSchema, token: tokenSchema, expiresAt: z.number().int(),
+  timeZone: zoneSchema, retentionAt: z.number().int(), retentionDays: z.number().int(), maxParticipants: z.number().int(),
+  requestHash: z.string(), joinCode: joinCodeSchema.optional() });
 
 export async function publishAsyncQuiz(
   client: DynamoDBDocumentClient,
@@ -192,7 +209,8 @@ export async function publishAsyncQuiz(
   retentionDays: number,
   maxParticipants: number,
   now: number,
-): Promise<{ publicationId: string; token: string; expiresAt: number; timeZone: string; retentionDays: number; maxParticipants: number }> {
+  joinCodeCandidates?: () => string,
+): Promise<PublishReceipt> {
   const ownerId = requireQuizmaster(principal);
   const input = z.object({
     quizId: uuidSchema,
@@ -208,19 +226,23 @@ export async function publishAsyncQuiz(
   const requestHash = hash(JSON.stringify({
     quizId: input.quizId, expiresAt: input.expiresAt, timeZone: input.timeZone,
   }));
-  const existing = await client.send(new GetCommand({ TableName: tableName, Key: requestKey, ConsistentRead: true }));
-  if (existing.Item) {
-    const saved = z.object({ publicationId: uuidSchema, token: tokenSchema, expiresAt: z.number().int(),
-      timeZone: zoneSchema, retentionAt: z.number().int(), retentionDays: z.number().int(), maxParticipants: z.number().int(),
-      requestHash: z.string() }).parse(existing.Item);
+  /** Idempotenter Retry (z. B. nach verlorenem Response): gleiche Runde, gleicher Code, keine zweite Veröffentlichung. */
+  const replay = async (): Promise<PublishReceipt | undefined> => {
+    const existing = await client.send(new GetCommand({ TableName: tableName, Key: requestKey, ConsistentRead: true }));
+    if (!existing.Item) return undefined;
+    const saved = savedRequestSchema.parse(existing.Item);
     if (saved.requestHash !== requestHash) throw new Error("Diese Vorgangsidentität wurde bereits für eine andere Veröffentlichung verwendet.");
     if (saved.retentionAt <= Date.now()) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
-    return { publicationId: saved.publicationId, token: saved.token, expiresAt: saved.expiresAt,
+    // Vorgänge aus der Zeit vor den Quiz-Codes erhalten ihren Code einmalig nachträglich.
+    const joinCode = saved.joinCode ?? await ensureJoinCodeFor(client, tableName, saved.publicationId, ownerId, Date.now());
+    return { publicationId: saved.publicationId, token: saved.token, joinCode, expiresAt: saved.expiresAt,
       timeZone: saved.timeZone, retentionDays: saved.retentionDays, maxParticipants: saved.maxParticipants };
-  }
-  if (input.expiresAt <= now) throw new Error("Das Ablaufdatum muss in der Zukunft liegen.");
+  };
+  const previous = await replay();
+  if (previous) return previous;
+  if (input.expiresAt <= now) throw new Error("Das Ende muss in der Zukunft liegen.");
   if (input.expiresAt > now + ASYNC_MAX_DURATION_MS) {
-    throw new Error(`Eine Quizrunde per Link darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage laufen.`);
+    throw new Error(`Eine Quizrunde darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage laufen.`);
   }
   try {
     new Intl.DateTimeFormat("en", { timeZone: input.timeZone }).format(now);
@@ -231,65 +253,138 @@ export async function publishAsyncQuiz(
   const { quiz } = await new QuizStore(client, tableName).getQuiz(principal, input.quizId);
   const snapshot = snapshotSchema.parse(structuredClone(quiz));
   const createdAt = Date.now();
-  if (input.expiresAt <= createdAt) throw new Error("Das Ablaufdatum muss in der Zukunft liegen.");
+  if (input.expiresAt <= createdAt) throw new Error("Das Ende muss in der Zukunft liegen.");
   const publicationId = randomUUID();
   const token = randomBytes(32).toString("base64url");
   const tokenHash = hash(token);
   const retentionAt = input.expiresAt + retentionDays * 86_400_000;
   if (!Number.isSafeInteger(retentionAt)) throw new Error("Ungültiger Aufbewahrungszeitpunkt.");
-  const publication: Publication = {
-    publicationId, ownerId, quizId: input.quizId, title: snapshot.title, snapshot,
-    status: "ACTIVE", tokenHash, createdAt, expiresAt: input.expiresAt, timeZone: input.timeZone,
-    retentionAt, retentionDays, maxParticipants, startedCount: 0, statsVersion: 1, completedCount: 0,
-    scoringVersion: ASYNC_SPEED_V1.version,
-    scoring: { basePoints: ASYNC_SPEED_V1.basePoints, maxBonusPoints: ASYNC_SPEED_V1.maxBonusPoints,
-      bonusWindowMs: ASYNC_SPEED_V1.bonusWindowMs },
-  };
-  const idempotency = { ...requestKey, publicationId, token, expiresAt: input.expiresAt, timeZone: input.timeZone,
-    retentionAt, retentionDays, maxParticipants, requestHash,
-    ttl: Math.ceil(retentionAt / 1000) };
-  try {
+  const ttl = Math.ceil(retentionAt / 1000);
+  // Code, Runde, Eigentümerindex, Idempotenzeintrag und Tokenzeiger entstehen in einer Transaktion:
+  // keine halb veröffentlichte Runde ohne nutzbaren Zugang und kein reservierter Code ohne Runde.
+  return reserveJoinCode(client, tableName, createdAt, async (joinCode) => {
+    const publication: Publication = {
+      publicationId, ownerId, quizId: input.quizId, title: snapshot.title, snapshot,
+      status: "ACTIVE", tokenHash, joinCode, createdAt, expiresAt: input.expiresAt, timeZone: input.timeZone,
+      retentionAt, retentionDays, maxParticipants, startedCount: 0, statsVersion: 1, completedCount: 0,
+      scoringVersion: ASYNC_SPEED_V1.version,
+      scoring: { basePoints: ASYNC_SPEED_V1.basePoints, maxBonusPoints: ASYNC_SPEED_V1.maxBonusPoints,
+        bonusWindowMs: ASYNC_SPEED_V1.bonusWindowMs },
+    };
+    const idempotency = { ...requestKey, publicationId, token, joinCode, expiresAt: input.expiresAt, timeZone: input.timeZone,
+      retentionAt, retentionDays, maxParticipants, requestHash, ttl };
     await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
-      { Put: { TableName: tableName, Item: { ...publicationKey(publicationId), ...publication,
-        ttl: Math.ceil(retentionAt / 1000) },
-      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
+      { Put: { TableName: tableName, Item: asyncJoinCodeItem(joinCode, publicationId, createdAt),
+        ConditionExpression: JOIN_CODE_FREE_CONDITION, ExpressionAttributeValues: { ":now": createdAt } } },
+      { Put: { TableName: tableName, Item: { ...publicationKey(publicationId), ...publication, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
       { Put: { TableName: tableName, Item: { pk: ownerPk, sk: `ASYNC#${String(createdAt).padStart(16, "0")}#${publicationId}`,
-        publicationId, createdAt, token, retentionAt, ttl: Math.ceil(retentionAt / 1000) },
+        publicationId, createdAt, token, retentionAt, ttl },
       ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
       { Put: { TableName: tableName, Item: idempotency,
         ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
-      { Put: { TableName: tableName, Item: { pk: `ASYNC_TOKEN#${tokenHash}`, sk: "META", publicationId,
-        ttl: Math.ceil(retentionAt / 1000) },
-      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
+      { Put: { TableName: tableName, Item: { pk: `ASYNC_TOKEN#${tokenHash}`, sk: "META", publicationId, ttl },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
     ] })));
-  } catch (error) {
-    if (!isConditionalFailure(error)) throw error;
-    const retry = await client.send(new GetCommand({ TableName: tableName, Key: requestKey, ConsistentRead: true }));
-    if (!retry.Item) throw error;
-    const saved = z.object({ publicationId: uuidSchema, token: tokenSchema, expiresAt: z.number().int(),
-      timeZone: zoneSchema, retentionAt: z.number().int(), retentionDays: z.number().int(), maxParticipants: z.number().int(),
-      requestHash: z.string() }).parse(retry.Item);
-    if (saved.requestHash !== requestHash) throw new Error("Diese Vorgangsidentität wurde bereits für eine andere Veröffentlichung verwendet.");
-    if (saved.retentionAt <= Date.now()) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
-    return { publicationId: saved.publicationId, token: saved.token, expiresAt: saved.expiresAt,
-      timeZone: saved.timeZone, retentionDays: saved.retentionDays, maxParticipants: saved.maxParticipants };
-  }
-  return { publicationId, token, expiresAt: input.expiresAt, timeZone: input.timeZone, retentionDays, maxParticipants };
+    return { publicationId, token, joinCode, expiresAt: input.expiresAt, timeZone: input.timeZone, retentionDays, maxParticipants };
+  }, replay, joinCodeCandidates);
 }
 
+/** Dauerhafte Codereservierung einer Quizrunde: bewusst ohne `ttl`, `expiresAt` und Teilnehmerdaten. */
+function asyncJoinCodeItem(joinCode: string, publicationId: string, createdAt: number) {
+  return { ...joinCodeKey(joinCode), publicationId, kind: "ASYNC", createdAt };
+}
+
+/**
+ * Vergibt einer bereits veröffentlichten Runde ohne Quiz-Code einmalig einen stabilen Code.
+ * Parallele Aufrufe (z. B. zwei Admin-Tabs) sehen über die Bedingung `attribute_not_exists(joinCode)` denselben Code.
+ */
+async function ensureJoinCodeFor(
+  client: DynamoDBDocumentClient, tableName: string, publicationId: string, ownerId: string, now: number,
+  joinCodeCandidates?: () => string,
+): Promise<string> {
+  const publication = await getPublication(client, tableName, publicationId, now);
+  if (publication.ownerId !== ownerId) throw new Error("Veröffentlichung gehört nicht zu diesem Konto.");
+  if (publication.joinCode) return publication.joinCode;
+  const confirmed = async () => {
+    const current = await getPublication(client, tableName, publicationId, Date.now());
+    return current.joinCode;
+  };
+  return reserveJoinCode(client, tableName, now, async (joinCode) => {
+    await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: tableName, Item: asyncJoinCodeItem(joinCode, publicationId, Date.now()),
+        ConditionExpression: JOIN_CODE_FREE_CONDITION, ExpressionAttributeValues: { ":now": now } } },
+      { Update: { TableName: tableName, Key: publicationKey(publicationId),
+        UpdateExpression: "SET joinCode = :code",
+        ConditionExpression: "attribute_exists(pk) AND ownerId = :owner AND attribute_not_exists(joinCode)",
+        ExpressionAttributeValues: { ":code": joinCode, ":owner": ownerId } } },
+    ] })));
+    return joinCode;
+  }, confirmed, joinCodeCandidates);
+}
+
+export async function ensureAsyncJoinCode(
+  client: DynamoDBDocumentClient, tableName: string, raw: unknown, principal: unknown, now: number,
+  joinCodeCandidates?: () => string,
+): Promise<{ publicationId: string; joinCode: string }> {
+  const ownerId = requireQuizmaster(principal);
+  const input = z.object({ publicationId: uuidSchema }).strict().parse(raw);
+  assertTime(now);
+  const joinCode = await ensureJoinCodeFor(client, tableName, input.publicationId, ownerId, now, joinCodeCandidates);
+  return { publicationId: input.publicationId, joinCode };
+}
+
+const unknownReference = "Diese Quizrunde gibt es nicht oder sie ist nicht mehr verfügbar.";
+
+/**
+ * Teilnahmezugang über alten langen Link (43-Zeichen-Token) oder Quiz-Code. Beide Formen sind disjunkt und lösen auf
+ * dieselbe Veröffentlichung auf; der Versuch hängt allein an Veröffentlichung und Gastidentität, nicht am Zugangsweg.
+ */
 async function resolveToken(
-  client: DynamoDBDocumentClient, tableName: string, rawToken: unknown, now: number,
+  client: DynamoDBDocumentClient, tableName: string, rawReference: unknown, now: number,
 ): Promise<Publication> {
-  const token = tokenSchema.parse(rawToken);
-  const tokenHash = hash(token);
-  const pointer = await client.send(new GetCommand({
-    TableName: tableName, Key: { pk: `ASYNC_TOKEN#${tokenHash}`, sk: "META" }, ConsistentRead: true,
-  }));
+  if (typeof rawReference === "string" && tokenSchema.safeParse(rawReference).success) {
+    const tokenHash = hash(rawReference);
+    const pointer = await client.send(new GetCommand({
+      TableName: tableName, Key: { pk: `ASYNC_TOKEN#${tokenHash}`, sk: "META" }, ConsistentRead: true,
+    }));
+    const publicationId = z.string().uuid().safeParse(pointer.Item?.publicationId);
+    if (!publicationId.success) throw new Error("Der Teilnahmelink ist ungültig oder nicht mehr verfügbar.");
+    const publication = await getPublication(client, tableName, publicationId.data, now);
+    if (publication.tokenHash !== tokenHash) throw new Error("Der Teilnahmelink ist ungültig oder nicht mehr verfügbar.");
+    return publication;
+  }
+  if (!isJoinCodeLike(rawReference)) throw new Error("Der Teilnahmelink ist ungültig oder nicht mehr verfügbar.");
+  const code = normalizeJoinCode(rawReference);
+  const pointer = await client.send(new GetCommand({ TableName: tableName, Key: joinCodeKey(code), ConsistentRead: true }));
   const publicationId = z.string().uuid().safeParse(pointer.Item?.publicationId);
-  if (!publicationId.success) throw new Error("Der Teilnahmelink ist ungültig oder nicht mehr verfügbar.");
-  const publication = await getPublication(client, tableName, publicationId.data, now);
-  if (publication.tokenHash !== tokenHash) throw new Error("Der Teilnahmelink ist ungültig oder nicht mehr verfügbar.");
+  if (!publicationId.success) throw new Error(unknownReference);
+  const publication = await getPublication(client, tableName, publicationId.data, now).catch(() => {
+    throw new Error(unknownReference);
+  });
+  if (publication.joinCode !== code) throw new Error(unknownReference);
   return publication;
+}
+
+/**
+ * Gemeinsame Beitrittsseite: ordnet einen Code eindeutig einem Live-Quiz oder einer Quizrunde zu.
+ * Liefert nur den Modus – keine internen IDs; ein Versuch oder Live-Beitritt entsteht hier nie.
+ */
+export async function resolveJoinCode(
+  client: DynamoDBDocumentClient, tableName: string, raw: unknown, now: number,
+): Promise<{ mode: "LIVE" | "ASYNC"; joinCode: string }> {
+  assertTime(now);
+  const code = normalizeJoinCode(raw);
+  const pointer = await client.send(new GetCommand({ TableName: tableName, Key: joinCodeKey(code), ConsistentRead: true }));
+  const item = pointer.Item;
+  if (item && typeof item.publicationId === "string") {
+    await resolveToken(client, tableName, code, now);
+    return { mode: "ASYNC", joinCode: code };
+  }
+  if (item && typeof item.sessionId === "string" && typeof item.expiresAt === "number" && item.expiresAt > now) {
+    return { mode: "LIVE", joinCode: code };
+  }
+  throw new Error("Diesen Quiz-Code gibt es nicht. Bitte prüfe die Ziffern.");
 }
 
 export async function getAsyncPublicInfo(
@@ -543,7 +638,7 @@ export async function submitAsyncAnswer(
   client: DynamoDBDocumentClient, tableName: string, raw: unknown, identityId: string, now: number,
 ) {
   const input = z.object({
-    token: tokenSchema, questionIndex: z.number().int().nonnegative().max(99),
+    token: participationRefSchema, questionIndex: z.number().int().nonnegative().max(99),
     choiceId: z.string().regex(/^a[0-7]$/),
   }).strict().parse(raw);
   assertTime(now);
@@ -702,6 +797,7 @@ async function summaries(
   const status = effectiveStatus(publication, now);
   return {
     publicationId: publication.publicationId, quizId: publication.quizId, title: publication.title, token,
+    joinCode: publication.joinCode ?? null,
     createdAt: publication.createdAt, expiresAt: publication.expiresAt, timeZone: publication.timeZone,
     status, retentionAt: publication.retentionAt,
     endedAt: publication.endedAt ?? (status === "EXPIRED" ? publication.expiresAt : null),
@@ -879,7 +975,7 @@ export async function getAsyncPublicationResults(
       rank: 0,
     };
   });
-  // Gleichstand: alphabetisch nach Spielname, danach stabile Versuchskennung (siehe README „Quiz per Link“).
+  // Gleichstand: alphabetisch nach Spielname, danach stabile Versuchskennung (siehe README „Quiz zum Mitmachen“).
   players.sort((left, right) => right.points - left.points || left.displayName.localeCompare(right.displayName) ||
     left.attemptId.localeCompare(right.attemptId));
   let rank = 0;
