@@ -9,7 +9,7 @@ import type { Quiz } from "./domain/quiz";
 import { AdminGate } from "./AdminAuth";
 import { ErrorBanner, Layout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
-import { Avatar, GameView, phaseLabels, type PersonalStanding } from "./components/GameView";
+import { Avatar, GameView, Leaderboard, Podium, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 import { formatDateTimeInZone, formatDateTimeWithZone, possibleInstants } from "./domain/localTime";
@@ -598,6 +598,8 @@ function AsyncAdminResultsPage() {
   const others = results ? results.participants.filter((player) => !leaderIds.has(player.attemptId))
     .sort((left, right) => left.rank - right.rank || left.displayName.localeCompare(right.displayName, "de")) : [];
   const moreCount = Math.max(0, total - leaders.length);
+  const formatPoints = !rule && results ? (points: number) => `${points}/${results.questions.length}` : pointsText;
+  const rankingPlayers = (players: AsyncParticipantResult[]) => players.map((player) => ({ ...player, participantId: player.attemptId }));
   const pagination = results && <>
     {stale && <p className="error-banner" role="status">Die Ergebnisse haben sich inzwischen geändert. Bitte neu laden,
       damit die Ränge über alle Seiten konsistent sind. <button className="button secondary small" disabled={refreshing}
@@ -606,30 +608,48 @@ function AsyncAdminResultsPage() {
       {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
     </button>}
   </>;
+  const morePlacements = results && moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
+    <summary>Weitere Platzierungen anzeigen ({moreCount})</summary>
+    {results.isFinal ? <Leaderboard players={rankingPlayers(others)} formatPoints={formatPoints} /> :
+      <ol className="async-leader-list">{others.map((player) =>
+        <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>}
+    {pagination}
+  </details>;
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <ErrorBanner error={error} />
     {loading ? <p>Ergebnisse werden geladen …</p> : !results ? <p>Ergebnisse nicht verfügbar.</p> : <div className="async-admin-results">
       <div className="async-admin-head">
-        <div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h1>{results.title}</h1></div>
-        <span className={`badge async-status-${results.status.toLowerCase()}`}>{asyncStatusText(results.status)}</span>
+        <div><span className="eyebrow">QUIZ ZUM MITMACHEN</span>{!results.isFinal && <h1>{results.title}</h1>}</div>
+        {!results.isFinal && <span className={`badge async-status-${results.status.toLowerCase()}`}>{asyncStatusText(results.status)}</span>}
         <button className="button secondary small" disabled={refreshing} onClick={() => void reload()}>
           {refreshing ? "Wird aktualisiert …" : "Aktualisieren"}</button>
       </div>
-      <section className="card async-leaders" aria-labelledby="async-leaders-title">
+      {results.isFinal ? <div className="game-view">
+        <header className="game-heading">
+          <p className="game-title">{results.title}</p>
+          <span className="phase-badge" role="status">{asyncStatusText(results.status)}</span>
+        </header>
+        <section className="game-phase ranking-phase" aria-labelledby="async-ranking-title">
+          <span className="eyebrow">DAS WAR EURE RUNDE</span>
+          <h1 id="async-ranking-title">Endstand</h1>
+          <p className="ranking-intro">Zusammen gerätselt. Gemeinsam gefeiert.</p>
+          {leaders.length === 0 ? <p>Noch keine Teilnehmenden.</p> : <>
+            <Podium players={rankingPlayers(leaders)} formatPoints={formatPoints} />
+            {leaders.length > 3 && <Leaderboard players={rankingPlayers(leaders.slice(3))} formatPoints={formatPoints} />}
+          </>}
+          {morePlacements}
+        </section>
+        <p className="game-footnote">{total} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>
+      </div> : <section className="card async-leaders" aria-labelledby="async-leaders-title">
         <div className="async-leaders-head">
-          <h2 id="async-leaders-title">{results.isFinal ? "Gewinner · Endergebnis" : "Aktuelle Top 5"}</h2>
-          {!results.isFinal && <span className="badge">Vorläufig</span>}
+          <h2 id="async-leaders-title">Aktuelle Top 5</h2>
+          <span className="badge">Vorläufig</span>
         </div>
         {leaders.length === 0 ? <p className="hint">Noch keine Teilnahmen. Sobald jemand startet, erscheint hier die Rangliste.</p> :
           <ol className="async-leader-list">{leaders.map((player) =>
             <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>}
-        {moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
-          <summary>Weitere Platzierungen anzeigen ({moreCount})</summary>
-          <ol className="async-leader-list">{others.map((player) =>
-            <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>
-          {pagination}
-        </details>}
-      </section>
+        {morePlacements}
+      </section>}
       <p className="async-summary-line">{results.participantCount} von {results.maxParticipants} gestartet ·
         {" "}{results.completedCount} abgeschlossen · {results.partialCount} unvollständig ·
         {" "}{results.isFinal ? "Endergebnis" : "weitere Antworten möglich"}</p>

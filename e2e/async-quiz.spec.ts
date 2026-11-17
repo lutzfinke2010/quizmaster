@@ -2,9 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Quiz zum Mitmachen mit ASYNC_SPEED_V1: kompakte Fragenansicht, automatischer Fragewechsel aus der
- * Antwortbestätigung, Tempo-Bonus-Anzeige und Admin-Top-5. Das Backend wird im Browser simuliert.
+ * Antwortbestätigung, Tempo-Bonus-Anzeige, Admin-Top-5 und Siegerpodest. Das Backend wird im Browser simuliert.
  */
-async function mockAsync(page: Page, options: { questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean } = {}) {
+async function mockAsync(page: Page, options: {
+  questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean;
+  status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number;
+} = {}) {
   const questions = options.questions ?? [
     { text: "Welcher Planet ist für seine auffälligen Ringe bekannt und mit bloßem Auge am Nachthimmel zu sehen?", answers: ["Mars", "Saturn", "Venus", "Merkur"] },
     { text: "Wie viele Beine hat eine Spinne?", answers: ["Sechs", "Acht"] },
@@ -59,21 +62,28 @@ async function mockAsync(page: Page, options: { questions?: Array<{ text: string
             status: "ACTIVE", nextQuestionIndex: done ? null : attempt.answered, question: question(attempt.answered, acceptedAt),
             serverTime: Date.now() };
         },
-        asyncPublicationResults: async () => {
+        asyncPublicationResults: async (publicationId, cursor) => {
+          const status = sessionStorage.getItem("async-status") || ${JSON.stringify(options.status ?? "ACTIVE")};
+          const isFinal = status !== "ACTIVE";
           const names = ["Anna", "Ben", "Cem", "Dana", "Emil", "Fritz", "Gül", "Hanna"];
-          const points = [2900, 2900, 2400, 2100, 1800, 1200, 1000, 0];
+          const points = ${JSON.stringify(options.scores ?? [2900, 2900, 2400, 2100, 1800, 1200, 1000, 0])};
           let rank = 0;
-          const participants = names.map((displayName, i) => {
+          const participants = points.map((score, i) => {
             if (i === 0 || points[i] !== points[i - 1]) rank = i + 1;
-            return { attemptId: "a" + i, displayName, avatarId: "avatar-00" + (i + 1), startedAt: Date.now() - 3600000, completedAt: Date.now(),
-              answeredCount: 3, questionCount: 3, status: i === 7 ? "IN_PROGRESS" : "COMPLETED", points: points[i], rank,
+            return { attemptId: "a" + i, displayName: names[i], avatarId: "avatar-00" + (i + 1), startedAt: Date.now() - 3600000, completedAt: i === 7 ? null : Date.now(),
+              answeredCount: i === 7 ? 1 : QUESTIONS.length, questionCount: QUESTIONS.length,
+              status: i === 7 ? isFinal ? "EXPIRED" : "IN_PROGRESS" : "COMPLETED", points: score, rank,
               answers: [{ questionIndex: 0, choiceId: "c1", acceptedAt: Date.now(), correct: true, points: 1400, basePoints: 1000, bonusPoints: 400, elapsedMs: 6000 }] };
           });
-          return { publicationId: "p1", title: "Feierabend-Quiz", status: "ACTIVE", isFinal: false, createdAt: Date.now() - 86400000,
-            expiresAt, endedAt: null, timeZone: "Europe/Berlin", updatedAt: Date.now(), participantCount: 8, maxParticipants: 100,
-            completedCount: 7, partialCount: 1, nextCursor: null, totalParticipants: 8, ...scoring,
-            leaders: participants.slice(0, 5).map((player) => ({ ...player, answers: [] })), participants,
-            questions: QUESTIONS.map((item, questionIndex) => ({ questionIndex, text: item.text, answeredCount: 8,
+          const start = Number(cursor || 0);
+          const end = start + ${options.pageSize ?? 8};
+          const completedCount = participants.filter((player) => player.status === "COMPLETED").length;
+          return { publicationId: "p1", title: "Feierabend-Quiz", status, isFinal, createdAt: Date.now() - 86400000,
+            expiresAt, endedAt: isFinal ? Date.now() : null, timeZone: "Europe/Berlin", updatedAt: Date.now(), participantCount: participants.length, maxParticipants: 100,
+            completedCount, partialCount: participants.length - completedCount, nextCursor: end < participants.length ? String(end) : null,
+            totalParticipants: participants.length, ...scoring,
+            leaders: participants.slice(0, 5).map((player) => ({ ...player, answers: [] })), participants: participants.slice(start, end),
+            questions: QUESTIONS.map((item, questionIndex) => ({ questionIndex, text: item.text, answeredCount: participants.length,
               options: item.answers.map((text, i) => ({ id: "c" + i, text, count: i === 1 ? 6 : 1, correct: i === 1 })) })) };
         },
       };
@@ -187,4 +197,104 @@ test("Admin-Ergebnisse zeigen zuerst die Top 5, Details bleiben eingeklappt", as
   const top5Bottom = await leaders.nth(4).evaluate((item) => item.getBoundingClientRect().bottom);
   expect(top5Bottom).toBeLessThanOrEqual(844);
   await page.screenshot({ path: test.info().outputPath("async-admin.png"), fullPage: true, animations: "disabled" });
+});
+
+for (const viewport of [{ width: 1272, height: 900 }, { width: 390, height: 844 }]) {
+  test(`Beendetes Quiz zeigt das Siegerpodest statt der Top-5-Karte bei ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await mockAsync(page, { status: "ENDED", scores: [4401, 1319] });
+    await page.goto("/admin/async/p1");
+    await expect(page.getByRole("heading", { level: 1, name: "Endstand" })).toBeVisible();
+    const result = page.locator(".game-view");
+    await expect(result.locator(".game-title")).toHaveText("Feierabend-Quiz");
+    await expect(result.getByRole("status")).toHaveText("Vorzeitig beendet");
+    await expect(result.locator(".ranking-intro")).toHaveText("Zusammen gerätselt. Gemeinsam gefeiert.");
+    await expect(page.locator(".async-leaders")).toHaveCount(0);
+    await expect(result.locator(".podium-player > strong")).toHaveText(["Ben", "Anna"]);
+    await expect(result.locator(".podium-player > span")).toHaveText(["1.319 Punkte", "4.401 Punkte"]);
+    await expect(result.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1"]);
+    const pedestals = await result.locator(".pedestal").evaluateAll((elements) => elements.map((element) => ({
+      left: element.getBoundingClientRect().left, height: element.getBoundingClientRect().height,
+      bottom: element.getBoundingClientRect().bottom, color: getComputedStyle(element).backgroundColor,
+    })));
+    expect(pedestals[0].left).toBeLessThan(pedestals[1].left);
+    expect(pedestals[0].height).toBe(85);
+    expect(pedestals[1].height).toBe(125);
+    expect(pedestals[0].bottom).toBeCloseTo(pedestals[1].bottom);
+    expect(pedestals[0].color).not.toBe(pedestals[1].color);
+    await expect(result.locator(".game-footnote")).toContainText("2 Teilnehmende");
+    await expect(page.locator(".async-question-stat").first()).toBeHidden();
+    await page.getByText("Fragenauswertung", { exact: true }).click();
+    await expect(page.locator(".async-question-stat").first()).toBeVisible();
+    await page.getByText("Fragenauswertung", { exact: true }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: test.info().outputPath(`async-final-${viewport.width}.png`), fullPage: true, animations: "disabled" });
+  });
+}
+
+test("Drei Teilnehmende stehen in der Podestreihenfolge 2–1–3", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await mockAsync(page, { status: "ENDED", scores: [4401, 1319, 0] });
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1", "Platz 3"]);
+  const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+  expect(heights).toEqual([85, 125, 62]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+for (const count of [0, 1]) {
+  test(`Endstand mit ${count} Teilnehmenden bleibt korrekt`, async ({ page }) => {
+    await mockAsync(page, { status: "ENDED", scores: count === 0 ? [] : [0] });
+    await page.goto("/admin/async/p1");
+    await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
+    await expect(page.locator(".podium-player")).toHaveCount(count);
+    if (count === 0) await expect(page.getByText("Noch keine Teilnehmenden.", { exact: true })).toBeVisible();
+    else {
+      await expect(page.locator(".pedestal")).toHaveText("Platz 1");
+      await expect(page.locator(".podium-player > span")).toHaveText("0 Punkte");
+    }
+    await expect(page.locator(".async-more")).toHaveCount(0);
+  });
+}
+
+test("Abgelaufene Runde erhält geteilte Ränge und nachladbare Platzierungen", async ({ page }) => {
+  await mockAsync(page, { status: "EXPIRED", pageSize: 5 });
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".phase-badge")).toHaveText("Abgelaufen");
+  await expect(page.locator(".pedestal")).toHaveText(["Platz 1", "Platz 1", "Platz 3"]);
+  const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+  expect(heights[0]).toBe(heights[1]);
+  await expect(page.locator(".ranking-phase > .leaderboard .rank-name")).toHaveText(["Dana", "Emil"]);
+  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
+  await page.getByRole("button", { name: "Weitere Teilnehmer laden" }).click();
+  await expect(page.locator(".async-more .rank-name")).toHaveText(["Fritz", "Gül", "Hanna"]);
+  await expect(page.locator(".async-more .rank-number")).toHaveText(["6", "7", "8"]);
+  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Aktualisieren" }).click();
+  await expect(page.locator(".async-more")).toHaveAttribute("open", "");
+  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toBeVisible();
+  await expect(page.locator(".podium-player")).toHaveCount(3);
+});
+
+test("Ältere Veröffentlichungen behalten die Punkte pro Fragenzahl im Endstand", async ({ page }) => {
+  await mockAsync(page, { status: "ENDED", legacy: true, scores: [3, 2] });
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".podium-player > span")).toHaveText(["2/3 Punkte", "3/3 Punkte"]);
+});
+
+test("Aktualisieren wechselt beim Rundenende von der Top-5-Liste zum Podest", async ({ page }) => {
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.getByRole("heading", { name: "Aktuelle Top 5" })).toBeVisible();
+  await expect(page.locator(".podium-player")).toHaveCount(0);
+  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
+  await page.getByText("Fragenauswertung", { exact: true }).click();
+  await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
+  await page.getByRole("button", { name: "Aktualisieren" }).click();
+  await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Aktuelle Top 5" })).toHaveCount(0);
+  await expect(page.locator(".podium-player")).toHaveCount(3);
+  await expect(page.locator(".async-more")).toHaveAttribute("open", "");
+  await expect(page.locator(".async-more .rank-name")).toHaveText(["Fritz", "Gül", "Hanna"]);
+  await expect(page.locator(".async-question-stat").first()).toBeVisible();
 });

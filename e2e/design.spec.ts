@@ -422,6 +422,31 @@ for (const width of [320, 390, 430, 1440]) {
   });
 }
 
+for (const status of ["LEADERBOARD", "FINISHED"]) {
+  test(`Gemeinsame Ranglisten-Komponenten erhalten Live-Ansichten für ${status}`, async ({ page }) => {
+    await mockGame(page);
+    await page.addInitScript((state) => sessionStorage.setItem("game-state", JSON.stringify(state)), {
+      status, questionIndex: 4, questionCount: 5, participantCount: 10, leaderboard: players(10),
+    });
+    await page.goto("/present/design");
+    await expect(page.getByRole("heading", { name: status === "FINISHED" ? "Endstand" : "Zwischenstand", exact: true })).toBeVisible();
+    await expect(page.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1", "Platz 3"]);
+    await expect(page.locator(".podium-player > span")).toHaveText(["3.970 Punkte", "4.000 Punkte", "3.940 Punkte"]);
+    await expect(page.locator(".leaderboard .rank-number")).toHaveText(["4", "5", "6", "7", "8"]);
+    await expect(page.locator(".leaderboard .is-you")).toHaveCount(0);
+    await expectReadableText(page, ".podium-player strong, .podium-player > span, .leaderboard strong, .ranking-intro");
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto("/play/design");
+    await expect(page.getByRole("heading", { name: `Dein ${status === "FINISHED" ? "Endstand" : "Zwischenstand"}: Platz 4` })).toBeVisible();
+    await expect(page.locator(".podium-player")).toHaveCount(0);
+    await expect(page.getByRole("list", { name: "Deine benachbarten Plätze" })).toBeVisible();
+    await expect(page.locator(".leaderboard .rank-number")).toHaveText(["3", "4", "5"]);
+    await expect(page.locator(".leaderboard .is-you .rank-name")).toHaveText("Fröhlicher Fuchs (du)");
+    await expect(page.locator(".personal-ranking .points")).toHaveText("3.910");
+  });
+}
+
 test("Präsentation trennt Phasen, zeigt proportionale Stimmen und das Podest 2–1–3", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await mockGame(page);

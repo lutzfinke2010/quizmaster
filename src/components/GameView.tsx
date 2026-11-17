@@ -15,6 +15,7 @@ export const phaseLabels: Record<string, string> = {
 
 const avatarById = new Map(avatars.avatars.map((avatar) => [avatar.id, avatar]));
 type RankedPlayer = GameState["leaderboard"][number];
+type RankingPlayer = Pick<RankedPlayer, "participantId" | "avatarId" | "displayName" | "points" | "rank">;
 export type PersonalStanding = { questionIndex: number; player: RankedPlayer };
 const number = (value: number) => value.toLocaleString("de-DE");
 
@@ -66,12 +67,35 @@ function RankChange({ player, questionIndex }: { player: RankedPlayer; questionI
     change < 0 ? `↓ ${-change} ${change === -1 ? "Platz" : "Plätze"} zurück` : "↔ Platz gehalten"}</span>;
 }
 
+export function Podium({ players, final = true, formatPoints = number }: {
+  players: RankingPlayer[]; final?: boolean; formatPoints?: (points: number) => string;
+}) {
+  const top = players.slice(0, 3);
+  const podium = top.length > 1 ? [top[1], top[0], ...top.slice(2)] : top;
+  return <div className="podium" aria-label={final ? "Siegerpodest" : "Führende der Runde"}>
+    {podium.map((player) => <div className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
+      <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span>{formatPoints(player.points)} Punkte</span>
+      <div className="pedestal"><span className="sr-only">Platz </span>{player.rank}</div>
+    </div>)}
+  </div>;
+}
+
+export function Leaderboard({ players, participantId, label = "Weitere Plätze", formatPoints = number }: {
+  players: RankingPlayer[]; participantId?: string; label?: string; formatPoints?: (points: number) => string;
+}) {
+  return <ol className="leaderboard" aria-label={label}>
+    {players.map((player) => <li key={player.participantId} className={player.participantId === participantId ? "is-you" : undefined}>
+      <span className="rank-number" aria-label={`Platz ${player.rank}`}>{player.rank}</span>
+      <Avatar avatarId={player.avatarId} /><span className="rank-name">{player.displayName}{player.participantId === participantId && " (du)"}</span>
+      <strong>{formatPoints(player.points)} <span>Punkte</span></strong>
+    </li>)}
+  </ol>;
+}
+
 function Ranking({ state, participant, personal }: { state: GameState; participant?: Participation | null; personal: boolean }) {
   const final = state.status === "FINISHED";
   const ownIndex = state.leaderboard.findIndex((player) => player.participantId === participant?.participantId);
   const own = state.leaderboard[ownIndex];
-  const top = state.leaderboard.slice(0, 3);
-  const podium = top.length > 1 ? [top[1], top[0], ...top.slice(2)] : top;
   const rows = personal
     ? state.leaderboard.slice(Math.max(0, ownIndex - 1), Math.max(0, ownIndex - 1) + 3)
     : state.leaderboard.slice(3, 8);
@@ -86,21 +110,10 @@ function Ranking({ state, participant, personal }: { state: GameState; participa
       <RankChange player={own} questionIndex={state.questionIndex} />
     </div> : <p role="status">Deine Platzierung ist noch nicht verfügbar.</p> : <>
       <p className="ranking-intro">{final ? "Zusammen gerätselt. Gemeinsam gefeiert." : "Da geht noch was."}</p>
-      <div className="podium" aria-label={final ? "Siegerpodest" : "Führende der Runde"}>
-        {podium.map((player) => <div className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
-          <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span>{number(player.points)} Punkte</span>
-          <div className="pedestal"><span className="sr-only">Platz </span>{player.rank}</div>
-        </div>)}
-      </div>
+      <Podium players={state.leaderboard} final={final} />
     </>}
     {state.leaderboard.length === 0 ? <p>Noch keine Teilnehmenden.</p> : rows.length > 0 &&
-      <ol className="leaderboard" aria-label={personal ? "Deine benachbarten Plätze" : "Weitere Plätze"}>
-        {rows.map((player) => <li key={player.participantId} className={player.participantId === participant?.participantId ? "is-you" : undefined}>
-          <span className="rank-number" aria-label={`Platz ${player.rank}`}>{player.rank}</span>
-          <Avatar avatarId={player.avatarId} /><span className="rank-name">{player.displayName}{player.participantId === participant?.participantId && " (du)"}</span>
-          <strong>{number(player.points)} <span>Punkte</span></strong>
-        </li>)}
-      </ol>}
+      <Leaderboard players={rows} participantId={participant?.participantId} label={personal ? "Deine benachbarten Plätze" : "Weitere Plätze"} />}
     {!personal && state.leaderboard.length > 8 && <p className="hint ranking-count">
       Die ersten 8 von {state.leaderboard.length} Teilnehmenden · Deine Position siehst du auf deinem Handy.</p>}
     {!final && <p className="game-hint">Die nächste Frage startet der Quizmaster.</p>}
