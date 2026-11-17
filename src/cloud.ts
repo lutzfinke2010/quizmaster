@@ -50,7 +50,7 @@ export type MyResult = z.infer<typeof myResult>;
 const asyncPublicInfo = z.object({
   title: z.string(), description: z.string(), questionCount: z.number(), expiresAt: z.number(),
   timeZone: z.string(), status: z.string(), retentionAt: z.number(), endedAt: z.number().nullable().optional(),
-  maxParticipants: z.number(),
+  maxParticipants: z.number(), serverTime: z.number().nullable().optional(),
 });
 const asyncGuestAnswer = z.object({
   questionIndex: z.number(), choiceId: z.string(), acceptedAt: z.number(),
@@ -198,7 +198,7 @@ export const cloud = {
       error: onError,
     }),
   asyncPublicInfo: (token: string) => operation(
-    "query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants } }",
+    "query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime } }",
     "getAsyncPublicInfo", { token }, "identityPool", asyncPublicInfo),
   publishAsyncQuiz: (quizId: string, requestId: string, expiresAt: number, timeZone: string) => operation(
     "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone) { publicationId token expiresAt timeZone retentionDays maxParticipants } }",
@@ -219,14 +219,14 @@ export const cloud = {
     "getAsyncPublicationResults", { publicationId, cursor }, "userPool", asyncResults),
   startAsyncQuiz: (token: string) => operation(
     `mutation StartAsync($token: String!) { startAsyncQuiz(token: $token) { title description questionCount expiresAt
-      timeZone status retentionAt endedAt maxParticipants displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
+      timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
       answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText }
       results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt }
       question { questionIndex text answers { id text } } } }`,
     "startAsyncQuiz", { token }, "identityPool", asyncGuestState),
   myAsyncState: (token: string) => operation(
     `query MyAsyncState($token: String!) { getMyAsyncState(token: $token) { title description questionCount expiresAt
-      timeZone status retentionAt endedAt maxParticipants displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
+      timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
       answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText }
       results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt }
       question { questionIndex text answers { id text } } } }`,

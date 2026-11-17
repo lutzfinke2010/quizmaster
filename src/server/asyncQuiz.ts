@@ -42,6 +42,7 @@ const publicationSchema = z.object({
   retentionDays: z.number().int().min(1).max(365),
   maxParticipants: z.number().int().min(1).max(1000),
   startedCount: z.number().int().nonnegative(),
+  retentionSyncedTtl: z.number().int().optional(),
 });
 type Publication = z.infer<typeof publicationSchema>;
 
@@ -106,6 +107,7 @@ function metadata(publication: Publication, now: number) {
     retentionAt: publication.retentionAt,
     endedAt: publication.endedAt ?? (status === "EXPIRED" ? publication.expiresAt : null),
     maxParticipants: publication.maxParticipants,
+    serverTime: now,
   };
 }
 
@@ -429,8 +431,10 @@ export async function submitAsyncAnswer(
           : "SET #status = :progress ADD answeredCount :one",
         ConditionExpression: "#status = :progress AND answeredCount = :index",
         ExpressionAttributeNames: { "#status": "status" },
-        ExpressionAttributeValues: { ":completed": "COMPLETED", ":progress": "IN_PROGRESS",
-          ":now": acceptedAt, ":one": 1, ":index": input.questionIndex } } },
+        ExpressionAttributeValues: {
+          ":progress": "IN_PROGRESS", ":one": 1, ":index": input.questionIndex,
+          ...(completed ? { ":completed": "COMPLETED", ":now": acceptedAt } : {}),
+        } } },
       { Put: { TableName: tableName, Item: answer,
         ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)" } },
     ] })));
@@ -442,7 +446,18 @@ export async function submitAsyncAnswer(
       if (saved.choiceId === input.choiceId) return { acceptedAt: saved.acceptedAt, answeredCount: attempt.answeredCount + 1 };
       throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
     }
-    throw new Error("Die Antwort wurde nicht bestätigt. Bitte prüfe die Verbindung und versuche es erneut.");
+    const current = await client.send(new GetCommand({
+      TableName: tableName, Key: publicationKey(publication.publicationId), ConsistentRead: true,
+    }));
+    const currentPublication = current.Item ? publicationSchema.safeParse(current.Item) : null;
+    if (!currentPublication?.success || statusOf(currentPublication.data, Date.now()) !== "ACTIVE") {
+      throw new Error("Die Quizfrist ist abgelaufen. Es werden keine neuen Antworten angenommen.");
+    }
+    const latestAttempt = await client.send(new GetCommand({ TableName: tableName, Key: attemptKey, ConsistentRead: true }));
+    if (latestAttempt.Item && attemptSchema.parse(latestAttempt.Item).answeredCount !== input.questionIndex) {
+      throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
+    }
+    throw new Error("Die Antwort wurde nicht bestätigt. Bitte versuche es erneut.");
   }
   return { acceptedAt, answeredCount: input.questionIndex + 1 };
 }
@@ -515,12 +530,21 @@ export async function listAsyncPublications(
   const result = [];
   for (const ownerItem of unique) {
     if (typeof ownerItem.retentionAt === "number" && ownerItem.retentionAt <= Date.now()) continue;
-    const publicationId = uuidSchema.parse(ownerItem.publicationId);
-    const publication = await getPublication(client, tableName, publicationId, now);
-    if (publication.ownerId !== ownerId) throw new Error("Veröffentlichung gehört nicht zu diesem Konto.");
-    if (publication.retentionAt <= Date.now()) continue;
-    if (publication.status === "ENDED") await shortenRetention(client, tableName, publication, ownerId);
-    result.push(await summaries(client, tableName, publication, tokenSchema.parse(ownerItem.token), Date.now()));
+    const publicationId = uuidSchema.safeParse(ownerItem.publicationId);
+    const token = tokenSchema.safeParse(ownerItem.token);
+    if (!publicationId.success || !token.success) continue;
+    // TTL deletion is asynchronous and unordered: skip index rows whose publication is already gone or past retention.
+    const stored = await client.send(new GetCommand({
+      TableName: tableName, Key: publicationKey(publicationId.data), ConsistentRead: true,
+    }));
+    const parsed = stored.Item ? publicationSchema.safeParse(stored.Item) : null;
+    if (!parsed?.success) continue;
+    const publication = parsed.data;
+    if (publication.ownerId !== ownerId || publication.retentionAt <= Date.now()) continue;
+    if (publication.status === "ENDED" && publication.retentionSyncedTtl !== Math.ceil(publication.retentionAt / 1000)) {
+      await shortenRetention(client, tableName, publication, ownerId);
+    }
+    result.push(await summaries(client, tableName, publication, token.data, Date.now()));
   }
   return result.sort((left, right) => right.createdAt - left.createdAt);
 }
@@ -540,9 +564,9 @@ export async function endAsyncPublication(
     try {
       await client.send(new UpdateCommand({
         TableName: tableName, Key: key,
-        UpdateExpression: "SET #status = :ended, endedAt = :now, retentionAt = :retentionAt, ttl = :ttl",
+        UpdateExpression: "SET #status = :ended, endedAt = :now, retentionAt = :retentionAt, #ttl = :ttl",
         ConditionExpression: "ownerId = :owner AND #status = :active AND expiresAt > :now",
-        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeNames: { "#status": "status", "#ttl": "ttl" },
         ExpressionAttributeValues: { ":ended": "ENDED", ":active": "ACTIVE", ":owner": ownerId, ":now": serverTime,
           ":retentionAt": retentionAt, ":ttl": Math.ceil(retentionAt / 1000) },
       }));
@@ -568,8 +592,11 @@ async function shortenRetention(
     PutRequest: { Item: { ...item, ttl } },
   }));
   const ownerRows = await queryAll(client, tableName, `OWNER#${ownerId}`, "ASYNC");
-  writes.push(...ownerRows.filter((item) => item.publicationId === publication.publicationId && item.ttl !== ttl)
-    .map((item) => ({ PutRequest: { Item: { ...item, ttl } } })));
+  writes.push(...ownerRows.filter((item) => item.publicationId === publication.publicationId &&
+    (item.ttl !== ttl || item.retentionAt !== publication.retentionAt))
+    .map((item) => ({ PutRequest: { Item: {
+      ...item, ttl, ...("retentionAt" in item ? { retentionAt: publication.retentionAt } : {}),
+    } } })));
   const tokenRow = await client.send(new GetCommand({
     TableName: tableName, Key: { pk: `ASYNC_TOKEN#${publication.tokenHash}`, sk: "META" }, ConsistentRead: true,
   }));
@@ -583,6 +610,16 @@ async function shortenRetention(
       requestItems = { [tableName]: unprocessed };
       if (attempt === 4) throw new Error("Aufbewahrungsfrist konnte nicht für alle Quizdaten aktualisiert werden.");
     }
+  }
+  try {
+    await client.send(new UpdateCommand({
+      TableName: tableName, Key: publicationKey(publication.publicationId),
+      UpdateExpression: "SET retentionSyncedTtl = :ttl",
+      ConditionExpression: "attribute_exists(pk)",
+      ExpressionAttributeValues: { ":ttl": ttl },
+    }));
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
   }
 }
 

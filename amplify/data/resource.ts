@@ -57,6 +57,7 @@ const schema = a.schema({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
+    serverTime: a.float().required(),
   }),
   AsyncPublishReceipt: a.customType({
     publicationId: a.id().required(), token: a.string().required(), expiresAt: a.float().required(),
@@ -80,6 +81,7 @@ const schema = a.schema({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
+    serverTime: a.float().required(),
     displayName: a.string().required(), avatarId: a.string().required(),
     startedAt: a.float().required(), answeredCount: a.integer().required(), attemptStatus: a.string().required(),
     nextQuestionIndex: a.integer().required(), answers: a.ref("AsyncGuestAnswer").array().required(),

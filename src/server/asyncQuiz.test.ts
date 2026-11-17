@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
-  DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand,
-  type GetCommandInput, type QueryCommandInput, type TransactWriteCommandInput,
+  BatchWriteCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand, UpdateCommand,
+  type BatchWriteCommandInput, type GetCommandInput, type QueryCommandInput, type TransactWriteCommandInput,
+  type UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  getAsyncPublicInfo, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
+  endAsyncPublication, getAsyncPublicInfo, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
 } from "./asyncQuiz";
 
 const database = mockClient(DynamoDBDocumentClient);
@@ -23,6 +24,44 @@ function conditionalFailure() {
   return Object.assign(new Error("conditional failure"), {
     name: "TransactionCanceledException", CancellationReasons: [{ Code: "ConditionalCheckFailed" }],
   });
+}
+
+// Subset of DynamoDB reserved words that must be aliased via ExpressionAttributeNames.
+const reservedWords = new Set(["status", "ttl", "name", "count", "index", "timestamp", "data", "value", "values",
+  "key", "keys", "size", "type", "date", "time", "year", "user", "users", "comment", "order", "source", "state",
+  "hash", "range", "level", "number", "token", "position", "percent", "total", "session"]);
+const expressionKeywords = new Set(["and", "or", "not", "set", "add", "remove", "delete", "between", "in"]);
+
+type ExpressionInput = {
+  KeyConditionExpression?: string; ConditionExpression?: string; UpdateExpression?: string;
+  FilterExpression?: string; ProjectionExpression?: string;
+  ExpressionAttributeNames?: Record<string, string>; ExpressionAttributeValues?: Record<string, unknown>;
+};
+
+function assertValidExpressions(input: ExpressionInput) {
+  const text = [input.KeyConditionExpression, input.ConditionExpression, input.UpdateExpression,
+    input.FilterExpression, input.ProjectionExpression].filter(Boolean).join(" ");
+  const usedValues = new Set(text.match(/:[A-Za-z0-9_]+/g) ?? []);
+  const usedNames = new Set(text.match(/#[A-Za-z0-9_]+/g) ?? []);
+  const definedValues = Object.keys(input.ExpressionAttributeValues ?? {});
+  const definedNames = Object.keys(input.ExpressionAttributeNames ?? {});
+  const unusedValues = definedValues.filter((key) => !usedValues.has(key));
+  if (unusedValues.length) throw new Error(`Value provided in ExpressionAttributeValues unused in expressions: keys: {${unusedValues.join(", ")}}`);
+  const unusedNames = definedNames.filter((key) => !usedNames.has(key));
+  if (unusedNames.length) throw new Error(`Value provided in ExpressionAttributeNames unused in expressions: keys: {${unusedNames.join(", ")}}`);
+  const missing = [...usedValues, ...usedNames].filter((key) => !definedValues.includes(key) && !definedNames.includes(key));
+  if (missing.length) throw new Error(`An expression attribute placeholder is not defined: ${missing.join(", ")}`);
+  const bare = text.replace(/[:#][A-Za-z0-9_]+/g, " ").replace(/\b[a-z_]+\s*\(/g, " ").match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? [];
+  const reserved = bare.find((word) => !expressionKeywords.has(word.toLowerCase()) && reservedWords.has(word.toLowerCase()));
+  if (reserved) throw new Error(`Attribute name is a reserved keyword; reserved keyword: ${reserved}`);
+}
+
+function assertValidTransaction(input: TransactWriteCommandInput) {
+  for (const entry of input.TransactItems ?? []) {
+    for (const operation of [entry.ConditionCheck, entry.Update, entry.Put, entry.Delete]) {
+      if (operation) assertValidExpressions(operation);
+    }
+  }
 }
 
 function setupDatabase() {
@@ -43,12 +82,40 @@ function setupDatabase() {
     return { Item: item ? { ...item } : undefined };
   });
   database.on(QueryCommand).callsFake((input: QueryCommandInput) => {
+    assertValidExpressions(input);
     const partition = input.ExpressionAttributeValues?.[":pk"];
     const prefix = input.ExpressionAttributeValues?.[":prefix"];
     return { Items: [...records.values()].filter((item) => item.pk === partition &&
-      typeof item.sk === "string" && item.sk.startsWith(String(prefix))) };
+      typeof item.sk === "string" && (prefix === undefined || item.sk.startsWith(String(prefix)))) };
+  });
+  database.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+    assertValidExpressions(input);
+    if (!input.Key) throw new Error("Missing key.");
+    const key = keyOf(input.Key.pk, input.Key.sk);
+    const current = records.get(key);
+    const values = input.ExpressionAttributeValues ?? {};
+    if (input.UpdateExpression?.includes("retentionSyncedTtl")) {
+      if (!current) throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
+      records.set(key, { ...current, retentionSyncedTtl: values[":ttl"] });
+      return {};
+    }
+    if (!current || current.ownerId !== values[":owner"] || current.status !== values[":active"] ||
+        Number(current.expiresAt) <= Number(values[":now"])) {
+      throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
+    }
+    records.set(key, { ...current, status: values[":ended"], endedAt: values[":now"],
+      retentionAt: values[":retentionAt"], ttl: values[":ttl"] });
+    return {};
+  });
+  database.on(BatchWriteCommand).callsFake((input: BatchWriteCommandInput) => {
+    for (const request of Object.values(input.RequestItems ?? {}).flat()) {
+      const item = request.PutRequest?.Item;
+      if (item) records.set(keyOf(item.pk, item.sk), item);
+    }
+    return { UnprocessedItems: {} };
   });
   database.on(TransactWriteCommand).callsFake((input: TransactWriteCommandInput) => {
+    assertValidTransaction(input);
     const items = input.TransactItems ?? [];
     const puts = items.flatMap((entry) => entry.Put?.Item ? [entry.Put.Item] : []);
     const update = items.find((entry) => entry.Update)?.Update;
@@ -167,5 +234,68 @@ describe("Quiz per Link", () => {
     expect(finalState?.results[0]).toMatchObject({
       answered: true, questionText: "Welche Option ist richtig?", selectedText: "Ja", correctText: "Ja", correct: true,
     });
+  });
+
+  it("speichert Antworten auf nicht-letzte Fragen und schließt erst mit der letzten ab", async () => {
+    const metaKey = keyOf(pk, "META");
+    const meta = records.get(metaKey) as { snapshot: { questions: unknown[] } };
+    records.set(metaKey, { ...meta, snapshot: { ...meta.snapshot, questions: [...meta.snapshot.questions, {
+      text: "Zweite Frage?", answers: [{ text: "A", correct: false }, { text: "B", correct: true }],
+      durationSeconds: 20, explanation: "",
+    }] } });
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    const attemptKey = keyOf(pk, `ATTEMPT#${createHash("sha256").update(identityId).digest("hex")}`);
+    const first = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+    expect(first.answeredCount).toBe(1);
+    expect(records.get(attemptKey)).toMatchObject({ status: "IN_PROGRESS", answeredCount: 1 });
+    expect(records.get(attemptKey)?.completedAt).toBeUndefined();
+    const state = await getMyAsyncState(db, "table", token, identityId, Date.now());
+    expect(state?.question?.questionIndex).toBe(1);
+    await submitAsyncAnswer(db, "table", { token, questionIndex: 1, choiceId: "a1" }, identityId, Date.now());
+    expect(records.get(attemptKey)).toMatchObject({ status: "COMPLETED", answeredCount: 2 });
+    expect(records.get(attemptKey)?.completedAt).toEqual(expect.any(Number));
+  });
+
+  it("beendet eine aktive Runde vorzeitig und verkürzt die Aufbewahrung abhängiger Datensätze", async () => {
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    const result = await endAsyncPublication(db, "table", { publicationId },
+      { subject: "admin", groups: ["Quizmasters"] }, Date.now());
+    expect(result.status).toBe("ENDED");
+    const meta = records.get(keyOf(pk, "META"));
+    expect(meta?.status).toBe("ENDED");
+    const ttl = Math.ceil(Number(meta?.retentionAt) / 1000);
+    expect(meta?.ttl).toBe(ttl);
+    const attempt = [...records.values()].find((item) => String(item.sk).startsWith("ATTEMPT#"));
+    expect(attempt?.ttl).toBe(ttl);
+    await expect(startAsyncQuiz(db, "table", token, "eu-central-1:late-guest", Date.now())).rejects.toThrow("beendet");
+  });
+
+  it("meldet eine nach Rundenende abgelehnte Antwort als Fristablauf", async () => {
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    const metaKey = keyOf(pk, "META");
+    records.set(metaKey, { ...records.get(metaKey), status: "ENDED", endedAt: Date.now() });
+    await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now()))
+      .rejects.toThrow(/Quizfrist ist abgelaufen|beendet/);
+  });
+
+  it("listet Runden robust, auch wenn eine Veröffentlichung bereits gelöscht wurde", async () => {
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    const createdAt = Number(records.get(keyOf(pk, "META"))?.createdAt);
+    records.set(keyOf("OWNER#admin", `ASYNC#${String(createdAt).padStart(15, "0")}#${publicationId}`), {
+      pk: "OWNER#admin", sk: `ASYNC#${String(createdAt).padStart(15, "0")}#${publicationId}`, publicationId, token,
+      retentionAt: Date.now() + 31 * 86_400_000,
+    });
+    const goneId = "0b7c2a5e-8d7f-4c1a-9a0e-3f1e2d3c4b5a";
+    records.set(keyOf("OWNER#admin", `ASYNC#000000000000001#${goneId}`), {
+      pk: "OWNER#admin", sk: `ASYNC#000000000000001#${goneId}`, publicationId: goneId, token,
+      retentionAt: Date.now() + 31 * 86_400_000,
+    });
+    await endAsyncPublication(db, "table", { publicationId }, principal, Date.now());
+    const listed = await listAsyncPublications(db, "table", principal, Date.now());
+    expect(listed.map((item) => item.publicationId)).toEqual([publicationId]);
+    const meta = records.get(keyOf(pk, "META"));
+    const ownerRow = records.get(keyOf("OWNER#admin", `ASYNC#${String(createdAt).padStart(15, "0")}#${publicationId}`));
+    expect(ownerRow?.retentionAt).toBe(meta?.retentionAt);
+    expect(meta?.retentionSyncedTtl).toBe(Math.ceil(Number(meta?.retentionAt) / 1000));
   });
 });
