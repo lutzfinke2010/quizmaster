@@ -135,7 +135,7 @@ Alle Befunde sind bearbeitet. Wo eine Empfehlung bewusst nur dokumentiert wird, 
 | K1 | Avatar-Slot wird beim Löschen freigegeben; REVEAL-Abweichung dokumentiert. |
 | K2 | Eigener Bucket `delete`. |
 | K3 | Finalize-Fehler nach Close werden geloggt, nicht geworfen. |
-| K4 | Getrennte DLQs/Alarme, Publisher startet bei `LATEST`. |
+| K4 | Getrennte DLQs/Alarme. Startposition bleibt `TRIM_HORIZON`: `startingPosition` ist unveränderlich, ein Wechsel auf `LATEST` scheitert beim Deploy am bestehenden Mapping (409 AlreadyExists). |
 | K5 | In UI und README dokumentiert; Tiebreak zusätzlich stabil über `attemptId`. |
 | K6 | Dedupe über `attemptId`; bei Änderung zwischen Seiten Hinweis „Neu laden“. |
 | K7 | Gemeinsame Copy-Komponente `src/components/CopyLink.tsx`; `instants` per `useMemo`. |

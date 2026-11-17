@@ -193,10 +193,11 @@ dispatchFunction.addEventSource(new DynamoEventSource(table, {
   retryAttempts: 5,
   onFailure: new SqsDlq(failedTimerEvents),
 }));
-// Live-Events sind flüchtig: alte Stream-Records beim ersten Deploy nicht nachspielen (LATEST). Das Batching-Fenster
-// bündelt viele Antworten/Beitritte derselben Sitzung zu einem Event je Batch (siehe publisher.ts).
+// startingPosition ist bei Event-Source-Mappings unveränderlich: Eine Änderung erzwingt einen Austausch, der für
+// dieselbe Stream/Lambda-Kombination mit "mapping already exists" (409) scheitert. Daher bleibt TRIM_HORIZON.
+// Das Batching-Fenster bündelt viele Antworten/Beitritte derselben Sitzung zu einem Event je Batch (siehe publisher.ts).
 publisherFunction.addEventSource(new DynamoEventSource(table, {
-  startingPosition: StartingPosition.LATEST,
+  startingPosition: StartingPosition.TRIM_HORIZON,
   batchSize: 100,
   maxBatchingWindow: Duration.seconds(1),
   bisectBatchOnError: true,
