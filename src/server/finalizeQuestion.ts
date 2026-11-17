@@ -6,6 +6,10 @@ import {
 import { scoreAnswer } from "../domain/scoring";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 import { TimerObsoleteError } from "./timerObsolete";
+import { mapWithConcurrency } from "./batchGet";
+
+/** Parallele Ergebnis-Transaktionen; hält ~1000 Teilnehmende deutlich unter dem Lambda-Timeout. */
+const RESULT_WRITE_CONCURRENCY = 25;
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const requestSchema = z.object({ sessionId: id, questionId: id, timerId: id }).strict();
@@ -120,13 +124,20 @@ export async function finalizeQuestion(
   } while (cursor);
 
   const distribution = snapshot.question.answerIds.map((choiceId) => ({ choiceId, count: 0 }));
-  for (const answer of answers) {
+  const scored = answers.map((answer) => {
     const participantId = id.parse(answer.sk.slice(prefix.length));
     const choice = distribution.find((entry) => entry.choiceId === answer.choiceId);
     if (!choice || answer.receivedAt < snapshot.meta.opensAt || answer.receivedAt >= snapshot.meta.closesAt) {
       throw new Error("Ungültiger gespeicherter Antwortdatensatz.");
     }
     choice.count++;
+    return { participantId, answer };
+  });
+  // Jede Ergebnis-Transaktion ist idempotent (bedingtes Put + Vergleich bei Konflikt) und kann daher parallel laufen.
+  // Bewusst ohne ConditionCheck auf META: parallele Transaktionen auf demselben Item würden sich gegenseitig mit
+  // TransactionConflict abbrechen. Der SCORING-Zustand wurde oben geprüft; neue Antworten sind nach dem Schließen
+  // ausgeschlossen, und der REVEAL-Übergang unten ist weiterhin an SCORING/Frage/Timer gebunden.
+  await mapWithConcurrency(scored, RESULT_WRITE_CONCURRENCY, async ({ participantId, answer }) => {
     const correct = answer.choiceId === snapshot.question.correctChoiceId;
     const { points, elapsedMs } = scoreAnswer(
       correct, answer.receivedAt, snapshot.meta.opensAt, snapshot.meta.closesAt - snapshot.meta.opensAt,
@@ -135,12 +146,6 @@ export async function finalizeQuestion(
     const resultKey = { pk, sk: `RESULT#${request.questionId}#${participantId}` };
     try {
       await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
-        { ConditionCheck: {
-          TableName: tableName, Key: metaKey,
-          ConditionExpression: "#status = :scoring AND currentQuestionId = :question AND timerId = :timer",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: { ...matchValues, ":scoring": "SCORING" },
-        } },
         { Put: {
           TableName: tableName, Item: { ...resultKey, ...result, ttl: Math.ceil(snapshot.meta.expiresAt / 1000) },
           ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
@@ -163,7 +168,7 @@ export async function finalizeQuestion(
         throw new Error("Widersprüchliches Frageergebnis.");
       }
     }
-  }
+  });
 
   try {
     await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [

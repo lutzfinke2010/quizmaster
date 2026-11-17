@@ -2,3 +2,5 @@ User-agent: *
 Disallow: /admin
 Disallow: /play/
 Disallow: /present/
+Disallow: /q/
+Disallow: /join

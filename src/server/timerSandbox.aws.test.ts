@@ -68,6 +68,7 @@ describe.skipIf(!tableName)("Automatischer Timer in Amplify-Sandbox", () => {
             ExpressionAttributeValues: { ":pk": pk }, ExclusiveStartKey: cursor,
           }));
           for (const item of page.Items ?? []) {
+            // oxlint-disable-next-line no-unsafe-finally -- Aufräumfehler sollen den Testlauf sichtbar abbrechen.
             if (typeof item.pk !== "string" || typeof item.sk !== "string") throw new Error("Invalid test item key");
             await client.send(new DeleteCommand({ TableName: tableName, Key: { pk: item.pk, sk: item.sk } }));
           }

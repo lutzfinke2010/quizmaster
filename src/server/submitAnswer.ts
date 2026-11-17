@@ -131,15 +131,27 @@ export function buildAnswerTransaction(
   previousAnswer: AnswerContext["answer"] = null,
 ): TransactWriteCommandInput {
   const itemKeys = keys(input, identityId);
+  const metaCondition = "#status = :open AND currentQuestionId = :question AND opensAt <= :received AND closesAt > :received AND expiresAt = :expiresAt AND expiresAt > :received";
+  const metaValues = { ":open": "QUESTION_OPEN", ":question": input.questionId, ":received": receivedAt, ":expiresAt": expiresAt };
   return { TransactItems: [
-    { Update: {
-      TableName: tableName,
-      Key: itemKeys.meta,
-      UpdateExpression: previousAnswer ? "ADD #version :one" : "ADD answerCount :one, #version :one",
-      ConditionExpression: "#status = :open AND currentQuestionId = :question AND opensAt <= :received AND closesAt > :received AND expiresAt = :expiresAt AND expiresAt > :received",
-      ExpressionAttributeNames: { "#status": "status", "#version": "version" },
-      ExpressionAttributeValues: { ":one": 1, ":open": "QUESTION_OPEN", ":question": input.questionId, ":received": receivedAt, ":expiresAt": expiresAt },
-    } },
+    // Antworten erhöhen nie `#version` (nur Phasenwechsel). Eine geänderte Antwort schreibt META gar nicht,
+    // die erste Antwort nur den Zähler; der Stream-Publisher bündelt Zählerereignisse (siehe README).
+    previousAnswer
+      ? { ConditionCheck: {
+        TableName: tableName,
+        Key: itemKeys.meta,
+        ConditionExpression: metaCondition,
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: metaValues,
+      } }
+      : { Update: {
+        TableName: tableName,
+        Key: itemKeys.meta,
+        UpdateExpression: "ADD answerCount :one",
+        ConditionExpression: metaCondition,
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: { ...metaValues, ":one": 1 },
+      } },
     { ConditionCheck: {
       TableName: tableName,
       Key: itemKeys.participant,

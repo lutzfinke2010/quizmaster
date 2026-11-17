@@ -67,7 +67,7 @@ describe.skipIf(process.env.QUIZRUSH_AWS_TEST !== "1")("DynamoDB-Antwortannahme 
     expect(await submitAnswer(store, { ...request, choiceId: "a2" }, "guest-one", 1800)).toEqual({ acceptedAt: 1700 });
     await expect(submitAnswer(store, request, "guest-one", 2000)).rejects.toMatchObject({ code: "NOT_OPEN" });
     const meta = await document.send(new GetCommand({ TableName: tableName, Key: { pk, sk: "META" }, ConsistentRead: true }));
-    expect(meta.Item).toMatchObject({ answerCount: 1, version: 3 });
+    expect(meta.Item).toMatchObject({ answerCount: 1, version: 1 });
     const stored = await document.send(new GetCommand({ TableName: tableName, Key: { pk, sk: "ANSWER#q1#p1" }, ConsistentRead: true }));
     expect(stored.Item).toMatchObject({ choiceId: "a2", receivedAt: 1700, ttl: 5 });
     await document.send(new UpdateCommand({
@@ -254,10 +254,10 @@ describe.skipIf(process.env.QUIZRUSH_AWS_TEST !== "1")("DynamoDB-Antwortannahme 
     await expect(quizzes.updateQuiz(owner, createdQuiz.quizId, 1, exampleQuiz, 2001)).rejects.toThrow();
     const duplicate = await quizzes.duplicateQuiz(owner, createdQuiz.quizId, 3000);
     expect(duplicate.quizId).not.toBe(createdQuiz.quizId);
-    expect((await quizzes.listQuizzes(owner)).map((item) => item.quizId)).toHaveLength(2);
+    expect((await quizzes.listQuizzes(owner)).items.map((item) => item.quizId)).toHaveLength(2);
     await expect(quizzes.deleteQuiz(other, createdQuiz.quizId, 2)).rejects.toThrow();
     await quizzes.deleteQuiz(owner, createdQuiz.quizId, 2);
-    expect((await quizzes.listQuizzes(owner)).map((item) => item.quizId)).toEqual([duplicate.quizId]);
+    expect((await quizzes.listQuizzes(owner)).items.map((item) => item.quizId)).toEqual([duplicate.quizId]);
   }, 60_000);
 
   it("reserviert einen Code und erstellt einen unabhängigen Fragen-Snapshot", async () => {

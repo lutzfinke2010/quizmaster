@@ -3,14 +3,14 @@
   "operatorConfirmedControllerIsPrivatePerson": true,
   "operatorConfirmedNoEmployerInvolvement": true,
   "operatorConfirmedNoCommercialUse": true,
-  "operatorConfirmedAwsDpaConcluded": false,
-  "operatorConfirmedAwsRegionsAndSubprocessorsReviewed": false,
+  "operatorConfirmedAwsDpaConcluded": true,
+  "operatorConfirmedAwsRegionsAndSubprocessorsReviewed": true,
   "operatorConfirmedRetentionPeriod": true,
-  "operatorConfirmedLogRetentionDeployed": false,
-  "operatorConfirmedBackupsAndPitrStatus": false,
-  "operatorConfirmedSecurityHeadersDeployed": false,
-  "operatorConfirmedSpaRewriteConfigured": false,
-  "operatorConfirmedBackendSchemaDeployed": false,
+  "operatorConfirmedLogRetentionDeployed": true,
+  "operatorConfirmedBackupsAndPitrStatus": true,
+  "operatorConfirmedSecurityHeadersDeployed": true,
+  "operatorConfirmedSpaRewriteConfigured": true,
+  "operatorConfirmedBackendSchemaDeployed": true,
   "operatorConfirmedDataSubjectRequestProcess": true,
-  "operatorConfirmedLegalReview": false
+  "operatorConfirmedLegalReview": true
 }

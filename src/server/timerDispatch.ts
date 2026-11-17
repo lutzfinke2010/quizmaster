@@ -22,6 +22,32 @@ function itemKey(key: TimerKey) {
   return { pk: `SESSION#${key.sessionId}`, sk: `TIMER#${key.questionId}#${key.timerId}` };
 }
 
+/**
+ * Sortschlüssel im Index `pending-timers`. Noch nicht gestartete Aufträge tragen das Präfix `!` und sortieren damit
+ * vor jedes ISO-Datum; der Sweep prüft sie daher immer. Gestartete Aufträge werden erst nach Ablauf ihrer Frist
+ * (plus Puffer) erneut geprüft, statt jede Minute für jeden laufenden Timer Step Functions abzufragen.
+ */
+export function undispatchedTimerDeadline(deadlineAt: string, timerId: string): string {
+  return `!${deadlineAt}#${timerId}`;
+}
+export function dispatchedTimerDeadline(deadlineAt: string, timerId: string): string {
+  return `${deadlineAt}#${timerId}`;
+}
+
+async function markDispatched(database: DynamoDBDocumentClient, tableName: string, key: TimerKey, deadlineAt: string) {
+  try {
+    await database.send(new UpdateCommand({
+      TableName: tableName, Key: itemKey(key),
+      UpdateExpression: "SET timerDeadline = :deadline",
+      ConditionExpression: "#status = :pending AND timerId = :timer AND attribute_exists(timerPartition)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":deadline": dispatchedTimerDeadline(deadlineAt, key.timerId), ":pending": "PENDING", ":timer": key.timerId },
+    }));
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
+  }
+}
+
 function executionArn(stateMachineArn: string, name: string) {
   if (!/^arn:[^:]+:states:[^:]+:\d{12}:stateMachine:[^:/]+$/.test(stateMachineArn)) {
     throw new Error("Ungültige State-Machine-ARN.");
@@ -72,12 +98,16 @@ export async function ensureTimerStarted(
       deadlineAt: job.deadlineAt });
     try {
       await sfn.send(new StartExecutionCommand({ stateMachineArn, name, input }));
+      await markDispatched(database, tableName, key, job.deadlineAt);
       return;
     } catch (error) {
       if (!(error instanceof Error) || error.name !== "ExecutionAlreadyExists") throw error;
     }
     const execution = await sfn.send(new DescribeExecutionCommand({ executionArn: executionArn(stateMachineArn, name) }));
-    if (execution.status === "RUNNING" || execution.status === "PENDING_REDRIVE") return;
+    if (execution.status === "RUNNING" || execution.status === "PENDING_REDRIVE") {
+      await markDispatched(database, tableName, key, job.deadlineAt);
+      return;
+    }
     if (execution.status === "SUCCEEDED") {
       await completeTimer(database, tableName, key);
       return;

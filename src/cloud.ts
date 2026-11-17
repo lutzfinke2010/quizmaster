@@ -37,6 +37,9 @@ export async function configureCloud(): Promise<boolean> {
 }
 
 const quizRecord = z.object({ quizId: z.string(), version: z.number(), updatedAt: z.number(), quiz: quizSchema });
+const quizSummary = z.object({ quizId: z.string(), version: z.number(), updatedAt: z.number(), title: z.string(),
+  description: z.string(), questionCount: z.number() });
+const quizSummaryPage = z.object({ items: z.array(quizSummary), nextCursor: z.string().nullish() });
 const sessionSummary = z.object({ sessionId: z.string(), title: z.string(), status: z.string(),
   joinCode: z.string(), presentationToken: z.string(), createdAt: z.number() });
 const participation = z.object({ sessionId: z.string(), participantId: z.string(), displayName: z.string(),
@@ -84,7 +87,7 @@ const asyncPlayerAnswer = z.object({
   questionIndex: z.number(), choiceId: z.string(), acceptedAt: z.number(), correct: z.boolean(),
 });
 const asyncParticipantResult = z.object({
-  displayName: z.string(), avatarId: z.string(), startedAt: z.number(), completedAt: z.number().nullable().optional(),
+  attemptId: z.string(), displayName: z.string(), avatarId: z.string(), startedAt: z.number(), completedAt: z.number().nullable().optional(),
   answeredCount: z.number(), questionCount: z.number(), status: z.string(), points: z.number(), rank: z.number(),
   answers: z.array(asyncPlayerAnswer),
 });
@@ -123,6 +126,10 @@ export type GameState = z.infer<typeof gameStateSchema>;
 export type Participation = z.infer<typeof participation>;
 export type SessionSummary = z.infer<typeof sessionSummary>;
 export type QuizRecord = z.infer<typeof quizRecord>;
+export type QuizSummary = z.infer<typeof quizSummary>;
+const gameEvent = z.object({ sessionId: z.string(), version: z.number(),
+  participantCount: z.number().nullish(), answerCount: z.number().nullish() });
+export type GameEvent = z.infer<typeof gameEvent>;
 
 const quizFields = "quizId version updatedAt quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
 const participationFields = "sessionId participantId displayName avatarId joinedAt";
@@ -140,7 +147,17 @@ async function operation<T>(query: string, field: string, variables: Record<stri
 }
 
 export const cloud = {
-  listQuizzes: () => operation(`query { listQuizzes { ${quizFields} } }`, "listQuizzes", {}, "userPool", z.array(quizRecord)),
+  listQuizzes: async () => {
+    const items: QuizSummary[] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await operation("query ListQuizzes($cursor: String) { listQuizzes(cursor: $cursor) { items { quizId version updatedAt title description questionCount } nextCursor } }",
+        "listQuizzes", { cursor }, "userPool", quizSummaryPage);
+      items.push(...page.items);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return items;
+  },
   getQuiz: (quizId: string) => operation(`query GetQuiz($quizId: ID!) { getQuiz(quizId: $quizId) { ${quizFields} } }`,
     "getQuiz", { quizId }, "userPool", quizRecord),
   createQuiz: (quiz: z.infer<typeof quizSchema>) => operation(`mutation CreateQuiz($quiz: QuizInput!) { createQuiz(quiz: $quiz) { ${quizFields} } }`,
@@ -155,6 +172,8 @@ export const cloud = {
       "deleteQuiz", { quizId, expectedVersion }, "userPool", z.boolean()),
   listSessions: () => operation("query { listSessions { sessionId title status joinCode presentationToken createdAt } }",
     "listSessions", {}, "userPool", z.array(sessionSummary)),
+  getSession: (sessionId: string) => operation("query GetSession($sessionId: ID!) { getSession(sessionId: $sessionId) { sessionId title status joinCode presentationToken createdAt } }",
+    "getSession", { sessionId }, "userPool", sessionSummary),
   createSession: (quizId: string) => operation("mutation CreateSession($quizId: ID!) { createSession(quizId: $quizId) { sessionId joinCode presentationToken } }",
     "createSession", { quizId }, "userPool", z.object({ sessionId: z.string(), joinCode: z.string(), presentationToken: z.string() })),
   questions: (sessionId: string) => operation("query Questions($sessionId: ID!) { listSessionQuestions(sessionId: $sessionId) { questionId index text } }",
@@ -185,14 +204,14 @@ export const cloud = {
   transition: (action: "showLeaderboard" | "finishSession" | "cancelSession", sessionId: string, expectedVersion: number) =>
     operation(`mutation Transition($sessionId: ID!, $expectedVersion: Int!) { ${action}(sessionId: $sessionId, expectedVersion: $expectedVersion) { version } }`,
       action, { sessionId, expectedVersion }, "userPool", z.object({ version: z.number() })),
-  subscribe: (sessionId: string, mode: "admin" | "guest", presentationToken: string | null, onEvent: (version: number) => void, onError: (error: unknown) => void) =>
-    client.graphql<GraphQLSubscription<{ onGameChange: { sessionId: string; version: number } }>>({
-      query: "subscription GameChange($sessionId: ID!, $presentationToken: String) { onGameChange(sessionId: $sessionId, presentationToken: $presentationToken) { sessionId version } }",
+  subscribe: (sessionId: string, mode: "admin" | "guest", presentationToken: string | null, onEvent: (event: GameEvent) => void, onError: (error: unknown) => void) =>
+    client.graphql<GraphQLSubscription<{ onGameChange: GameEvent }>>({
+      query: "subscription GameChange($sessionId: ID!, $presentationToken: String) { onGameChange(sessionId: $sessionId, presentationToken: $presentationToken) { sessionId version participantCount answerCount } }",
       variables: { sessionId, presentationToken }, authMode: mode === "admin" ? "userPool" : "identityPool",
     }).subscribe({
       next: (event) => {
-        const parsed = z.object({ onGameChange: z.object({ sessionId: z.string(), version: z.number() }) }).safeParse(event.data);
-        if (parsed.success && parsed.data.onGameChange.sessionId === sessionId) onEvent(parsed.data.onGameChange.version);
+        const parsed = z.object({ onGameChange: gameEvent }).safeParse(event.data);
+        if (parsed.success && parsed.data.onGameChange.sessionId === sessionId) onEvent(parsed.data.onGameChange);
         else onError(new Error("Ungültiges Echtzeitereignis."));
       },
       error: onError,
@@ -214,7 +233,7 @@ export const cloud = {
     `query AsyncResults($publicationId: ID!, $cursor: String) { getAsyncPublicationResults(publicationId: $publicationId, cursor: $cursor) {
       publicationId quizId title createdAt expiresAt timeZone status retentionAt endedAt participantCount maxParticipants completedCount
       partialCount isFinal updatedAt questions { questionIndex text correctChoiceId explanation answeredCount
-        options { id text correct count } } participants { displayName avatarId startedAt completedAt answeredCount
+        options { id text correct count } } participants { attemptId displayName avatarId startedAt completedAt answeredCount
         questionCount status points rank answers { questionIndex choiceId acceptedAt correct } } nextCursor } }`,
     "getAsyncPublicationResults", { publicationId, cursor }, "userPool", asyncResults),
   startAsyncQuiz: (token: string) => operation(

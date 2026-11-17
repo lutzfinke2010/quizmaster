@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import avatars from "../domain/avatars.json";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
+import { logger } from "./logger";
 
 const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const identitySchema = z.string().regex(/^[A-Za-z0-9_:.-]{1,128}$/);
@@ -12,7 +13,6 @@ const codeSchema = z.string().regex(/^\d{6}$/);
 const metaSchema = z.object({
   status: z.string(), expiresAt: z.number().int(), ttl: z.number().int(),
   participantCount: z.number().int().min(0), maxParticipants: z.number().int().min(1), joinCode: codeSchema,
-  version: z.number().int(),
 });
 const identityRecordSchema = z.object({ participantId: sessionIdSchema });
 const participantSchema = z.object({
@@ -26,7 +26,7 @@ const feminineLabels = new Set(["Eule", "Giraffe", "Katze", "Schildkröte", "Mau
 const neuterLabels = new Set(["Lama", "Faultier", "Nilpferd", "Krokodil", "Walross", "Eichhörnchen",
   "Reh", "Zebra", "Seepferdchen", "Huhn"]);
 export const avatarIds = avatars.avatars.map(({ id }) => id);
-const maxJoinAttempts = 1000;
+const maxJoinAttempts = 20;
 
 function assertTime(now: number): void {
   if (!Number.isSafeInteger(now) || now < 0) throw new Error("Ungültige Serverzeit.");
@@ -34,7 +34,7 @@ function assertTime(now: number): void {
 
 async function readMembership(
   client: DynamoDBDocumentClient, tableName: string, sessionId: string, identityId: string, now: number,
-): Promise<{ meta: z.infer<typeof metaSchema>; participant: Participation | null }> {
+): Promise<{ meta: z.infer<typeof metaSchema>; participant: Participation | null; avatarKey?: string }> {
   const pk = `SESSION#${sessionId}`;
   const metaKey = { pk, sk: "META" };
   const identityKey = { pk, sk: `IDENTITY#${identityId}` };
@@ -62,45 +62,59 @@ async function readMembership(
   if (meta.expiresAt <= now || currentId !== participantId || participant.participantId !== participantId) {
     throw new Error("Teilnahme konnte nicht wiederhergestellt werden.");
   }
-  return { meta, participant: { sessionId, ...participant } };
+  const rawAvatarKey = result.Responses[2].Item.avatarKey;
+  const avatarKey = typeof rawAvatarKey === "string" && rawAvatarKey.startsWith("AVATAR#")
+    ? rawAvatarKey : `AVATAR#${participant.avatarId}`;
+  return { meta, participant: { sessionId, ...participant }, avatarKey };
 }
 
-async function avatarUsage(
-  client: DynamoDBDocumentClient, tableName: string, sessionId: string,
-): Promise<Map<string, number>> {
-  const pk = `SESSION#${sessionId}`;
-  const counts = new Map(avatarIds.map((id) => [id, 0]));
-  for (const prefix of ["PARTICIPANT#", "AVATAR#"]) {
-    let cursor: Record<string, unknown> | undefined;
-    do {
-      const page = await client.send(new QueryCommand({
-        TableName: tableName, ConsistentRead: true,
-        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
-        ExpressionAttributeValues: { ":pk": pk, ":prefix": prefix },
-        ExclusiveStartKey: cursor,
-      }));
-      for (const item of page.Items ?? []) {
-        if (prefix === "PARTICIPANT#" && item.removed !== true && typeof item.avatarId === "string" &&
-            counts.has(item.avatarId)) {
-          counts.set(item.avatarId, (counts.get(item.avatarId) ?? 0) + 1);
-        } else if (prefix === "AVATAR#") {
-          const id = String(item.sk).slice("AVATAR#".length);
-          if (counts.has(id)) counts.set(id, Math.max(1, counts.get(id) ?? 0));
-        }
-      }
-      cursor = page.LastEvaluatedKey;
-    } while (cursor);
-  }
-  return counts;
+/**
+ * Avatar-Reservierungen sind nummerierte Slots: `AVATAR#<id>` (erste Vergabe) und `AVATAR#<id>#<n>` (n-te Wiederholung).
+ * Jeder Slot wird per `attribute_not_exists` exklusiv belegt. So bleibt die Verteilung ohne globale Versionsbedingung
+ * ausgeglichen: Ein Avatar wird erst ein weiteres Mal vergeben, wenn alle anderen mindestens gleich oft belegt sind.
+ */
+export function avatarSlotKey(avatarId: string, slot: number): string {
+  return slot === 0 ? `AVATAR#${avatarId}` : `AVATAR#${avatarId}#${slot}`;
 }
 
-export function chooseAvatar(counts: Map<string, number>): { id: string; reserve: boolean } {
-  const unused = avatarIds.filter((id) => (counts.get(id) ?? 0) === 0);
-  const candidates = unused.length ? unused : avatarIds.filter((id) => {
-    const minimum = Math.min(...avatarIds.map((candidate) => counts.get(candidate) ?? 0));
-    return (counts.get(id) ?? 0) === minimum;
-  });
-  return { id: candidates[randomInt(candidates.length)], reserve: unused.length > 0 };
+export async function reservedAvatarSlots(
+  client: DynamoDBDocumentClient, tableName: string, pk: string,
+): Promise<Map<string, Set<number>>> {
+  const slots = new Map(avatarIds.map((id) => [id, new Set<number>()]));
+  let cursor: Record<string, unknown> | undefined;
+  do {
+    const page = await client.send(new QueryCommand({
+      TableName: tableName, ConsistentRead: true,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ProjectionExpression: "sk",
+      ExpressionAttributeValues: { ":pk": pk, ":prefix": "AVATAR#" },
+      ExclusiveStartKey: cursor,
+    }));
+    for (const item of page.Items ?? []) {
+      const [id, rawSlot] = String(item.sk).slice("AVATAR#".length).split("#");
+      const slot = rawSlot === undefined ? 0 : Number(rawSlot);
+      if (Number.isSafeInteger(slot) && slot >= 0) slots.get(id)?.add(slot);
+    }
+    cursor = page.LastEvaluatedKey;
+  } while (cursor);
+  return slots;
+}
+
+export function chooseAvatarSlot(slots: Map<string, Set<number>>): { id: string; slot: number; key: string } {
+  const usage = (id: string) => slots.get(id)?.size ?? 0;
+  const minimum = Math.min(...avatarIds.map(usage));
+  const candidates = avatarIds.filter((id) => usage(id) === minimum);
+  const id = candidates[randomInt(candidates.length)];
+  const taken = slots.get(id) ?? new Set<number>();
+  let slot = 0;
+  while (taken.has(slot)) slot++;
+  return { id, slot, key: avatarSlotKey(id, slot) };
+}
+
+/** Exponentielles Backoff mit vollem Jitter für konkurrierende Beitritte. */
+export function backoffWithJitter(attempt: number): Promise<void> {
+  const ceiling = Math.min(500, 10 * 2 ** Math.min(attempt, 6));
+  return new Promise<void>((resolve) => setTimeout(resolve, randomInt(ceiling + 1)));
 }
 
 export function displayNameFor(label: string): string {
@@ -138,8 +152,7 @@ export async function joinSession(
     if (membership.participant) return membership.participant;
     if (membership.meta.status !== "LOBBY") throw new Error("Das Spiel hat bereits begonnen.");
     if (membership.meta.participantCount >= membership.meta.maxParticipants) throw new Error("Die Sitzung ist voll.");
-    const counts = await avatarUsage(client, tableName, sessionId);
-    const avatar = chooseAvatar(counts);
+    const avatar = chooseAvatarSlot(await reservedAvatarSlots(client, tableName, pk));
     const catalogEntry = avatars.avatars.find((entry) => entry.id === avatar.id);
     if (!catalogEntry) throw new Error("Avatar fehlt im lokalen Katalog.");
     const baseName = displayNameFor(catalogEntry.label);
@@ -147,21 +160,19 @@ export async function joinSession(
     const participantId = randomUUID();
     const ttl = membership.meta.ttl;
     try {
-      const writes = [
+      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
         { ConditionCheck: {
           TableName: tableName, Key: codeKey,
           ConditionExpression: "sessionId = :session AND expiresAt > :now",
           ExpressionAttributeValues: { ":session": sessionId, ":now": now },
         } },
         { Update: {
+          // Kein `#version`: Beitritte sind keine Phasenwechsel (siehe README, Abschnitt Echtzeit-Events).
           TableName: tableName, Key: { pk, sk: "META" },
-          UpdateExpression: "ADD participantCount :one, #version :one",
-          ConditionExpression: avatar.reserve
-            ? "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants"
-            : "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants AND #version = :version",
-          ExpressionAttributeNames: { "#status": "status", "#version": "version" },
-          ExpressionAttributeValues: { ":one": 1, ":lobby": "LOBBY", ":code": code, ":now": now,
-            ...(avatar.reserve ? {} : { ":version": membership.meta.version }) },
+          UpdateExpression: "ADD participantCount :one",
+          ConditionExpression: "#status = :lobby AND joinCode = :code AND expiresAt > :now AND participantCount < maxParticipants",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":one": 1, ":lobby": "LOBBY", ":code": code, ":now": now },
         } },
         { Put: {
           TableName: tableName, Item: { pk, sk: `IDENTITY#${identityId}`, participantId, ttl },
@@ -169,21 +180,18 @@ export async function joinSession(
         } },
         { Put: {
           TableName: tableName,
-          Item: { pk, sk: `PARTICIPANT#${participantId}`, participantId, displayName,
-            avatarId: avatar.id, joinedAt: now, totalPoints: 0, correctAnswers: 0, correctElapsedMs: 0, ttl },
+          Item: { pk, sk: `PARTICIPANT#${participantId}`, participantId, displayName, avatarId: avatar.id,
+            avatarKey: avatar.key, joinedAt: now, totalPoints: 0, correctAnswers: 0, correctElapsedMs: 0, ttl },
           ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
         } },
         { Put: {
           TableName: tableName, Item: { pk, sk: `NAME#${displayName}`, participantId, ttl },
           ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
         } },
-      ];
-      if (avatar.reserve) writes.push({ Put: {
-        TableName: tableName, Item: { pk, sk: `AVATAR#${avatar.id}`, participantId, ttl },
-        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-      } });
-      await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
-        ...writes,
+        { Put: {
+          TableName: tableName, Item: { pk, sk: avatar.key, participantId, ttl },
+          ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+        } },
       ] })));
       return { sessionId, participantId, displayName, avatarId: avatar.id, joinedAt: now };
     } catch (error) {
@@ -195,8 +203,8 @@ export async function joinSession(
       const freshCode = await client.send(new GetCommand({ TableName: tableName, Key: codeKey, ConsistentRead: true }));
       if (freshCode.Item?.sessionId !== sessionId || typeof freshCode.Item.expiresAt !== "number" ||
           freshCode.Item.expiresAt <= now) throw new Error("Der Spielcode ist ungültig oder abgelaufen.");
-      if (!avatar.reserve) await new Promise<void>((resolve) =>
-        setTimeout(resolve, randomInt(Math.min(50, attempt + 2))));
+      logger.warn("join.conflict", { sessionId, attempt });
+      await backoffWithJitter(attempt);
     }
   }
   throw new Error("Es konnte kein Avatar und eindeutiger Teilnehmername vergeben werden.");
@@ -235,9 +243,13 @@ async function removeParticipantRecords(
 }
 
 /**
- * Löscht die eigene Teilnahme: Zugriff und Namensreservierung werden entfernt, der Teilnehmer-Datensatz wird zu einem
+ * Löscht die eigene Teilnahme: Zugriff, Namens- und Avatar-Reservierung werden entfernt, der Teilnehmer-Datensatz wird zu einem
  * personenlosen Platzhalter (Auswertungen laufender Fragen greifen darauf zu), Antworten und Ergebnisse werden gelöscht.
  * Wiederholbar: ohne vorhandene Teilnahme ist das Ergebnis ebenfalls `true`.
+ *
+ * Bewusste Abweichung: Bereits veröffentlichte Antwortverteilungen (`REVEAL#…`) sind anonyme Aggregate und werden
+ * nicht nachträglich korrigiert. Nach einer Löschung kann die Verteilung einer vergangenen Frage daher eine Antwort
+ * mehr zählen, als noch Ergebnisse vorhanden sind.
  */
 export async function deleteMyParticipation(
   client: DynamoDBDocumentClient, tableName: string, rawSessionId: unknown, identityId: string, now: number,
@@ -256,6 +268,11 @@ export async function deleteMyParticipation(
     }
     const participant = membership.participant;
     if (!participant) return true;
+    const avatarKey = membership.avatarKey ?? `AVATAR#${participant.avatarId}`;
+    const reservation = await client.send(new GetCommand({
+      TableName: tableName, Key: { pk, sk: avatarKey }, ConsistentRead: true,
+    }));
+    const ownsReservation = reservation?.Item?.participantId === participant.participantId;
     if (!deletableStatuses.includes(membership.meta.status)) {
       throw new Error("Während einer laufenden Frage kann die Teilnahme nicht gelöscht werden. Bitte nach der Auflösung erneut versuchen.");
     }
@@ -263,10 +280,10 @@ export async function deleteMyParticipation(
       await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
         { Update: {
           TableName: tableName, Key: { pk, sk: "META" },
-          UpdateExpression: "ADD participantCount :minusOne, #version :one",
+          UpdateExpression: "ADD participantCount :minusOne",
           ConditionExpression: "#status IN (:s1, :s2, :s3, :s4, :s5) AND expiresAt > :now AND participantCount > :zero",
-          ExpressionAttributeNames: { "#status": "status", "#version": "version" },
-          ExpressionAttributeValues: { ":minusOne": -1, ":one": 1, ":zero": 0, ":now": now,
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":minusOne": -1, ":zero": 0, ":now": now,
             ":s1": deletableStatuses[0], ":s2": deletableStatuses[1], ":s3": deletableStatuses[2],
             ":s4": deletableStatuses[3], ":s5": deletableStatuses[4] },
         } },
@@ -281,6 +298,12 @@ export async function deleteMyParticipation(
           ConditionExpression: "attribute_exists(pk)",
           ExpressionAttributeValues: { ":true": true, ":empty": "", ":zero": 0 },
         } },
+        // Gibt den Avatar-Slot wieder frei, damit er in der Lobby neu vergeben werden kann.
+        ...(ownsReservation ? [{ Delete: {
+          TableName: tableName, Key: { pk, sk: avatarKey },
+          ConditionExpression: "participantId = :participant",
+          ExpressionAttributeValues: { ":participant": participant.participantId },
+        } }] : []),
       ] })));
     } catch (error) {
       if (!isConditionalFailure(error)) throw error;
@@ -289,8 +312,7 @@ export async function deleteMyParticipation(
     try {
       await removeParticipantRecords(client, tableName, sessionId, participant.participantId);
     } catch (error) {
-      console.error("Aufräumen der Teilnehmerdaten unvollständig; die automatische Löschung greift.",
-        error instanceof Error ? error.name : "UnknownError");
+      logger.error("participation.cleanupIncomplete", { sessionId, error });
     }
     return true;
   }

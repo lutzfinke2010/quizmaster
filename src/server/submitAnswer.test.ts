@@ -208,10 +208,18 @@ describe("Antwortannahme", () => {
     expect(transaction.TransactItems?.[3].Put?.Item?.sk).toBe("ANSWER#q1#p1");
   });
 
-  it("ersetzt Antworten bedingt und erhöht nur die Version, nicht den Antwortzähler", () => {
+  it("zählt die erste Antwort, ohne die Spielstand-Version zu erhöhen", () => {
+    const transaction = buildAnswerTransaction("table", request, identity, "p1", 1500, 10000);
+    expect(transaction.TransactItems?.[0].Update?.UpdateExpression).toBe("ADD answerCount :one");
+    expect(JSON.stringify(transaction)).not.toContain("#version");
+  });
+
+  it("ersetzt Antworten bedingt, ohne META zu schreiben", () => {
     const transaction = buildAnswerTransaction("table", { ...request, choiceId: "a2" }, identity, "p1", 1500, 10000,
       { choiceId: "a1", receivedAt: 1100 });
-    expect(transaction.TransactItems?.[0].Update?.UpdateExpression).toBe("ADD #version :one");
+    expect(transaction.TransactItems?.[0].Update).toBeUndefined();
+    expect(transaction.TransactItems?.[0].ConditionCheck?.ConditionExpression).toContain("closesAt > :received");
+    expect(JSON.stringify(transaction)).not.toContain("#version");
     expect(transaction.TransactItems?.[3].Put).toMatchObject({
       Item: { sk: "ANSWER#q1#p1", choiceId: "a2", receivedAt: 1500, ttl: 10 },
       ConditionExpression: "choiceId = :previousChoice AND receivedAt = :previousReceived AND receivedAt < :received",

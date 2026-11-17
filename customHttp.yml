@@ -13,6 +13,8 @@ customHeaders:
         value: nosniff
       - key: Permissions-Policy
         value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+      # HSTS (S7): bewusst noch aus. Erst aktivieren, wenn die produktive Domain feststeht und dauerhaft per HTTPS
+      # erreichbar ist; Amplify-Standarddomains (*.amplifyapp.com) senden HSTS bereits selbst.
       # HSTS erst aktivieren, wenn die produktive Domain feststeht und dauerhaft per HTTPS erreichbar ist.
       # Ohne includeSubDomains und ohne preload:
       # - key: Strict-Transport-Security
@@ -26,6 +28,19 @@ customHeaders:
       - key: X-Robots-Tag
         value: noindex, nofollow
   - pattern: '/present/**'
+    headers:
+      - key: X-Robots-Tag
+        value: noindex, nofollow
+  # Async-Teilnahmelinks enthalten ein Zugangstoken im Pfad und dürfen nicht indexiert werden.
+  - pattern: '/q/**'
+    headers:
+      - key: X-Robots-Tag
+        value: noindex, nofollow
+  - pattern: '/join'
+    headers:
+      - key: X-Robots-Tag
+        value: noindex, nofollow
+  - pattern: '/join/**'
     headers:
       - key: X-Robots-Tag
         value: noindex, nofollow

@@ -44,6 +44,9 @@ describe("Scoring the final stored answer", () => {
     database.on(TransactWriteCommand).callsFake((input) => {
       expect(items.META.status).toBe("SCORING");
       for (const entry of input.TransactItems) {
+        if (entry.Put?.Item.sk.startsWith("RESULT#")) {
+          expect(input.TransactItems.some((other: { ConditionCheck?: unknown }) => other.ConditionCheck)).toBe(false);
+        }
         if (entry.Put) {
           expect(items[entry.Put.Item.sk]).toBeUndefined();
           items[entry.Put.Item.sk] = entry.Put.Item;

@@ -16,6 +16,37 @@ const storedQuizSchema = z.object({
 });
 export type StoredQuiz = z.infer<typeof storedQuizSchema>;
 
+export interface QuizSummary {
+  quizId: string; version: number; updatedAt: number; title: string; description: string; questionCount: number;
+}
+export interface QuizSummaryPage { items: QuizSummary[]; nextCursor: string | null }
+
+const summarySchema = z.object({
+  quizId: quizIdSchema, ownerId: z.string(), version: z.number().int(), updatedAt: z.number().int(),
+  summaryTitle: z.string().optional(), summaryDescription: z.string().optional(), questionCount: z.number().int().optional(),
+});
+const QUIZ_PAGE_SIZE = 100;
+
+/** Denormalisierte Metadaten, damit die Übersicht per Projektion ohne die (bis zu 350 KB großen) Fragen auskommt. */
+function summaryAttributes(quiz: Quiz) {
+  return { summaryTitle: quiz.title, summaryDescription: quiz.description, questionCount: quiz.questions.length };
+}
+
+function encodeCursor(key: Record<string, unknown> | undefined): string | null {
+  return key ? Buffer.from(JSON.stringify({ sk: key.sk }), "utf8").toString("base64url") : null;
+}
+
+function decodeCursor(raw: unknown, pk: string): Record<string, unknown> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  try {
+    const { sk } = z.object({ sk: z.string().regex(/^QUIZ#[0-9a-f-]{36}$/) }).strict()
+      .parse(JSON.parse(Buffer.from(z.string().max(200).parse(raw), "base64url").toString("utf8")));
+    return { pk, sk };
+  } catch {
+    throw new Error("Ungültiger Seitencursor.");
+  }
+}
+
 function ownerKey(principal: unknown) {
   const ownerId = requireQuizmaster(principal);
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(ownerId)) throw new Error("Ungültige Admin-Identität.");
@@ -52,7 +83,7 @@ export class QuizStore {
     const quiz = validateQuiz(rawQuiz);
     const record = { quizId: randomUUID(), ownerId: owner.ownerId, version: 1, updatedAt: time(now), quiz };
     await this.client.send(new PutCommand({
-      TableName: this.tableName, Item: { pk: owner.pk, sk: `QUIZ#${record.quizId}`, ...record },
+      TableName: this.tableName, Item: { pk: owner.pk, sk: `QUIZ#${record.quizId}`, ...record, ...summaryAttributes(quiz) },
       ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
     }));
     return record;
@@ -70,25 +101,34 @@ export class QuizStore {
     return quiz;
   }
 
-  async listQuizzes(principal: unknown): Promise<StoredQuiz[]> {
+  /**
+   * Liefert eine Seite Quiz-Metadaten (ohne Fragen). Ältere Items ohne Summary-Attribute werden einzeln
+   * vollständig gelesen; sie erhalten die Attribute beim nächsten Speichern.
+   */
+  async listQuizzes(principal: unknown, rawCursor?: unknown): Promise<QuizSummaryPage> {
     const owner = ownerKey(principal);
-    const quizzes: StoredQuiz[] = [];
-    let cursor: Record<string, unknown> | undefined;
-    do {
-      const page = await this.client.send(new QueryCommand({
-        TableName: this.tableName, ConsistentRead: true,
-        KeyConditionExpression: "pk = :owner AND begins_with(sk, :prefix)",
-        ExpressionAttributeValues: { ":owner": owner.pk, ":prefix": "QUIZ#" },
-        ExclusiveStartKey: cursor,
-      }));
-      quizzes.push(...(page.Items ?? []).map((item) => {
-        const quiz = storedQuizSchema.parse(item);
-        if (quiz.ownerId !== owner.ownerId) throw new Error("Quiz gehört nicht zu diesem Konto.");
-        return quiz;
-      }));
-      cursor = page.LastEvaluatedKey;
-    } while (cursor);
-    return quizzes;
+    const page = await this.client.send(new QueryCommand({
+      TableName: this.tableName, ConsistentRead: true, Limit: QUIZ_PAGE_SIZE,
+      KeyConditionExpression: "pk = :owner AND begins_with(sk, :prefix)",
+      ProjectionExpression: "quizId, ownerId, #version, updatedAt, summaryTitle, summaryDescription, questionCount",
+      ExpressionAttributeNames: { "#version": "version" },
+      ExpressionAttributeValues: { ":owner": owner.pk, ":prefix": "QUIZ#" },
+      ExclusiveStartKey: decodeCursor(rawCursor, owner.pk),
+    }));
+    const items: QuizSummary[] = [];
+    for (const raw of page.Items ?? []) {
+      const item = summarySchema.parse(raw);
+      if (item.ownerId !== owner.ownerId) throw new Error("Quiz gehört nicht zu diesem Konto.");
+      if (item.summaryTitle !== undefined && item.summaryDescription !== undefined && item.questionCount !== undefined) {
+        items.push({ quizId: item.quizId, version: item.version, updatedAt: item.updatedAt,
+          title: item.summaryTitle, description: item.summaryDescription, questionCount: item.questionCount });
+        continue;
+      }
+      const legacy = await this.getQuiz(principal, item.quizId);
+      items.push({ quizId: legacy.quizId, version: legacy.version, updatedAt: legacy.updatedAt,
+        title: legacy.quiz.title, description: legacy.quiz.description, questionCount: legacy.quiz.questions.length });
+    }
+    return { items, nextCursor: encodeCursor(page.LastEvaluatedKey) };
   }
 
   async updateQuiz(
@@ -101,11 +141,12 @@ export class QuizStore {
     const updatedAt = time(now);
     await this.client.send(new UpdateCommand({
       TableName: this.tableName, Key: { pk: owner.pk, sk: `QUIZ#${quizId}` },
-      UpdateExpression: "SET quiz = :quiz, updatedAt = :updatedAt, #version = :next",
+      UpdateExpression: "SET quiz = :quiz, updatedAt = :updatedAt, #version = :next, summaryTitle = :title, summaryDescription = :description, questionCount = :questionCount",
       ConditionExpression: "ownerId = :owner AND #version = :expected",
       ExpressionAttributeNames: { "#version": "version" },
       ExpressionAttributeValues: { ":quiz": quiz, ":updatedAt": updatedAt, ":owner": owner.ownerId,
-        ":expected": version, ":next": version + 1 },
+        ":expected": version, ":next": version + 1,
+        ":title": quiz.title, ":description": quiz.description, ":questionCount": quiz.questions.length },
     }));
     return { quizId, ownerId: owner.ownerId, version: version + 1, updatedAt, quiz };
   }

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
-  BatchWriteCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand, UpdateCommand,
-  type BatchWriteCommandInput, type GetCommandInput, type QueryCommandInput, type TransactWriteCommandInput,
+  BatchGetCommand, BatchWriteCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand, UpdateCommand,
+  type BatchGetCommandInput, type BatchWriteCommandInput, type GetCommandInput, type QueryCommandInput, type TransactWriteCommandInput,
   type UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
@@ -107,6 +107,14 @@ function setupDatabase() {
       retentionAt: values[":retentionAt"], ttl: values[":ttl"] });
     return {};
   });
+  database.on(BatchGetCommand).callsFake((input: BatchGetCommandInput) => ({
+    Responses: Object.fromEntries(Object.entries(input.RequestItems ?? {}).map(([table, request]) => [table,
+      (request.Keys ?? []).flatMap((key) => {
+        const item = records.get(keyOf(key.pk, key.sk));
+        return item ? [{ ...item }] : [];
+      })])),
+    UnprocessedKeys: {},
+  }));
   database.on(BatchWriteCommand).callsFake((input: BatchWriteCommandInput) => {
     for (const request of Object.values(input.RequestItems ?? {}).flat()) {
       const item = request.PutRequest?.Item;
@@ -118,7 +126,8 @@ function setupDatabase() {
     assertValidTransaction(input);
     const items = input.TransactItems ?? [];
     const puts = items.flatMap((entry) => entry.Put?.Item ? [entry.Put.Item] : []);
-    const update = items.find((entry) => entry.Update)?.Update;
+    const updates = items.flatMap((entry) => entry.Update ? [entry.Update] : []);
+    const update = updates.find((entry) => entry.Key?.sk !== "META") ?? updates[0];
     if (!update?.Key) {
       if (puts.some((item) => records.has(keyOf(item.pk, item.sk)))) throw conditionalFailure();
       for (const item of puts) records.set(keyOf(item.pk, item.sk), item);
@@ -133,14 +142,23 @@ function setupDatabase() {
           puts.some((item) => records.has(keyOf(item.pk, item.sk)))) throw conditionalFailure();
       records.set(key, { ...current, startedCount: Number(current.startedCount) + 1 });
     } else {
-      const question = items.find((entry) => entry.ConditionCheck)?.ConditionCheck;
+      const question = items.find((entry) => entry.ConditionCheck)?.ConditionCheck ??
+        updates.find((entry) => entry.Key?.sk === "META");
       const publication = question?.Key ? records.get(keyOf(question.Key.pk, question.Key.sk)) : undefined;
       if (!publication || publication.status !== "ACTIVE" ||
           Number(publication.expiresAt) <= Number(question?.ExpressionAttributeValues?.[":now"]) ||
           Number(current.answeredCount) !== Number(update.ExpressionAttributeValues?.[":index"]) ||
           puts.some((item) => records.has(keyOf(item.pk, item.sk)))) throw conditionalFailure();
+      if (question?.Key && "UpdateExpression" in question && publication) {
+        const stat = question.ExpressionAttributeNames?.["#stat"];
+        records.set(keyOf(question.Key.pk, question.Key.sk), { ...publication,
+          ...(stat ? { [stat]: Number(publication[stat] ?? 0) + 1 } : {}),
+          ...(question.UpdateExpression?.includes("completedCount")
+            ? { completedCount: Number(publication.completedCount ?? 0) + 1 } : {}) });
+      }
       records.set(key, {
         ...current,
+        points: Number(current.points ?? 0) + Number(update.ExpressionAttributeValues?.[":points"] ?? 0),
         answeredCount: Number(current.answeredCount) + 1,
         status: update.ExpressionAttributeValues?.[":completed"] ?? "IN_PROGRESS",
         ...(update.ExpressionAttributeValues?.[":now"] ? { completedAt: update.ExpressionAttributeValues[":now"] } : {}),
@@ -187,7 +205,7 @@ describe("Quiz per Link", () => {
     records.set(keyOf("OWNER#admin", `QUIZ#${quizId}`), {
       ...records.get(keyOf("OWNER#admin", `QUIZ#${quizId}`)), quiz: { title: "Geändert", questions: [] },
     });
-    expect((records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))?.snapshot as { title: string }).title).toBe("Snapshot");
+    expect((records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))!.snapshot as { title: string }).title).toBe("Snapshot");
     expect([...records.values()].filter((item) => item.pk === "OWNER#admin" &&
       String(item.sk).startsWith("ASYNC#"))).toHaveLength(1);
     await expect(publishAsyncQuiz(db, "table", { ...request, expiresAt: request.expiresAt + 1 },
@@ -304,5 +322,33 @@ describe("Quiz per Link", () => {
     const ownerRow = records.get(keyOf("OWNER#admin", `ASYNC#${String(createdAt).padStart(15, "0")}#${publicationId}`));
     expect(ownerRow?.retentionAt).toBe(meta?.retentionAt);
     expect(meta?.retentionSyncedTtl).toBe(Math.ceil(Number(meta?.retentionAt) / 1000));
+  });
+
+  it("begrenzt die Laufzeit einer Veröffentlichung serverseitig", async () => {
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    await expect(publishAsyncQuiz(db, "table", { quizId: "4ee86a5f-31ed-4e31-b6c1-5b2699256747",
+      requestId: "c22f156b-61a2-42d7-ae36-98aac6c22fb8", expiresAt: Date.now() + 91 * 86_400_000,
+      timeZone: "Europe/Berlin" }, principal, 30, 100, Date.now())).rejects.toThrow("höchstens 90 Tage");
+  });
+
+  it("liefert Ergebnisse aus aggregierten Zählern mit stabiler Versuchskennung", async () => {
+    const metaKey = keyOf(pk, "META");
+    records.set(metaKey, { ...records.get(metaKey), statsVersion: 1, completedCount: 0 });
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    await startAsyncQuiz(db, "table", token, "eu-central-1:second-guest", Date.now());
+    await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+    expect(records.get(metaKey)).toMatchObject({ completedCount: 1, stat_000_a0: 1 });
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    const allAnswers = database.commandCalls(QueryCommand).length;
+    const results = await getAsyncPublicationResults(db, "table", { publicationId, cursor: null }, principal, Date.now());
+    const answerScans = database.commandCalls(QueryCommand).slice(allAnswers)
+      .filter((call) => call.args[0].input.ExpressionAttributeValues?.[":prefix"] === "ANSWER#");
+    expect(answerScans).toHaveLength(0);
+    expect(results).toMatchObject({ participantCount: 2, completedCount: 1, partialCount: 1 });
+    expect(results.questions[0].options.map((option) => option.count)).toEqual([1, 0]);
+    expect(results.participants[0]).toMatchObject({ points: 1, rank: 1, status: "COMPLETED" });
+    expect(results.participants[0].attemptId).toMatch(/^[a-f0-9]{24}$/);
+    expect(results.participants[0].attemptId).not.toBe(results.participants[1].attemptId);
+    expect(JSON.stringify(results)).not.toContain(createHash("sha256").update(identityId).digest("hex"));
   });
 });

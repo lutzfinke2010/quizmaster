@@ -14,6 +14,11 @@ const schema = a.schema({
   QuizRecord: a.customType({
     quizId: a.id().required(), version: a.integer().required(), updatedAt: a.float().required(), quiz: a.ref("Quiz").required(),
   }),
+  QuizSummary: a.customType({
+    quizId: a.id().required(), version: a.integer().required(), updatedAt: a.float().required(),
+    title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
+  }),
+  QuizSummaryPage: a.customType({ items: a.ref("QuizSummary").array().required(), nextCursor: a.string() }),
   SessionCreated: a.customType({ sessionId: a.id().required(), joinCode: a.string().required(), presentationToken: a.string().required() }),
   SessionSummary: a.customType({
     sessionId: a.id().required(), title: a.string().required(), status: a.string().required(),
@@ -52,7 +57,9 @@ const schema = a.schema({
     points: a.integer().required(), totalPoints: a.integer().required(), elapsedMs: a.float(),
   }),
   MyAnswer: a.customType({ questionId: a.id(), choiceId: a.id() }),
-  GameEvent: a.customType({ sessionId: a.id().required(), version: a.integer().required() }),
+  GameEvent: a.customType({
+    sessionId: a.id().required(), version: a.integer().required(), participantCount: a.integer(), answerCount: a.integer(),
+  }),
   AsyncPublicInfo: a.customType({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
@@ -101,7 +108,7 @@ const schema = a.schema({
     correct: a.boolean().required(),
   }),
   AsyncParticipantResult: a.customType({
-    displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
+    attemptId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
     completedAt: a.float(), answeredCount: a.integer().required(), questionCount: a.integer().required(),
     status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
     answers: a.ref("AsyncPlayerAnswer").array().required(),
@@ -132,11 +139,13 @@ const schema = a.schema({
     .returns(a.boolean()).authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   duplicateQuiz: a.mutation().arguments({ quizId: a.id().required() }).returns(a.ref("QuizRecord"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
-  listQuizzes: a.query().returns(a.ref("QuizRecord").array())
+  listQuizzes: a.query().arguments({ cursor: a.string() }).returns(a.ref("QuizSummaryPage"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   getQuiz: a.query().arguments({ quizId: a.id().required() }).returns(a.ref("QuizRecord"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   listSessions: a.query().returns(a.ref("SessionSummary").array())
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  getSession: a.query().arguments({ sessionId: a.id().required() }).returns(a.ref("SessionSummary"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   createSession: a.mutation().arguments({ quizId: a.id().required() }).returns(a.ref("SessionCreated"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
@@ -175,8 +184,12 @@ const schema = a.schema({
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
   getPresentationState: a.query().arguments({ presentationToken: a.string().required() }).returns(a.ref("GameState"))
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
-  publishGameEvent: a.mutation().arguments({ sessionId: a.id().required(), version: a.integer().required() })
-    .returns(a.ref("GameEvent")).authorization((allow) => [allow.guest()]).handler(a.handler.function(gameApi)),
+  // Nur der Event-Publisher darf veröffentlichen: `allow.guest()` ist hier nötig, weil AppSync IAM-Signaturen
+  // über diesen Modus autorisiert. Clients sind per expliziter IAM-Deny-Policy (backend.ts, DenyClientPublish)
+  // ausgeschlossen, und der Handler prüft zusätzlich, dass die Signatur nicht aus dem Identity Pool stammt.
+  publishGameEvent: a.mutation().arguments({
+    sessionId: a.id().required(), version: a.integer().required(), participantCount: a.integer(), answerCount: a.integer(),
+  }).returns(a.ref("GameEvent")).authorization((allow) => [allow.guest()]).handler(a.handler.function(gameApi)),
   onGameChange: a.subscription().for(a.ref("publishGameEvent"))
     .arguments({ sessionId: a.id().required(), presentationToken: a.string() })
     .handler(a.handler.function(subscriptionAuth))

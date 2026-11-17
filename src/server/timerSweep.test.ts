@@ -27,6 +27,9 @@ describe("Timer-Sweep", () => {
 
     await expect(handler()).rejects.toThrow("1 Timeraufträge oder Shards");
     expect(mocks.send).toHaveBeenCalledTimes(16);
+    const query = mocks.send.mock.calls[0][0].input;
+    expect(query.KeyConditionExpression).toContain("timerDeadline < :cutoff");
+    expect(query.ExpressionAttributeValues[":cutoff"] > "!").toBe(true);
     expect(mocks.ensure).toHaveBeenCalledTimes(2);
     expect(mocks.ensure.mock.calls[1][4]).toEqual({ sessionId: "s2", questionId: "q2", timerId: "good" });
   });

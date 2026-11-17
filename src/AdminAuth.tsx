@@ -37,7 +37,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   }
   useEffect(() => {
     let active = true;
-        // Ohne Anmeldung keine Sitzung anfordern: fetchAuthSession würde sonst eine anonyme Gast-Kennung erzeugen.
+    // Ohne Anmeldung keine Sitzung anfordern: fetchAuthSession würde sonst eine anonyme Gast-Kennung erzeugen.
     getCurrentUser().then(() => fetchAuthSession(), () => null).then((session) => {
       if (!active) return;
       if (!session) { setStep("signIn"); return; }

@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
-import { Hub } from "aws-amplify/utils";
-import { ConnectionState, CONNECTION_STATE_CHANGE } from "aws-amplify/api";
-import { ArrowRight, Clock3, Copy, KeyRound, Plus, Sparkles } from "lucide-react";
-import { cloud, type AsyncGuestState, type AsyncPublicationResults, type AsyncPublicationSummary, type GameState, type MyResult, type Participation, type QuizRecord, type SessionSummary } from "./cloud";
+import { ArrowRight, Clock3, KeyRound, Plus, Sparkles } from "lucide-react";
+import { cloud, type AsyncGuestState, type AsyncPublicationResults, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
 import type { Quiz } from "./domain/quiz";
@@ -16,6 +14,16 @@ import { PrivacyNote } from "./components/Privacy";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 import { formatDateTimeInZone, possibleInstants } from "./domain/localTime";
 import { legal } from "./config/legal";
+import { useLiveState } from "./hooks/useLiveState";
+import { CopyLinkButton, CopyLinkField, useCopyLink } from "./components/CopyLink";
+import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits";
+
+/** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
+function toLocalInput(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function Home() {
   return <Layout><HomeContent /></Layout>;
@@ -43,33 +51,19 @@ function useNoIndex() {
 function AsyncPublicationCard({ publication, busy, onEnd }: {
   publication: AsyncPublicationSummary; busy: boolean; onEnd: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
   const href = `${window.location.origin}/q/${publication.token}`;
+  const { copied, copy, inputRef } = useCopyLink(href);
   const status = publication.status === "ACTIVE" ? "Aktiv" :
     publication.status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen";
-  async function copy() {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Zwischenablage nicht verfügbar.");
-      await navigator.clipboard.writeText(href);
-      setCopied(true);
-    } catch {
-      input.current?.focus();
-      input.current?.select();
-      setCopied(false);
-    }
-  }
   return <article className="card async-publication-card">
     <span className="badge">{status}</span><h3>{publication.title}</h3>
     <p>Veröffentlicht: {formatDateTimeInZone(publication.createdAt, publication.timeZone)}</p>
     <p><Clock3 size={16} aria-hidden="true" /> {publication.status === "ACTIVE" ? "Deadline" : "Beendet"}: {formatDateTimeInZone(publication.endedAt ?? publication.expiresAt, publication.timeZone)} ({publication.timeZone})</p>
     <p>{publication.participantCount} von {publication.maxParticipants} Teilnahmen gestartet · {publication.completedCount} abgeschlossen · {publication.partialCount} unvollständig</p>
-    <label className="field">Teilnahmelink
-      <input ref={input} readOnly value={href} onFocus={(event) => event.currentTarget.select()} aria-label={`Teilnahmelink für ${publication.title}`} />
-    </label>
+    <CopyLinkField href={href} label={`Teilnahmelink für ${publication.title}`} inputRef={inputRef} />
     {copied && <p role="status">Link kopiert.</p>}
     <div className="actions">
-      <button className="button secondary small" onClick={() => void copy()}><Copy size={16} />Link kopieren</button>
+      <CopyLinkButton onCopy={copy} />
       <Link className="button primary small" to={`/admin/async/${publication.publicationId}`}>Ergebnisse ansehen</Link>
       {publication.status === "ACTIVE" && Date.now() < publication.expiresAt &&
         <button className="button danger small" disabled={busy} onClick={onEnd}>Vorzeitig beenden</button>}
@@ -78,7 +72,7 @@ function AsyncPublicationCard({ publication, busy, onEnd }: {
 }
 
 function Overview() {
-  const [quizzes, setQuizzes] = useState<QuizRecord[]>([]);
+  const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [asyncPublications, setAsyncPublications] = useState<AsyncPublicationSummary[]>([]);
   const [error, setError] = useState("");
@@ -107,8 +101,8 @@ function Overview() {
     <ErrorBanner error={error} />
     <p>Wähle den Modus: <strong>Live-Quiz</strong> – alle spielen gleichzeitig. <strong>Quiz per Link</strong> – jeder spielt im eigenen Tempo bis zum Ablaufdatum.</p>
     <div className="grid">
-      {quizzes.map((record) => <article className="card" key={record.quizId}><span className="badge">{record.quiz.questions.length} Fragen</span>
-        <h2>{record.quiz.title}</h2><p>{record.quiz.description || "Ohne Beschreibung"}</p><div className="actions">
+      {quizzes.map((record) => <article className="card" key={record.quizId}><span className="badge">{record.questionCount} Fragen</span>
+        <h2>{record.title}</h2><p>{record.description || "Ohne Beschreibung"}</p><div className="actions">
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}`}>Bearbeiten</Link>
           <button className="button small primary" disabled={busy} onClick={() => void run(async () => {
             const session = await cloud.createSession(record.quizId); navigate(`/admin/sessions/${session.sessionId}`);
@@ -116,7 +110,7 @@ function Overview() {
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}/publish`}>Quiz per Link veröffentlichen</Link>
           <button className="button small secondary" disabled={busy} onClick={() => void run(async () => { await cloud.duplicateQuiz(record.quizId); })}>Duplizieren</button>
           <button className="button small secondary" disabled={busy} onClick={() => {
-            if (window.confirm(`„${record.quiz.title}“ wirklich löschen?`)) void run(async () => { await cloud.deleteQuiz(record.quizId, record.version); });
+            if (window.confirm(`„${record.title}“ wirklich löschen?`)) void run(async () => { await cloud.deleteQuiz(record.quizId, record.version); });
           }}>Löschen</button>
         </div></article>)}
       <button className="card add-card" disabled={busy} onClick={() => void run(async () => { await cloud.createQuiz(exampleQuiz); })}>
@@ -179,12 +173,11 @@ function PublishAsyncPage() {
   const [error, setError] = useState("");
   const [localDate, setLocalDate] = useState("");
   const [selectedInstant, setSelectedInstant] = useState("");
-  const [linkCopied, setLinkCopied] = useState(false);
   const [publication, setPublication] = useState<Awaited<ReturnType<typeof cloud.publishAsyncQuiz>> | null>(null);
   const requestId = useRef<{ expiresAt: number; timeZone: string; id: string } | null>(null);
-  const linkInput = useRef<HTMLInputElement>(null);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const instants = localDate ? possibleInstants(localDate, timeZone) : [];
+  const instants = useMemo(() => localDate ? possibleInstants(localDate, timeZone) : [], [localDate, timeZone]);
+  const [bounds] = useState(() => ({ min: toLocalInput(Date.now()), max: toLocalInput(Date.now() + ASYNC_MAX_DURATION_MS) }));
   useEffect(() => {
     let active = true;
     cloud.getQuiz(quizId).then((value) => { if (active) setRecord(value); },
@@ -194,12 +187,15 @@ function PublishAsyncPage() {
   useEffect(() => {
     if (instants.length === 1) setSelectedInstant(String(instants[0]));
     else setSelectedInstant("");
-  }, [localDate, timeZone]);
+  }, [instants]);
   async function publish(event: React.FormEvent) {
     event.preventDefault();
     if (!record || !selectedInstant) return;
     const expiresAt = Number(selectedInstant);
     if (expiresAt <= Date.now()) { setError("Das Ablaufdatum muss in der Zukunft liegen."); return; }
+    if (expiresAt > Date.now() + ASYNC_MAX_DURATION_MS) {
+      setError(`Das Ablaufdatum darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage in der Zukunft liegen.`); return;
+    }
     if (!requestId.current || requestId.current.expiresAt !== expiresAt || requestId.current.timeZone !== timeZone) {
       requestId.current = { expiresAt, timeZone, id: crypto.randomUUID() };
     }
@@ -211,6 +207,7 @@ function PublishAsyncPage() {
     } catch (caught) { setError(message(caught)); } finally { setBusy(false); }
   }
   const link = publication ? `${window.location.origin}/q/${publication.token}` : "";
+  const { copied: linkCopied, copy: copyLink, inputRef: linkInput } = useCopyLink(link);
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <div className="section-heading"><div><span className="eyebrow">QUIZ PER LINK</span><h1>Quiz veröffentlichen</h1>
       <p>Alle Gäste spielen unabhängig im eigenen Tempo. Das Live-Quiz bleibt davon unberührt.</p></div></div>
@@ -220,20 +217,17 @@ function PublishAsyncPage() {
       <p>Deadline: {formatDateTimeInZone(publication.expiresAt, publication.timeZone)} ({publication.timeZone})</p>
       <p>Maximale Teilnehmerzahl: {publication.maxParticipants}</p>
       <p>Ergebnisse werden {publication.retentionDays} Tage nach dem Ablaufdatum aufbewahrt.</p>
-      <label className="field">Teilnahmelink
-        <input ref={linkInput} readOnly value={link} onFocus={(event) => event.currentTarget.select()} aria-label="Teilnahmelink" />
-      </label>
-      <button className="button primary" onClick={async () => {
-        try { await navigator.clipboard.writeText(link); setLinkCopied(true); }
-        catch { linkInput.current?.focus(); linkInput.current?.select(); setLinkCopied(false); }
-      }}><Copy size={17} /> Link kopieren</button>
+      <CopyLinkField href={link} label="Teilnahmelink" inputRef={linkInput} />
+      <CopyLinkButton onCopy={copyLink} className="button primary" iconSize={17} />
       {linkCopied && <p role="status">Link kopiert.</p>}
       <p><Link to="/admin">Zur Übersicht und Ergebnisverwaltung</Link></p>
     </section> : <form className="card async-publish-form" onSubmit={(event) => void publish(event)}>
       <span className="badge">{record.quiz.questions.length} Fragen</span><h2>{record.quiz.title}</h2>
       <label className="field" htmlFor="async-deadline">Ablaufdatum und Uhrzeit</label>
       <input id="async-deadline" type="datetime-local" required value={localDate} disabled={busy}
+        min={bounds.min} max={bounds.max} aria-describedby="async-deadline-hint"
         onChange={(event) => setLocalDate(event.target.value)} />
+      <span className="hint" id="async-deadline-hint">Höchstens {ASYNC_MAX_DURATION_DAYS} Tage ab heute. Fragen haben im eigenen Tempo kein Zeitlimit.</span>
       <p>Zeitzone deines Browsers: <strong>{timeZone}</strong></p>
       {localDate && instants.length === 0 && <p className="error-banner" role="alert">Diese lokale Uhrzeit existiert wegen der Zeitumstellung nicht.</p>}
       {instants.length > 1 && <fieldset><legend>Diese Uhrzeit kommt zweimal vor. Wähle den eindeutigen Zeitpunkt:</legend>
@@ -441,9 +435,10 @@ function AsyncAdminResultsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"ALL" | "COMPLETED" | "PARTIAL">("ALL");
   const [sort, setSort] = useState<"RANK" | "NAME" | "START">("RANK");
+  const [stale, setStale] = useState(false);
   const refresh = useCallback(async () => {
     const result = await cloud.asyncPublicationResults(publicationId);
-    setResults(result); setError("");
+    setResults(result); setError(""); setStale(false);
   }, [publicationId]);
   useEffect(() => {
     let active = true;
@@ -459,11 +454,16 @@ function AsyncAdminResultsPage() {
     setRefreshing(true);
     try {
       const next = await cloud.asyncPublicationResults(publicationId, results.nextCursor);
+      // Hat sich der Stand zwischen den Seiten geändert, wären Ränge seitenübergreifend inkonsistent: neu laden.
+      if (next.participantCount !== results.participantCount || next.completedCount !== results.completedCount ||
+          next.status !== results.status) {
+        setStale(true);
+        return;
+      }
       setResults((current) => {
         if (!current) return current;
-        const key = (player: AsyncPublicationResults["participants"][number]) => `${player.displayName}#${player.startedAt}`;
-        const seen = new Set(current.participants.map(key));
-        return { ...next, participants: [...current.participants, ...next.participants.filter((player) => !seen.has(key(player)))] };
+        const seen = new Set(current.participants.map((player) => player.attemptId));
+        return { ...next, participants: [...current.participants, ...next.participants.filter((player) => !seen.has(player.attemptId))] };
       });
     } catch (caught) { setError(message(caught)); } finally { setRefreshing(false); }
   }
@@ -490,6 +490,7 @@ function AsyncAdminResultsPage() {
         </article>)}
       </div></section>
       <section><h2>Teilnehmer und Rang</h2>
+        <p className="hint">Rangfolge nach Punkten; bei Gleichstand alphabetisch nach Spielname. Im eigenen Tempo gibt es kein Zeitlimit pro Frage und keine Geschwindigkeitspunkte.</p>
         <div className="actions">
           <label className="field">Anzeigen
             <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
@@ -511,7 +512,7 @@ function AsyncAdminResultsPage() {
           const wrongCount = player.answers.length - correctCount;
           const answerByIndex = new Map(player.answers.map((answer) => [answer.questionIndex, answer]));
           return <details className="card async-result-player"
-          key={`${player.displayName}-${player.startedAt}`}><summary>
+          key={player.attemptId}><summary>
             <span className="async-player-identity"><Avatar avatarId={player.avatarId} />
               <strong>Rang {player.rank} · {player.displayName}</strong></span>
             <span>{player.points}/{player.questionCount} Punkte · {player.status === "COMPLETED" ? "abgeschlossen" :
@@ -530,7 +531,10 @@ function AsyncAdminResultsPage() {
               <p>{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
           })}</ol></details>;
         })}</div>}
-        {results.nextCursor && <button className="button secondary" disabled={refreshing} onClick={() => void loadMore()}>
+        {stale && <p className="error-banner" role="status">Die Ergebnisse haben sich inzwischen geändert. Bitte neu laden,
+          damit die Ränge über alle Seiten konsistent sind. <button className="button secondary small" disabled={refreshing}
+            onClick={() => void reload()}>Neu laden</button></p>}
+        {results.nextCursor && !stale && <button className="button secondary" disabled={refreshing} onClick={() => void loadMore()}>
           {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
         </button>}
       </section>
@@ -560,86 +564,6 @@ function Join() {
       <PrivacyNote /></div></Layout>;
 }
 
-type LiveMode = "admin" | "guest" | "presentation";
-function useLiveState(sessionId: string, mode: LiveMode, token?: string) {
-  const [state, setState] = useState<GameState | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [error, setError] = useState("");
-  const [connectionError, setConnectionError] = useState("");
-  const [recoveryVersion, setRecoveryVersion] = useState(0);
-  const version = useRef(-1);
-  const refreshRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    if (!sessionId && !token) return;
-    let resolvedSessionId = sessionId;
-    let active = true;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let backoff = 1000;
-    let subscription: ReturnType<typeof cloud.subscribe> | undefined;
-    let eventRefresh: ReturnType<typeof setTimeout> | undefined;
-    let inFlight = false;
-    let again = false;
-    let wantedVersion = -1;
-    version.current = -1;
-    setState(null); setError(""); setConnectionError("");
-    function schedule() {
-      if (!active || retry) return;
-      retry = setTimeout(() => { retry = undefined; connect(); void refresh(); }, backoff);
-      backoff = Math.min(backoff * 2, 30_000);
-    }
-    async function refresh() {
-      if (inFlight) { again = true; return; }
-      inFlight = true;
-      try {
-        const start = Date.now();
-        const next = token ? await cloud.presentation(token) : await cloud.gameState(sessionId, mode === "admin" ? "admin" : "guest");
-        const end = Date.now();
-        if (!active) return;
-        if (resolvedSessionId && next.sessionId !== resolvedSessionId) throw new Error("Unerwartete Sitzung im Spielstand.");
-        if (!resolvedSessionId) { resolvedSessionId = next.sessionId; connect(); }
-        if (next.version >= version.current) {
-          version.current = next.version; setState(next); setOffset(next.serverTime - (start + end) / 2);
-        }
-        setError("");
-        if (next.version < wantedVersion) again = true;
-      } catch (caught) { if (active) { setError(`Verbindung unterbrochen: ${message(caught)}`); schedule(); } }
-      finally {
-        inFlight = false;
-        if (active && again) { again = false; void refresh(); }
-      }
-    }
-    function connect() {
-      if (!resolvedSessionId) return;
-      subscription?.unsubscribe();
-      subscription = cloud.subscribe(resolvedSessionId, mode === "admin" ? "admin" : "guest", token ?? null,
-        (nextVersion) => { backoff = 1000; setConnectionError(""); wantedVersion = Math.max(wantedVersion, nextVersion);
-          if (nextVersion > version.current && !eventRefresh) {
-            eventRefresh = setTimeout(() => { eventRefresh = undefined; void refresh(); }, 250);
-          } },
-        (caught) => { if (active) { setConnectionError(`Echtzeitverbindung unterbrochen: ${message(caught)}`); schedule(); } });
-    }
-    const cancelHub = Hub.listen("api", ({ payload }) => {
-      if (payload.event === CONNECTION_STATE_CHANGE && payload.data && typeof payload.data === "object" &&
-          "connectionState" in payload.data && payload.data.connectionState === ConnectionState.Connected) {
-        backoff = 1000; setConnectionError(""); setRecoveryVersion((value) => value + 1); void refresh();
-      }
-    });
-    function reconnect() {
-      backoff = 1000; setConnectionError(""); connect(); void refresh(); setRecoveryVersion((value) => value + 1);
-    }
-    function offline() { setConnectionError("Du bist offline. Sobald die Verbindung zurück ist, wird der Spielstand erneut geladen."); }
-    window.addEventListener("offline", offline);
-    window.addEventListener("online", reconnect);
-    refreshRef.current = () => { void refresh(); };
-    connect(); void refresh();
-    return () => { active = false; if (retry) clearTimeout(retry); if (eventRefresh) clearTimeout(eventRefresh);
-      subscription?.unsubscribe(); cancelHub();
-      window.removeEventListener("offline", offline); window.removeEventListener("online", reconnect); };
-  }, [sessionId, mode, token]);
-  return { state: token || state?.sessionId === sessionId ? state : null, offset, error: connectionError || error,
-    recoveryVersion, refresh: () => refreshRef.current() };
-}
-
 function AdminSession() {
   const { sessionId = "" } = useParams();
   const [session, setSession] = useState<SessionSummary | null>(null);
@@ -649,10 +573,8 @@ function AdminSession() {
   const { state, offset, error: liveError, refresh } = useLiveState(sessionId, "admin");
   useEffect(() => {
     let active = true;
-    Promise.all([cloud.listSessions(), cloud.questions(sessionId)]).then(([sessions, nextQuestions]) => {
+    Promise.all([cloud.getSession(sessionId), cloud.questions(sessionId)]).then(([current, nextQuestions]) => {
       if (!active) return;
-      const current = sessions.find((item) => item.sessionId === sessionId);
-      if (!current) throw new Error("Sitzung nicht gefunden oder abgelaufen.");
       setSession(current); setQuestions(nextQuestions);
     }).catch((caught) => { if (active) setError(message(caught)); });
     return () => { active = false; };

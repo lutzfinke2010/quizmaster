@@ -11,7 +11,8 @@ frontend:
       commands:
         - mkdir -p public
         - cp amplify_outputs.json public/amplify_outputs.json
-        - npm run legal:check
+        # Produktiv-Branch: offene Betreiberangaben/Bestätigungen brechen den Build ab (W3).
+        - if [ "$AWS_BRANCH" = "${QUIZRUSH_PRODUCTION_BRANCH:-main}" ]; then npm run legal:check -- --strict; else npm run legal:check; fi
         - npm run build
   artifacts:
     baseDirectory: dist

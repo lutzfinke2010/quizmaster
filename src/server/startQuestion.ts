@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TransactGetCommand, TransactWriteCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { withTransactionConflictRetry } from "./transactionRetry";
+import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 import { requireQuizmaster } from "./adminPrincipal";
+import { undispatchedTimerDeadline } from "./timerDispatch";
+import { transition } from "../domain/session";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const requestSchema = z.object({
@@ -16,7 +18,6 @@ const metaSchema = z.object({
   version: z.number().int(),
   questionIndex: z.number().int(),
   questionCount: z.number().int().min(1).max(100),
-  participantCount: z.number().int().min(0),
   expiresAt: z.number().int(),
 });
 const questionSchema = z.object({
@@ -25,8 +26,9 @@ const questionSchema = z.object({
 });
 
 /**
- * Principal and time must come from the trusted server entry point. The timer
- * outbox needs a durable worker and recovery mechanism before use in production.
+ * Principal and time must come from the trusted server entry point. Der Timerauftrag (`TIMER#…`) wird über den
+ * DynamoDB-Stream an Step Functions übergeben (`amplify/functions/timer/dispatch.ts`); der minütliche Sweep
+ * (`sweep.ts`) holt verlorene oder überfällige Aufträge nach.
  */
 export async function startQuestion(
   client: DynamoDBDocumentClient,
@@ -55,41 +57,55 @@ export async function startQuestion(
   const meta = metaSchema.parse(snapshot.Responses[0].Item);
   const question = questionSchema.parse(snapshot.Responses[1].Item);
   if (meta.ownerId !== ownerId) throw new Error("Keine Berechtigung für diese Sitzung.");
-  if (meta.version !== request.expectedVersion) throw new Error("Veraltete Version.");
   if (meta.expiresAt <= now) throw new Error("Die Sitzung ist abgelaufen.");
-  if (question.index !== meta.questionIndex + 1 || question.index >= meta.questionCount) {
+  // Fachliche Regeln (erlaubter Übergang, Version, Fristberechnung) kommen aus dem Domain-Zustandsautomaten;
+  // die DynamoDB-Bedingungen unten sichern dieselben Invarianten zusätzlich gegen Nebenläufigkeit ab.
+  const next = transition(
+    { status: meta.status, version: meta.version, questionIndex: meta.questionIndex, questionCount: meta.questionCount,
+      opensAt: null, closesAt: null },
+    request.expectedVersion,
+    { type: meta.status === "LOBBY" ? "startQuestion" : "nextQuestion", durationSeconds: question.durationSeconds, now },
+  );
+  if (question.index !== next.questionIndex || next.opensAt === null || next.closesAt === null) {
     throw new Error("Diese Frage ist nicht der nächste Spielschritt.");
   }
   const timerId = randomUUID();
-  const opensAt = now + 3000;
-  const closesAt = opensAt + question.durationSeconds * 1000;
+  const { opensAt, closesAt } = next;
   const deadlineAt = new Date(Math.ceil(closesAt / 1000) * 1000).toISOString();
   const timerPartition = `PENDING#${parseInt(timerId.slice(0, 2), 16) % 16}`;
-  await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
-    { Update: {
-      TableName: tableName, Key: metaKey,
-      UpdateExpression: "SET #status = :countdown, currentQuestionId = :question, questionIndex = :nextIndex, timerId = :timer, opensAt = :opensAt, closesAt = :closesAt, answerCount = :zero, eligibleParticipantCount = :participantCount ADD #version :one",
-      ConditionExpression: "#status = :previousStatus AND #version = :expectedVersion AND ownerId = :owner AND questionIndex = :previousIndex AND questionCount = :questionCount AND participantCount = :participantCount AND expiresAt > :now",
-      ExpressionAttributeNames: { "#status": "status", "#version": "version" },
-      ExpressionAttributeValues: { ":countdown": "COUNTDOWN", ":question": request.questionId,
-        ":nextIndex": question.index, ":timer": timerId, ":opensAt": opensAt, ":closesAt": closesAt,
-        ":zero": 0, ":one": 1, ":previousStatus": meta.status, ":expectedVersion": request.expectedVersion,
-        ":owner": ownerId, ":previousIndex": meta.questionIndex, ":questionCount": meta.questionCount,
-        ":participantCount": meta.participantCount, ":now": now },
-    } },
-    { ConditionCheck: {
-      TableName: tableName, Key: questionKey,
-      ConditionExpression: "#index = :index AND durationSeconds = :duration",
-      ExpressionAttributeNames: { "#index": "index" },
-      ExpressionAttributeValues: { ":index": question.index, ":duration": question.durationSeconds },
-    } },
-    { Put: {
-      TableName: tableName,
-      Item: { pk, sk: `TIMER#${request.questionId}#${timerId}`, sessionId: request.sessionId,
-        questionId: request.questionId, timerId, opensAt, closesAt, deadlineAt, status: "PENDING",
-        attempt: 0, timerPartition, timerDeadline: `${deadlineAt}#${timerId}`, ttl: Math.ceil(meta.expiresAt / 1000) },
-      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-    } },
-  ] })));
+  try {
+    await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
+      { Update: {
+        TableName: tableName, Key: metaKey,
+        // Teilnehmendenzahl wird atomar beim Start übernommen (Snapshot), statt sie als Bedingung zu prüfen:
+        // gleichzeitige Löschungen lassen den Start dadurch nicht mehr scheitern.
+        UpdateExpression: "SET #status = :countdown, currentQuestionId = :question, questionIndex = :nextIndex, timerId = :timer, opensAt = :opensAt, closesAt = :closesAt, answerCount = :zero, eligibleParticipantCount = participantCount ADD #version :one",
+        ConditionExpression: "#status = :previousStatus AND #version = :expectedVersion AND ownerId = :owner AND questionIndex = :previousIndex AND questionCount = :questionCount AND expiresAt > :now",
+        ExpressionAttributeNames: { "#status": "status", "#version": "version" },
+        ExpressionAttributeValues: { ":countdown": "COUNTDOWN", ":question": request.questionId,
+          ":nextIndex": question.index, ":timer": timerId, ":opensAt": opensAt, ":closesAt": closesAt,
+          ":zero": 0, ":one": 1, ":previousStatus": meta.status, ":expectedVersion": request.expectedVersion,
+          ":owner": ownerId, ":previousIndex": meta.questionIndex, ":questionCount": meta.questionCount, ":now": now },
+      } },
+      { ConditionCheck: {
+        TableName: tableName, Key: questionKey,
+        ConditionExpression: "#index = :index AND durationSeconds = :duration",
+        ExpressionAttributeNames: { "#index": "index" },
+        ExpressionAttributeValues: { ":index": question.index, ":duration": question.durationSeconds },
+      } },
+      { Put: {
+        TableName: tableName,
+        Item: { pk, sk: `TIMER#${request.questionId}#${timerId}`, sessionId: request.sessionId,
+          questionId: request.questionId, timerId, opensAt, closesAt, deadlineAt, status: "PENDING",
+          attempt: 0, timerPartition, timerDeadline: undispatchedTimerDeadline(deadlineAt, timerId), ttl: Math.ceil(meta.expiresAt / 1000) },
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      } },
+    ] })));
+  } catch (error) {
+    if (isConditionalFailure(error)) {
+      throw new Error("Der Spielstand hat sich zwischenzeitlich geändert. Die Ansicht wird aktualisiert – bitte erneut starten.");
+    }
+    throw error;
+  }
   return { timerId, opensAt, closesAt, version: request.expectedVersion + 1 };
 }

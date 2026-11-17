@@ -19,8 +19,12 @@ describe("Timerdispatch", () => {
 
   it("startet einen Standard-Workflow mit stabiler Kennung und aufgerundeten Zeitpunkten", async () => {
     database.on(GetCommand).resolves({ Item: job });
+    database.on(UpdateCommand).resolves({});
     workflow.on(StartExecutionCommand).resolves({});
     await ensureTimerStarted(db, sfn, "table", arn, key);
+    expect(database.commandCalls(UpdateCommand)[0].args[0].input).toMatchObject({
+      ExpressionAttributeValues: { ":deadline": `${new Date(10_000).toISOString()}#timer` },
+    });
     const input = workflow.commandCalls(StartExecutionCommand)[0].args[0].input;
     expect(input).toMatchObject({ name: "timer-0", stateMachineArn: arn });
     expect(JSON.parse(input.input ?? "")).toEqual({
@@ -38,7 +42,7 @@ describe("Timerdispatch", () => {
     expect(workflow.commandCalls(DescribeExecutionCommand)[0].args[0].input).toMatchObject({
       executionArn: "arn:aws:states:eu-central-1:123456789012:execution:QuizTimer:timer-0",
     });
-    expect(database.commandCalls(UpdateCommand)).toHaveLength(1);
+    expect(database.commandCalls(UpdateCommand)).toHaveLength(2);
     expect(workflow.commandCalls(StartExecutionCommand)[1].args[0].input).toMatchObject({ name: "timer-1" });
   });
 

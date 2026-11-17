@@ -72,7 +72,9 @@ backend.subscriptionAuth.addEnvironment("IDENTITY_POOL_ID", backend.auth.resourc
 const api = backend.data.resources.graphqlApi;
 const graphqlResources = Stack.of(api).node.findAll().filter((node): node is CfnGraphQLApi => node instanceof CfnGraphQLApi);
 if (graphqlResources.length !== 1) throw new Error("GraphQL API was not synthesized as expected.");
-const ipRateLimit = Number(process.env.QUIZRUSH_IP_RATE_LIMIT ?? "10000");
+// 2000 Anfragen je IP in 5 Minuten reichen für Spielende inkl. Polling/Reloads; größere Gruppen hinter einer
+// gemeinsamen NAT-IP (Schulen, Firmen) können den Wert per QUIZRUSH_IP_RATE_LIMIT anheben.
+const ipRateLimit = Number(process.env.QUIZRUSH_IP_RATE_LIMIT ?? "2000");
 if (!Number.isInteger(ipRateLimit) || ipRateLimit < 10 || ipRateLimit > 2_000_000_000) {
   throw new Error("QUIZRUSH_IP_RATE_LIMIT must be an integer between 10 and 2000000000.");
 }
@@ -87,6 +89,26 @@ const firewall = new CfnWebACL(Stack.of(api), "ApiFirewall", {
   }],
 });
 new CfnWebACLAssociation(Stack.of(api), "ApiFirewallAssociation", { resourceArn: api.arn, webAclArn: firewall.attrArn });
+// Eigener WAF für den Cognito User Pool (Anmeldung/Selbstregistrierung): begrenzt Missbrauch über Kosten und
+// E-Mail-Versand. Liegt im Auth-Stack, um zyklische Stack-Abhängigkeiten zu vermeiden. Hinweis: Cognito Identity
+// Pools (GetId/GetCredentialsForIdentity) unterstützen keine WAF-Zuordnung; dort greifen nur AppSync-WAF und die
+// Rate-Limits im Handler.
+const authRateLimit = Number(process.env.QUIZRUSH_AUTH_RATE_LIMIT ?? "300");
+if (!Number.isInteger(authRateLimit) || authRateLimit < 10 || authRateLimit > 2_000_000_000) {
+  throw new Error("QUIZRUSH_AUTH_RATE_LIMIT must be an integer between 10 and 2000000000.");
+}
+const userPool = backend.auth.resources.cfnResources.cfnUserPool;
+const authFirewall = new CfnWebACL(Stack.of(userPool), "AuthFirewall", {
+  scope: "REGIONAL",
+  defaultAction: { allow: {} },
+  visibilityConfig: { cloudWatchMetricsEnabled: true, metricName: "QuizRushAuthFirewall", sampledRequestsEnabled: false },
+  rules: [{
+    name: "LimitAuthRequestsPerIp", priority: 0, action: { block: {} },
+    statement: { rateBasedStatement: { aggregateKeyType: "IP", limit: authRateLimit, evaluationWindowSec: 300 } },
+    visibilityConfig: { cloudWatchMetricsEnabled: true, metricName: "QuizRushAuthIpRateLimit", sampledRequestsEnabled: false },
+  }],
+});
+new CfnWebACLAssociation(Stack.of(userPool), "AuthFirewallAssociation", { resourceArn: userPool.attrArn, webAclArn: authFirewall.attrArn });
 const subscriptionResolvers = Stack.of(api).node.findAll().filter(
   (node): node is CfnResolver => node instanceof CfnResolver &&
     node.typeName === "Subscription" && node.fieldName === "onGameChange",
@@ -158,7 +180,10 @@ for (const fn of [dispatchFunction, sweepFunction]) {
   fn.addToRolePolicy(new PolicyStatement({ effect: Effect.ALLOW, actions: ["states:DescribeExecution"], resources: [executionArn] }));
 }
 
-const failedEvents = new Queue(stack, "FailedTimerEvents", {
+const failedTimerEvents = new Queue(stack, "FailedTimerEvents", {
+  retentionPeriod: Duration.days(14), encryption: QueueEncryption.SQS_MANAGED, enforceSSL: true,
+});
+const failedGameEvents = new Queue(stack, "FailedGameEvents", {
   retentionPeriod: Duration.days(14), encryption: QueueEncryption.SQS_MANAGED, enforceSSL: true,
 });
 dispatchFunction.addEventSource(new DynamoEventSource(table, {
@@ -166,17 +191,25 @@ dispatchFunction.addEventSource(new DynamoEventSource(table, {
   batchSize: 10,
   bisectBatchOnError: true,
   retryAttempts: 5,
-  onFailure: new SqsDlq(failedEvents),
+  onFailure: new SqsDlq(failedTimerEvents),
 }));
+// Live-Events sind flüchtig: alte Stream-Records beim ersten Deploy nicht nachspielen (LATEST). Das Batching-Fenster
+// bündelt viele Antworten/Beitritte derselben Sitzung zu einem Event je Batch (siehe publisher.ts).
 publisherFunction.addEventSource(new DynamoEventSource(table, {
-  startingPosition: StartingPosition.TRIM_HORIZON,
-  batchSize: 10,
+  startingPosition: StartingPosition.LATEST,
+  batchSize: 100,
+  maxBatchingWindow: Duration.seconds(1),
   bisectBatchOnError: true,
   retryAttempts: 10,
-  onFailure: new SqsDlq(failedEvents),
+  onFailure: new SqsDlq(failedGameEvents),
 }));
 new Alarm(stack, "TimerDispatchFailures", {
-  metric: failedEvents.metricApproximateNumberOfMessagesVisible(),
+  metric: failedTimerEvents.metricApproximateNumberOfMessagesVisible(),
+  threshold: 1, evaluationPeriods: 1, comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+  treatMissingData: TreatMissingData.NOT_BREACHING,
+});
+new Alarm(stack, "GameEventPublishFailures", {
+  metric: failedGameEvents.metricApproximateNumberOfMessagesVisible(),
   threshold: 1, evaluationPeriods: 1, comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
   treatMissingData: TreatMissingData.NOT_BREACHING,
 });

@@ -1,6 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
-  BatchWriteCommand, DynamoDBDocumentClient, QueryCommand, TransactGetCommand, TransactWriteCommand,
+  BatchWriteCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, TransactGetCommand, TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -50,6 +50,25 @@ describe("Eigene Teilnahme löschen", () => {
       { DeleteRequest: { Key: { pk: "SESSION#s1", sk: "ANSWER#q1#p1" } } },
       { DeleteRequest: { Key: { pk: "SESSION#s1", sk: "RESULT#q1#p1" } } },
     ]);
+  });
+
+  it("gibt die eigene Avatar-Reservierung frei, fremde bleiben bestehen", async () => {
+    stubMembership("LOBBY");
+    database.on(GetCommand, { Key: { pk: "SESSION#s1", sk: "AVATAR#otter" } }).resolves({ Item: { participantId: "p1" } });
+    await deleteMyParticipation(db, "table", "s1", identity, now);
+    const items = database.commandCalls(TransactWriteCommand)[0].args[0].input.TransactItems ?? [];
+    expect(items.at(-1)?.Delete).toMatchObject({ Key: { pk: "SESSION#s1", sk: "AVATAR#otter" },
+      ConditionExpression: "participantId = :participant" });
+    expect(items[0].Update?.UpdateExpression).toBe("ADD participantCount :minusOne");
+
+    database.reset();
+    database.on(TransactWriteCommand).resolves({});
+    database.on(QueryCommand).resolves({ Items: [] });
+    stubMembership("LOBBY");
+    database.on(GetCommand).resolves({ Item: { participantId: "someone-else" } });
+    await deleteMyParticipation(db, "table", "s1", identity, now);
+    const other = database.commandCalls(TransactWriteCommand)[0].args[0].input.TransactItems ?? [];
+    expect(other.some((item) => item.Delete?.Key?.sk === "AVATAR#otter")).toBe(false);
   });
 
   it("lehnt das Löschen während einer laufenden Frage ab", async () => {

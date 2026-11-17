@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "react",
+    "react-hooks",
+    "import",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "no-console": [
+      "warn",
+      {
+        "allow": [
+          "info",
+          "warn",
+          "error"
+        ]
+      }
+    ],
+    "react/react-in-jsx-scope": "off",
+    "vitest/require-to-throw-message": "off",
+    "vitest/require-mock-type-parameters": "off",
+    "vitest/no-standalone-expect": "off",
+    "react/set-state-in-effect": "warn",
+    "react/purity": "warn",
+    "react/refs": "warn",
+    "preserve-caught-error": "off",
+    "no-new": "off",
+    "import/no-unassigned-import": "off",
+    "react/capitalized-calls": "off",
+    "no-shadow": "off"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "coverage/**",
+    ".amplify/**",
+    "playwright-report/**",
+    "test-results/**"
+  ]
+}

@@ -4,8 +4,14 @@ import { ensureTimerStarted } from "../../../src/server/timerDispatch";
 import { database, environment, sfn } from "./clients";
 
 const keySchema = z.object({ sessionId: z.string(), questionId: z.string(), timerId: z.string() });
+/** Gestartete Timer gelten erst so lange nach ihrer Frist als überfällig (Workflow-Retries brauchen Zeit). */
+export const OVERDUE_GRACE_MS = 2 * 60_000;
 
 export async function handler(): Promise<void> {
+  await sweepPendingTimers(Date.now());
+}
+
+export async function sweepPendingTimers(now: number): Promise<void> {
   const tableName = environment("TABLE_NAME");
   const stateMachineArn = environment("STATE_MACHINE_ARN");
   const failures: unknown[] = [];
@@ -14,8 +20,9 @@ export async function handler(): Promise<void> {
     do {
       const page = await database.send(new QueryCommand({
         TableName: tableName, IndexName: "pending-timers",
-        KeyConditionExpression: "timerPartition = :partition",
-        ExpressionAttributeValues: { ":partition": `PENDING#${shard}` },
+        // Nicht gestartete Aufträge (`!`-Präfix) und überfällige gestartete Aufträge; laufende Timer werden übersprungen.
+        KeyConditionExpression: "timerPartition = :partition AND timerDeadline < :cutoff",
+        ExpressionAttributeValues: { ":partition": `PENDING#${shard}`, ":cutoff": new Date(now - OVERDUE_GRACE_MS).toISOString() },
         ExclusiveStartKey: cursor,
       }));
       for (const item of page.Items ?? []) {

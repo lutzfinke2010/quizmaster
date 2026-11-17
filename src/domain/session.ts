@@ -1,3 +1,9 @@
+/**
+ * Fachlicher Zustandsautomat einer Live-Sitzung. Der Server nutzt ihn für Vorabprüfungen und Fristberechnung
+ * (`src/server/startQuestion.ts`); die DynamoDB-Conditions in `src/server/*` bilden dieselben Regeln atomar ab und
+ * bleiben die maßgebliche Absicherung gegen Nebenläufigkeit. Änderungen an Übergängen daher immer an beiden Stellen
+ * vornehmen (Tests: `session.test.ts`, `startQuestion`/`controlSession`-Conditions).
+ */
 export type SessionStatus =
   | "LOBBY" | "COUNTDOWN" | "QUESTION_OPEN" | "QUESTION_CLOSED"
   | "SCORING" | "REVEAL" | "LEADERBOARD" | "FINISHED" | "CANCELLED";
