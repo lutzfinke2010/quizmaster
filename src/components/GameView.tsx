@@ -4,6 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import avatars from "../domain/avatars.json";
 import type { GameState, MyResult, Participation } from "../cloud";
 import { AnswerCelebration } from "./AnswerCelebration";
+import { answerColumns, useQuestionFocus } from "./QuestionLayout";
 import "./game.css";
 
 export const phaseLabels: Record<string, string> = {
@@ -32,8 +33,10 @@ export function Avatar({ avatarId }: { avatarId: string }) {
     onError={() => setFailedId(avatarId)} />;
 }
 
-export function Timer({ deadline, offset, now }: { deadline: number; offset: number; now: number }) {
+export function Timer({ deadline, offset, now, compact = false }: { deadline: number; offset: number; now: number; compact?: boolean }) {
   const seconds = Math.max(0, Math.ceil((deadline - now - offset) / 1000));
+  if (compact) return <span className="timer-pill" role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
+    <Clock3 size={15} aria-hidden="true" />{seconds} s</span>;
   return <span className="timer" role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
     {seconds}<small>Sekunden</small></span>;
 }
@@ -104,11 +107,12 @@ function Ranking({ state, participant, personal }: { state: GameState; participa
   </section>;
 }
 
-function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer }: {
+function QuestionAnswers({ state, selected, pendingChoice, locked, onAnswer, compact = false }: {
   state: GameState; selected?: string | null; pendingChoice?: string | null; locked: boolean;
-  onAnswer?: (choiceId: string) => void;
+  onAnswer?: (choiceId: string) => void; compact?: boolean;
 }) {
-  return <div className="answer-grid">{state.question?.answers.map((answer, index) => {
+  const columns = compact && state.question ? ` answer-columns-${answerColumns(state.question.answers)}` : "";
+  return <div className={`answer-grid${columns}`}>{state.question?.answers.map((answer, index) => {
     const isSelected = selected === answer.id;
     const isPending = pendingChoice === answer.id;
     const content = <><span className="answer-letter">{String.fromCharCode(65 + index)}</span>
@@ -190,12 +194,14 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
   const choiceIndex = state.question?.answers.findIndex((answer) => answer.id === (pendingChoice ?? selected)) ?? -1;
   const choice = choiceIndex >= 0 ? state.question?.answers[choiceIndex] : undefined;
   const active = ["QUESTION_OPEN", "QUESTION_CLOSED", "SCORING"].includes(phase);
+  const compactQuestion = personal && active && Boolean(state.question);
+  const headingRef = useQuestionFocus(personal && phase === "QUESTION_OPEN" ? state.questionId : null);
   return <div className={`game-view${personal ? " game-personal" : ""}${presentation ? " game-presentation" : ""}`}>
-    <header className="game-heading">
+    {!compactQuestion && <header className="game-heading">
       <p className="game-title">{state.title}</p>
       <span className="phase-badge" role="status">{phaseLabels[phase] ?? phase}</span>
-    </header>
-    {personal && <div className={`player-identity${["REVEAL", "LEADERBOARD", "FINISHED"].includes(phase) ? " player-identity-result" : ""}`}>
+    </header>}
+    {personal && !compactQuestion && <div className={`player-identity${["REVEAL", "LEADERBOARD", "FINISHED"].includes(phase) ? " player-identity-result" : ""}`}>
       {participant ? <><Avatar avatarId={participant.avatarId} /><div><strong>{participant.displayName}</strong>
         <span>{score != null ? `${number(score)} Punkte` : state.questionIndex < 1 ? "Noch keine Wertung" : "Wertung nach der Auflösung"}
           {rank != null && ` · ${currentPlayer ? "Platz" : "Zuletzt Platz"} ${rank}`}</span></div></> :
@@ -221,32 +227,51 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
         {state.opensAt != null && <Timer deadline={state.opensAt} offset={offset} now={now} />}
         <p>Mach dich bereit für die nächste Frage.</p>
       </section>}
-      {active && state.question && <section className="question-phase" aria-labelledby="question-title">
+      {active && state.question && !personal && <section className="question-phase" aria-labelledby="question-title">
         <div className="question-meta"><span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
           {phase === "QUESTION_OPEN" && state.closesAt != null && <Timer deadline={state.closesAt} offset={offset} now={now} />}</div>
         <h1 id="question-title">{state.question.text}</h1>
         <QuestionAnswers state={state} selected={selected} pendingChoice={pendingChoice}
           locked={!timeRemaining || Boolean(answerBusy)} onAnswer={onAnswer} />
-        {personal && <div className={`answer-feedback${pendingChoice ? " pending" : ""}`} role="status" aria-atomic="true">
-          {selected && !pendingChoice ? <CheckCircle2 size={22} aria-hidden="true" /> : <Clock3 size={22} aria-hidden="true" />}
-          <span>{pendingChoice ? <><strong>Wird gesendet …</strong>Deine Auswahl: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : ""}
-            {selected && <small>Bis zur Bestätigung bleibt deine bisherige Antwort gespeichert.</small>}</> :
-            selected ? <><strong>Antwort ist drin</strong>Deine Antwort: {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : "wird geladen …"}
-              <small>{timeRemaining ? "Bis zum Zeitablauf kannst du deine Antwort ändern." : "Gleich erfährst du, ob du richtig liegst."}</small></> :
-            answerRestoreFailed ? "Deine gespeicherte Antwort ist gerade nicht verfügbar. Bitte erneut prüfen." :
-            answerBusy ? "Deine gespeicherte Antwort wird geprüft …" :
-            timeRemaining ? "Tippe auf eine Antwort. Sie wird direkt abgegeben und ist bis zum Zeitablauf änderbar." :
-            "Keine Antwort abgegeben. Die Auflösung folgt gleich."}</span>
-        </div>}
         {phase !== "QUESTION_OPEN" && <p className="game-hint" role="status">Kurz durchatmen. Die Antworten werden ausgewertet …</p>}
         <AnswerProgress state={state} />
-        {personal && phase === "QUESTION_OPEN" && <p className="game-hint">Für die Punkte zählt deine letzte Änderung.
-          Die Antwortzeit wird auf dem Server gemessen. Der Netzwerkweg zählt mit.</p>}
+      </section>}
+      {compactQuestion && state.question && <section className="question-phase compact-question" aria-labelledby="question-title">
+        <div className="question-metabar">
+          <span className="sr-only" role="status">{phaseLabels[phase] ?? phase}</span>
+          {participant ? <span className="question-meta-player"><Avatar avatarId={participant.avatarId} />
+            <span>{participant.displayName}{score != null && <small> · {number(score)} P.</small>}</span></span> :
+            <span role="status">Teilnahme wird geladen …</span>}
+          <span className="question-meta-progress">Frage {state.questionIndex + 1}/{state.questionCount}</span>
+          {phase === "QUESTION_OPEN" && state.closesAt != null && <Timer compact deadline={state.closesAt} offset={offset} now={now} />}
+        </div>
+        <h1 id="question-title" ref={headingRef} tabIndex={-1}>{state.question.text}</h1>
+        <QuestionAnswers compact state={state} selected={selected} pendingChoice={pendingChoice}
+          locked={!timeRemaining || Boolean(answerBusy)} onAnswer={onAnswer} />
+        <div className={`answer-feedback${pendingChoice ? " pending" : ""}`} role="status" aria-atomic="true">
+          {selected && !pendingChoice ? <CheckCircle2 size={18} aria-hidden="true" /> : <Clock3 size={18} aria-hidden="true" />}
+          <span>{pendingChoice ? <><strong>Wird gesendet …</strong> {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : ""}</> :
+            selected ? <><strong>Antwort ist drin:</strong> {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : "wird geladen …"}
+              {timeRemaining ? " · bis Zeitablauf änderbar" : ""}</> :
+            answerRestoreFailed ? "Deine gespeicherte Antwort ist gerade nicht verfügbar. Bitte erneut prüfen." :
+            answerBusy ? "Deine gespeicherte Antwort wird geprüft …" :
+            timeRemaining ? "Tippe auf eine Antwort – sie wird direkt abgegeben." :
+            phase !== "QUESTION_OPEN" ? "Kurz durchatmen. Die Antworten werden ausgewertet …" :
+            "Keine Antwort abgegeben. Die Auflösung folgt gleich."}</span>
+        </div>
+        <details className="question-help">
+          <summary>Hinweise und Fortschritt</summary>
+          <AnswerProgress state={state} />
+          {pendingChoice && selected && <p>Bis zur Bestätigung bleibt deine bisherige Antwort gespeichert.</p>}
+          <p>Bis zum Zeitablauf kannst du deine Antwort ändern; für die Punkte zählt deine letzte Änderung.
+            Die Antwortzeit wird auf dem Server gemessen. Der Netzwerkweg zählt mit.</p>
+          <p>{state.title} · {state.participantCount} Teilnehmende</p>
+        </details>
       </section>}
       {phase === "REVEAL" && <Reveal state={state} result={result} personal={personal} selected={selected} />}
       {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal} />}
       {phase === "CANCELLED" && <section className="countdown-phase"><h1>Runde abgebrochen</h1><p>Diese Sitzung wurde vom Quizmaster beendet.</p></section>}
     </div>
-    {phase !== "LOBBY" && <p className="game-footnote">{state.participantCount} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>}
+    {phase !== "LOBBY" && !compactQuestion && <p className="game-footnote">{state.participantCount} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>}
   </div>;
 }

@@ -6,7 +6,7 @@ import {
   type UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
 } from "./asyncQuiz";
@@ -94,6 +94,14 @@ function setupDatabase() {
     const key = keyOf(input.Key.pk, input.Key.sk);
     const current = records.get(key);
     const values = input.ExpressionAttributeValues ?? {};
+    if (input.UpdateExpression?.includes("currentQuestionStartedAt")) {
+      if (!current || current.status !== values[":progress"] || current.answeredCount !== values[":index"] ||
+          current.currentQuestionIndex === values[":index"]) {
+        throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
+      }
+      records.set(key, { ...current, currentQuestionIndex: values[":index"], currentQuestionStartedAt: values[":startedAt"] });
+      return {};
+    }
     if (input.UpdateExpression?.includes("retentionSyncedTtl")) {
       if (!current) throw Object.assign(new Error("conditional failure"), { name: "ConditionalCheckFailedException" });
       records.set(key, { ...current, retentionSyncedTtl: values[":ttl"] });
@@ -148,6 +156,9 @@ function setupDatabase() {
       if (!publication || publication.status !== "ACTIVE" ||
           Number(publication.expiresAt) <= Number(question?.ExpressionAttributeValues?.[":now"]) ||
           Number(current.answeredCount) !== Number(update.ExpressionAttributeValues?.[":index"]) ||
+          (update.ExpressionAttributeValues?.[":questionStart"] !== undefined &&
+            (current.currentQuestionIndex !== update.ExpressionAttributeValues[":index"] ||
+              current.currentQuestionStartedAt !== update.ExpressionAttributeValues[":questionStart"])) ||
           puts.some((item) => records.has(keyOf(item.pk, item.sk)))) throw conditionalFailure();
       if (question?.Key && "UpdateExpression" in question && publication) {
         const stat = question.ExpressionAttributeNames?.["#stat"];
@@ -162,6 +173,10 @@ function setupDatabase() {
         answeredCount: Number(current.answeredCount) + 1,
         status: update.ExpressionAttributeValues?.[":completed"] ?? "IN_PROGRESS",
         ...(update.ExpressionAttributeValues?.[":now"] ? { completedAt: update.ExpressionAttributeValues[":now"] } : {}),
+        ...(update.ExpressionAttributeValues?.[":nextStart"] !== undefined ? {
+          currentQuestionIndex: update.ExpressionAttributeValues[":nextIndex"],
+          currentQuestionStartedAt: update.ExpressionAttributeValues[":nextStart"],
+        } : {}),
       });
     }
     for (const item of puts) records.set(keyOf(item.pk, item.sk), item);
@@ -350,5 +365,131 @@ describe("Quiz per Link", () => {
     expect(results.participants[0].attemptId).toMatch(/^[a-f0-9]{24}$/);
     expect(results.participants[0].attemptId).not.toBe(results.participants[1].attemptId);
     expect(JSON.stringify(results)).not.toContain(createHash("sha256").update(identityId).digest("hex"));
+  });
+
+  describe("ASYNC_SPEED_V1", () => {
+    const start = Date.UTC(2030, 0, 1, 12);
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    const answerKey = (index: number, identity = identityId) =>
+      keyOf(pk, `ANSWER#${createHash("sha256").update(identity).digest("hex")}#${String(index).padStart(3, "0")}`);
+    const attemptKey = (identity = identityId) => keyOf(pk, `ATTEMPT#${createHash("sha256").update(identity).digest("hex")}`);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(start);
+      const metaKey = keyOf(pk, "META");
+      const meta = records.get(metaKey) as { snapshot: { questions: unknown[] } };
+      records.set(metaKey, { ...meta, createdAt: start, expiresAt: start + 3_600_000, retentionAt: start + 31 * 86_400_000,
+        statsVersion: 1, completedCount: 0, scoringVersion: "ASYNC_SPEED_V1",
+        scoring: { basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30_000 },
+        snapshot: { ...meta.snapshot, questions: [...meta.snapshot.questions, {
+          text: "Zweite Frage?", answers: [{ text: "A", correct: false }, { text: "B", correct: true }],
+          durationSeconds: 20, explanation: "",
+        }] } });
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("speichert neue Veröffentlichungen mit Wertungsversion und Parametern", async () => {
+      const quizId = "4ee86a5f-31ed-4e31-b6c1-5b2699256747";
+      records.set(keyOf("OWNER#admin", `QUIZ#${quizId}`), { quizId, ownerId: "admin", version: 1, updatedAt: start,
+        quiz: { title: "Neu", description: "", questions: [{ text: "Frage",
+          answers: [{ text: "R", correct: true }, { text: "F", correct: false }], durationSeconds: 20, explanation: "" }] } });
+      const created = await publishAsyncQuiz(db, "table", { quizId, requestId: "d22f156b-61a2-42d7-ae36-98aac6c22fb8",
+        expiresAt: start + 60_000, timeZone: "Europe/Berlin" }, principal, 30, 100, start);
+      expect(records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))).toMatchObject({
+        scoringVersion: "ASYNC_SPEED_V1", scoring: { basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30_000 },
+      });
+    });
+
+    it("startet den Fragetimer serverseitig beim Quizstart, nicht beim Linkaufruf oder Refresh", async () => {
+      await getAsyncPublicInfo(db, "table", token, start);
+      vi.setSystemTime(start + 4_000);
+      const first = await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      expect(first.question).toMatchObject({ questionIndex: 0, startedAt: start + 4_000 });
+      expect(first).toMatchObject({ scoringVersion: "ASYNC_SPEED_V1", basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30_000 });
+      vi.setSystemTime(start + 20_000);
+      const refreshed = await getMyAsyncState(db, "table", token, identityId, Date.now());
+      const secondTab = await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      expect(refreshed?.question?.startedAt).toBe(start + 4_000);
+      expect(secondTab.question?.startedAt).toBe(start + 4_000);
+      expect(JSON.stringify(first)).not.toContain("Zweite Frage?");
+    });
+
+    it("wertet Tempo serverseitig, liefert die nächste Frage im Receipt und verrät Punkte erst nach Quizende", async () => {
+      await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      vi.setSystemTime(start + 15_000);
+      const receipt = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+      expect(receipt).toMatchObject({ acceptedAt: start + 15_000, answeredCount: 1, questionIndex: 0,
+        attemptStatus: "IN_PROGRESS", nextQuestionIndex: 1, question: { questionIndex: 1, text: "Zweite Frage?", startedAt: start + 15_000 } });
+      expect(JSON.stringify(receipt)).not.toMatch(/points|correct/i);
+      expect(records.get(answerKey(0))).toMatchObject({ questionStartedAt: start, elapsedMs: 15_000,
+        basePoints: 1000, bonusPoints: 250, points: 1250 });
+
+      vi.setSystemTime(start + 50_000);
+      const retry = await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+      expect(retry).toMatchObject({ acceptedAt: start + 15_000, answeredCount: 1, question: { questionIndex: 1, startedAt: start + 15_000 } });
+      expect(records.get(answerKey(0))).toMatchObject({ points: 1250, acceptedAt: start + 15_000 });
+      expect(records.get(attemptKey())).toMatchObject({ points: 1250, currentQuestionIndex: 1, currentQuestionStartedAt: start + 15_000 });
+
+      vi.setSystemTime(start + 75_000);
+      const last = await submitAsyncAnswer(db, "table", { token, questionIndex: 1, choiceId: "a1" }, identityId, Date.now());
+      expect(last).toMatchObject({ answeredCount: 2, attemptStatus: "COMPLETED", nextQuestionIndex: -1, question: null });
+      expect(records.get(answerKey(1))).toMatchObject({ elapsedMs: 60_000, basePoints: 1000, bonusPoints: 0, points: 1000 });
+
+      const running = await getMyAsyncState(db, "table", token, identityId, Date.now());
+      expect(running?.points).toBeNull();
+      expect(running?.answers.map((answer) => answer.points)).toEqual([null, null]);
+
+      const metaKey = keyOf(pk, "META");
+      records.set(metaKey, { ...records.get(metaKey), status: "ENDED", endedAt: Date.now() });
+      const final = await getMyAsyncState(db, "table", token, identityId, Date.now());
+      expect(final?.points).toBe(2250);
+      expect(final?.results.map(({ basePoints, bonusPoints, points, elapsedMs }) => ({ basePoints, bonusPoints, points, elapsedMs })))
+        .toEqual([{ basePoints: 1000, bonusPoints: 250, points: 1250, elapsedMs: 15_000 },
+          { basePoints: 1000, bonusPoints: 0, points: 1000, elapsedMs: 60_000 }]);
+      const results = await getAsyncPublicationResults(db, "table", { publicationId, cursor: null }, principal, Date.now());
+      expect(results.scoringVersion).toBe("ASYNC_SPEED_V1");
+      expect(results.participants[0]).toMatchObject({ points: 2250, rank: 1 });
+      expect(results.participants[0].answers[0]).toMatchObject({ basePoints: 1000, bonusPoints: 250, points: 1250, elapsedMs: 15_000 });
+    });
+
+    it("vergibt für falsche Antworten keinen Tempo-Bonus und nimmt nach der Deadline nichts mehr an", async () => {
+      await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a1" }, identityId, Date.now());
+      expect(records.get(answerKey(0))).toMatchObject({ elapsedMs: 0, basePoints: 0, bonusPoints: 0, points: 0 });
+      vi.setSystemTime(start + 3_600_000);
+      await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 1, choiceId: "a1" }, identityId, Date.now()))
+        .rejects.toThrow("Quizfrist ist abgelaufen");
+      expect(records.has(answerKey(1))).toBe(false);
+    });
+
+    it("lehnt veraltete Antworten auf eine bereits weitergeschaltete Frage ab", async () => {
+      await startAsyncQuiz(db, "table", token, identityId, Date.now());
+      await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+      await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a1" }, identityId, Date.now()))
+        .rejects.toThrow("bereits eine andere Antwort");
+      expect(records.get(attemptKey())).toMatchObject({ answeredCount: 1, currentQuestionIndex: 1 });
+    });
+
+    it("liefert globale Top 5 mit geteilten Rängen unabhängig von der Ergebnisseite", async () => {
+      const points = [900, 4000, 2500, 2500, 3000, 2000, 2000, 100];
+      points.forEach((value, index) => {
+        const identity = `p${index}`.padEnd(64, "0").replace(/[^a-f0-9]/g, "a");
+        records.set(keyOf(pk, `ATTEMPT#${identity}`), { pk, sk: `ATTEMPT#${identity}`, identityHash: identity,
+          displayName: `Spieler ${index}`, avatarId: "avatar-001", startedAt: start, answeredCount: 2,
+          status: "COMPLETED", completedAt: start + 1, points: value });
+      });
+      const firstPage = await getAsyncPublicationResults(db, "table", { publicationId, cursor: null }, principal, Date.now());
+      const laterPage = await getAsyncPublicationResults(db, "table", { publicationId, cursor: "5" }, principal, Date.now());
+      for (const result of [firstPage, laterPage]) {
+        expect(result.leaders.map((leader) => [leader.displayName, leader.points, leader.rank])).toEqual([
+          ["Spieler 1", 4000, 1], ["Spieler 4", 3000, 2], ["Spieler 2", 2500, 3], ["Spieler 3", 2500, 3], ["Spieler 5", 2000, 5],
+        ]);
+        expect(result.totalParticipants).toBe(8);
+      }
+      expect(laterPage.participants.map((player) => [player.displayName, player.rank])).toEqual([
+        ["Spieler 6", 5], ["Spieler 0", 7], ["Spieler 7", 8],
+      ]);
+    });
   });
 });

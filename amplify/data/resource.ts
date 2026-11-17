@@ -65,6 +65,8 @@ const schema = a.schema({
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
     serverTime: a.float().required(),
+    scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
+    bonusWindowMs: a.integer().required(),
   }),
   AsyncPublishReceipt: a.customType({
     publicationId: a.id().required(), token: a.string().required(), expiresAt: a.float().required(),
@@ -73,16 +75,19 @@ const schema = a.schema({
   AsyncEndReceipt: a.customType({ status: a.string().required(), endedAt: a.float().required() }),
   AsyncQuestion: a.customType({
     questionIndex: a.integer().required(), text: a.string().required(), answers: a.ref("PublicAnswer").array().required(),
+    startedAt: a.float(),
   }),
   AsyncGuestAnswer: a.customType({
     questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
     correct: a.boolean(), correctChoiceId: a.id(), explanation: a.string(),
     questionText: a.string(), selectedText: a.string(), correctText: a.string(),
+    points: a.integer(), basePoints: a.integer(), bonusPoints: a.integer(), elapsedMs: a.float(),
   }),
   AsyncOwnQuestionResult: a.customType({
     questionIndex: a.integer().required(), questionText: a.string().required(), answered: a.boolean().required(),
     selectedText: a.string(), correctText: a.string(), correct: a.boolean(), explanation: a.string(),
     acceptedAt: a.float(),
+    points: a.integer(), basePoints: a.integer(), bonusPoints: a.integer(), elapsedMs: a.float(),
   }),
   AsyncGuestState: a.customType({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
@@ -94,8 +99,14 @@ const schema = a.schema({
     nextQuestionIndex: a.integer().required(), answers: a.ref("AsyncGuestAnswer").array().required(),
     question: a.ref("AsyncQuestion"), points: a.integer(),
     results: a.ref("AsyncOwnQuestionResult").array().required(),
+    scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
+    bonusWindowMs: a.integer().required(),
   }),
-  AsyncAnswerReceipt: a.customType({ acceptedAt: a.float().required(), answeredCount: a.integer().required() }),
+  AsyncAnswerReceipt: a.customType({
+    acceptedAt: a.float().required(), answeredCount: a.integer().required(), questionIndex: a.integer().required(),
+    attemptStatus: a.string().required(), status: a.string().required(), nextQuestionIndex: a.integer().required(),
+    question: a.ref("AsyncQuestion"), serverTime: a.float().required(),
+  }),
   AsyncPublicationSummary: a.customType({
     publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(), token: a.string().required(),
     createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
@@ -106,6 +117,7 @@ const schema = a.schema({
   AsyncPlayerAnswer: a.customType({
     questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
     correct: a.boolean().required(),
+    points: a.integer().required(), basePoints: a.integer().required(), bonusPoints: a.integer().required(), elapsedMs: a.float(),
   }),
   AsyncParticipantResult: a.customType({
     attemptId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
@@ -129,6 +141,9 @@ const schema = a.schema({
     completedCount: a.integer().required(), partialCount: a.integer().required(), isFinal: a.boolean().required(),
     updatedAt: a.float().required(), questions: a.ref("AsyncQuestionResult").array().required(),
     participants: a.ref("AsyncParticipantResult").array().required(), nextCursor: a.string(),
+    leaders: a.ref("AsyncParticipantResult").array().required(), totalParticipants: a.integer().required(),
+    scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
+    bonusWindowMs: a.integer().required(),
   }),
 
   createQuiz: a.mutation().arguments({ quiz: a.ref("Quiz").required() }).returns(a.ref("QuizRecord"))

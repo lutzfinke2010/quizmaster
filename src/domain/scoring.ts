@@ -20,6 +20,53 @@ export function scoreAnswer(
   };
 }
 
+/** Async-Wertung „Quiz per Link“: Grundpunkte plus linear fallender Tempo-Bonus (kein hartes Zeitlimit). */
+export const ASYNC_SPEED_V1 = Object.freeze({
+  version: "ASYNC_SPEED_V1",
+  basePoints: 1000,
+  maxBonusPoints: 500,
+  bonusWindowMs: 30_000,
+} as const);
+/** Historische Async-Runden ohne gespeicherte Wertungsversion: ein Punkt je richtiger Antwort. */
+export const ASYNC_LEGACY_SCORING = Object.freeze({
+  version: "LEGACY_CORRECT",
+  basePoints: 1,
+  maxBonusPoints: 0,
+  bonusWindowMs: 0,
+} as const);
+
+export interface AsyncScoringRule {
+  version: string;
+  basePoints: number;
+  maxBonusPoints: number;
+  bonusWindowMs: number;
+}
+
+export interface AsyncAnswerScore {
+  elapsedMs: number;
+  basePoints: number;
+  bonusPoints: number;
+  points: number;
+}
+
+/** Rein informative Restbonus-Berechnung; maßgeblich ist ausschließlich die serverseitige Wertung. */
+export function asyncSpeedBonus(elapsedMs: number, rule: AsyncScoringRule = ASYNC_SPEED_V1): number {
+  if (!Number.isFinite(elapsedMs) || rule.bonusWindowMs <= 0) return 0;
+  return Math.round(rule.maxBonusPoints * Math.max(0, 1 - Math.max(0, elapsedMs) / rule.bonusWindowMs));
+}
+
+export function scoreAsyncSpeedAnswer(
+  correct: boolean, questionStartedAt: number, answerAcceptedAt: number, rule: AsyncScoringRule = ASYNC_SPEED_V1,
+): AsyncAnswerScore {
+  if (!Number.isSafeInteger(questionStartedAt) || !Number.isSafeInteger(answerAcceptedAt)) {
+    throw new Error("Ungültige Zeitangaben.");
+  }
+  const elapsedMs = Math.max(0, answerAcceptedAt - questionStartedAt);
+  if (!correct) return { elapsedMs, basePoints: 0, bonusPoints: 0, points: 0 };
+  const bonusPoints = asyncSpeedBonus(elapsedMs, rule);
+  return { elapsedMs, basePoints: rule.basePoints, bonusPoints, points: rule.basePoints + bonusPoints };
+}
+
 export interface Score {
   participantId: string;
   points: number;

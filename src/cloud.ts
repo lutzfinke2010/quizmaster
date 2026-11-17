@@ -50,32 +50,49 @@ const rankedPlayer = player.extend({ points: z.number(), correctAnswers: z.numbe
 const myResult = z.object({ questionId: z.string(), answered: z.boolean(), correct: z.boolean(),
   points: z.number(), totalPoints: z.number(), elapsedMs: z.number().nullish() });
 export type MyResult = z.infer<typeof myResult>;
+const asyncScoreFields = {
+  points: z.number().nullish(), basePoints: z.number().nullish(), bonusPoints: z.number().nullish(),
+  elapsedMs: z.number().nullish(),
+};
+const asyncScoringInfo = {
+  scoringVersion: z.string().nullish(), basePoints: z.number().nullish(), maxBonusPoints: z.number().nullish(),
+  bonusWindowMs: z.number().nullish(),
+};
 const asyncPublicInfo = z.object({
   title: z.string(), description: z.string(), questionCount: z.number(), expiresAt: z.number(),
   timeZone: z.string(), status: z.string(), retentionAt: z.number(), endedAt: z.number().nullable().optional(),
   maxParticipants: z.number(), serverTime: z.number().nullable().optional(),
+  ...asyncScoringInfo,
 });
 const asyncGuestAnswer = z.object({
   questionIndex: z.number(), choiceId: z.string(), acceptedAt: z.number(),
   correct: z.boolean().nullable().optional(), correctChoiceId: z.string().nullable().optional(),
   explanation: z.string().nullable().optional(), questionText: z.string().nullable().optional(),
   selectedText: z.string().nullable().optional(), correctText: z.string().nullable().optional(),
+  ...asyncScoreFields,
 });
 const asyncQuestion = z.object({
   questionIndex: z.number(), text: z.string(),
   answers: z.array(z.object({ id: z.string(), text: z.string() })),
+  startedAt: z.number().nullish(),
 });
 const asyncOwnQuestionResult = z.object({
   questionIndex: z.number(), questionText: z.string(), answered: z.boolean(),
   selectedText: z.string().nullable().optional(), correctText: z.string().nullable().optional(),
   correct: z.boolean().nullable().optional(), explanation: z.string().nullable().optional(),
   acceptedAt: z.number().nullable().optional(),
+  ...asyncScoreFields,
 });
 const asyncGuestState = asyncPublicInfo.extend({
   displayName: z.string(), avatarId: z.string(), startedAt: z.number(), answeredCount: z.number(),
   attemptStatus: z.string(), nextQuestionIndex: z.number(), answers: z.array(asyncGuestAnswer),
   question: asyncQuestion.nullable().optional(), points: z.number().nullable().optional(),
   results: z.array(asyncOwnQuestionResult),
+});
+const asyncAnswerReceipt = z.object({
+  acceptedAt: z.number(), answeredCount: z.number(), questionIndex: z.number().nullish(),
+  attemptStatus: z.string().nullish(), status: z.string().nullish(), nextQuestionIndex: z.number().nullish(),
+  question: asyncQuestion.nullish(), serverTime: z.number().nullish(),
 });
 const asyncPublicationSummary = z.object({
   publicationId: z.string(), quizId: z.string(), title: z.string(), token: z.string(),
@@ -85,6 +102,7 @@ const asyncPublicationSummary = z.object({
 });
 const asyncPlayerAnswer = z.object({
   questionIndex: z.number(), choiceId: z.string(), acceptedAt: z.number(), correct: z.boolean(),
+  ...asyncScoreFields,
 });
 const asyncParticipantResult = z.object({
   attemptId: z.string(), displayName: z.string(), avatarId: z.string(), startedAt: z.number(), completedAt: z.number().nullable().optional(),
@@ -103,6 +121,8 @@ const asyncResults = z.object({
   completedCount: z.number(), partialCount: z.number(), isFinal: z.boolean(), updatedAt: z.number(),
   questions: z.array(asyncQuestionResult), participants: z.array(asyncParticipantResult),
   nextCursor: z.string().nullable().optional(),
+  leaders: z.array(asyncParticipantResult).nullish(), totalParticipants: z.number().nullish(),
+  ...asyncScoringInfo,
 });
 const asyncPublishReceipt = z.object({
   publicationId: z.string(), token: z.string(), expiresAt: z.number(), timeZone: z.string(), retentionDays: z.number(),
@@ -112,6 +132,19 @@ export type AsyncPublicInfo = z.infer<typeof asyncPublicInfo>;
 export type AsyncGuestState = z.infer<typeof asyncGuestState>;
 export type AsyncPublicationSummary = z.infer<typeof asyncPublicationSummary>;
 export type AsyncPublicationResults = z.infer<typeof asyncResults>;
+export type AsyncParticipantResult = z.infer<typeof asyncParticipantResult>;
+export type AsyncQuestion = z.infer<typeof asyncQuestion>;
+export type AsyncAnswerReceipt = z.infer<typeof asyncAnswerReceipt>;
+const asyncScoreSelection = "points basePoints bonusPoints elapsedMs";
+const asyncParticipantSelection = `attemptId displayName avatarId startedAt completedAt answeredCount
+  questionCount status points rank answers { questionIndex choiceId acceptedAt correct ${asyncScoreSelection} }`;
+const asyncQuestionSelection = "question { questionIndex text startedAt answers { id text } }";
+const asyncGuestStateSelection = `title description questionCount expiresAt
+  timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
+  scoringVersion basePoints maxBonusPoints bonusWindowMs
+  answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText ${asyncScoreSelection} }
+  results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt ${asyncScoreSelection} }
+  ${asyncQuestionSelection}`;
 export const gameStateSchema = z.object({
   sessionId: z.string(), status: z.string(), version: z.number(), title: z.string(), questionId: z.string().nullish(),
   joinCode: z.string().nullish(),
@@ -217,7 +250,8 @@ export const cloud = {
       error: onError,
     }),
   asyncPublicInfo: (token: string) => operation(
-    "query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime } }",
+    `query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime
+      scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
     "getAsyncPublicInfo", { token }, "identityPool", asyncPublicInfo),
   publishAsyncQuiz: (quizId: string, requestId: string, expiresAt: number, timeZone: string) => operation(
     "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone) { publicationId token expiresAt timeZone retentionDays maxParticipants } }",
@@ -233,22 +267,14 @@ export const cloud = {
     `query AsyncResults($publicationId: ID!, $cursor: String) { getAsyncPublicationResults(publicationId: $publicationId, cursor: $cursor) {
       publicationId quizId title createdAt expiresAt timeZone status retentionAt endedAt participantCount maxParticipants completedCount
       partialCount isFinal updatedAt questions { questionIndex text correctChoiceId explanation answeredCount
-        options { id text correct count } } participants { attemptId displayName avatarId startedAt completedAt answeredCount
-        questionCount status points rank answers { questionIndex choiceId acceptedAt correct } } nextCursor } }`,
+        options { id text correct count } } participants { ${asyncParticipantSelection} } nextCursor
+      leaders { ${asyncParticipantSelection} } totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
     "getAsyncPublicationResults", { publicationId, cursor }, "userPool", asyncResults),
   startAsyncQuiz: (token: string) => operation(
-    `mutation StartAsync($token: String!) { startAsyncQuiz(token: $token) { title description questionCount expiresAt
-      timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
-      answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText }
-      results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt }
-      question { questionIndex text answers { id text } } } }`,
+    `mutation StartAsync($token: String!) { startAsyncQuiz(token: $token) { ${asyncGuestStateSelection} } }`,
     "startAsyncQuiz", { token }, "identityPool", asyncGuestState),
   myAsyncState: (token: string) => operation(
-    `query MyAsyncState($token: String!) { getMyAsyncState(token: $token) { title description questionCount expiresAt
-      timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
-      answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText }
-      results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt }
-      question { questionIndex text answers { id text } } } }`,
+    `query MyAsyncState($token: String!) { getMyAsyncState(token: $token) { ${asyncGuestStateSelection} } }`,
     "getMyAsyncState", { token }, "identityPool", asyncGuestState.nullable()),
   extendGuestIdentityUntil: (expiry: number) => {
     if (!guestIdentityStorage) throw new Error("Die Gastidentität ist nicht konfiguriert.");
@@ -256,7 +282,7 @@ export const cloud = {
   },
   submitAsyncAnswer: (token: string, questionIndex: number, choiceId: string) => operation(
     `mutation SubmitAsync($token: String!, $questionIndex: Int!, $choiceId: ID!) {
-      submitAsyncAnswer(token: $token, questionIndex: $questionIndex, choiceId: $choiceId) { acceptedAt answeredCount } }`,
-    "submitAsyncAnswer", { token, questionIndex, choiceId }, "identityPool",
-    z.object({ acceptedAt: z.number(), answeredCount: z.number() })),
+      submitAsyncAnswer(token: $token, questionIndex: $questionIndex, choiceId: $choiceId) {
+        acceptedAt answeredCount questionIndex attemptStatus status nextQuestionIndex serverTime ${asyncQuestionSelection} } }`,
+    "submitAsyncAnswer", { token, questionIndex, choiceId }, "identityPool", asyncAnswerReceipt),
 };

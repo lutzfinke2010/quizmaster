@@ -798,3 +798,26 @@ test("Datenhinweis ist prominent eingebettet, wahrheitsgemäß und per Tastatur 
   await expect(footerPrivacy).toContainText("Für ein Konto wird eine E-Mail-Adresse gespeichert.");
   await expectNoHorizontalOverflow(page);
 });
+
+for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 }]) {
+  test(`Live-Frage für Mitspielende ist kompakt und passt ohne Scrollen bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await mockGame(page);
+    await page.goto("/play/design");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Welcher Planet ist für seine Ringe bekannt?");
+    await expect(page.locator(".timer-pill")).toBeVisible();
+    await expect(page.locator(".game-footnote")).toHaveCount(0);
+    await expect(page.locator(".answer-grid.answer-columns-2")).toHaveCount(1);
+    const fit = await page.evaluate(() => {
+      const tiles = [...document.querySelectorAll(".answer-tile")].map((tile) => tile.getBoundingClientRect());
+      const feedback = document.querySelector(".answer-feedback")!.getBoundingClientRect();
+      return { lastTile: Math.max(...tiles.map((tile) => tile.bottom)), feedback: feedback.bottom, height: window.innerHeight,
+        minTile: Math.min(...tiles.map((tile) => tile.height)) };
+    });
+    expect(fit.lastTile, JSON.stringify(fit)).toBeLessThanOrEqual(fit.height);
+    expect(fit.feedback, JSON.stringify(fit)).toBeLessThanOrEqual(fit.height);
+    expect(fit.minTile).toBeGreaterThanOrEqual(44);
+    await expectNoHorizontalOverflow(page);
+    await screenshot(page, `live-compact-${viewport.width}.png`);
+  });
+}

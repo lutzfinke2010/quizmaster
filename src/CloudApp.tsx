@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
-import { ArrowRight, Clock3, KeyRound, Plus, Sparkles } from "lucide-react";
-import { cloud, type AsyncGuestState, type AsyncPublicationResults, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
+import { ArrowRight, Clock3, KeyRound, Plus, Sparkles, Zap } from "lucide-react";
+import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncParticipantResult, type AsyncPublicationResults, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
 import type { Quiz } from "./domain/quiz";
@@ -17,6 +17,8 @@ import { legal } from "./config/legal";
 import { useLiveState } from "./hooks/useLiveState";
 import { CopyLinkButton, CopyLinkField, useCopyLink } from "./components/CopyLink";
 import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits";
+import { ASYNC_SPEED_V1, type AsyncScoringRule } from "./domain/scoring";
+import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
 function toLocalInput(timestamp: number): string {
@@ -227,7 +229,7 @@ function PublishAsyncPage() {
       <input id="async-deadline" type="datetime-local" required value={localDate} disabled={busy}
         min={bounds.min} max={bounds.max} aria-describedby="async-deadline-hint"
         onChange={(event) => setLocalDate(event.target.value)} />
-      <span className="hint" id="async-deadline-hint">Höchstens {ASYNC_MAX_DURATION_DAYS} Tage ab heute. Fragen haben im eigenen Tempo kein Zeitlimit.</span>
+      <span className="hint" id="async-deadline-hint">Höchstens {ASYNC_MAX_DURATION_DAYS} Tage ab heute. Fragen haben kein hartes Zeitlimit; schnelle richtige Antworten erhalten in den ersten 30 Sekunden bis zu 500 Bonuspunkte zusätzlich zu 1.000 Grundpunkten.</span>
       <p>Zeitzone deines Browsers: <strong>{timeZone}</strong></p>
       {localDate && instants.length === 0 && <p className="error-banner" role="alert">Diese lokale Uhrzeit existiert wegen der Zeitumstellung nicht.</p>}
       {instants.length > 1 && <fieldset><legend>Diese Uhrzeit kommt zweimal vor. Wähle den eindeutigen Zeitpunkt:</legend>
@@ -250,6 +252,25 @@ function PublishAsyncPage() {
   </Layout>;
 }
 
+const pointsText = (value: number) => value.toLocaleString("de-DE");
+const secondsText = (ms: number) => `${(ms / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} s`;
+
+function scoringRuleOf(info: AsyncScoringFields | null | undefined): AsyncScoringRule | null {
+  if (info?.scoringVersion !== ASYNC_SPEED_V1.version) return null;
+  return {
+    version: ASYNC_SPEED_V1.version,
+    basePoints: info.basePoints ?? ASYNC_SPEED_V1.basePoints,
+    maxBonusPoints: info.maxBonusPoints ?? ASYNC_SPEED_V1.maxBonusPoints,
+    bonusWindowMs: info.bonusWindowMs ?? ASYNC_SPEED_V1.bonusWindowMs,
+  };
+}
+
+function speedIntro(rule: AsyncScoringRule) {
+  return `Richtig antworten bringt ${pointsText(rule.basePoints)} Punkte. Je schneller du bist, desto mehr Bonus bekommst du – bis zu ${pointsText(rule.maxBonusPoints)} Punkte zusätzlich.`;
+}
+
+type AsyncScoringFields = Pick<AsyncGuestState, "scoringVersion" | "basePoints" | "maxBonusPoints" | "bonusWindowMs">;
+
 function AsyncQuizPage() {
   useNoIndex();
   const { token = "" } = useParams();
@@ -258,12 +279,14 @@ function AsyncQuizPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [choice, setChoice] = useState("");
-  const [notice, setNotice] = useState("");
-  const [confirmed, setConfirmed] = useState<number | null>(null);
+  // Auswahl gehört immer zu genau einer Frage: Beim Fragewechsel ist sie dadurch sofort leer (kein Flackern).
+  const [choice, setChoice] = useState<{ questionIndex: number; id: string } | null>(null);
+  const [announcement, setAnnouncement] = useState("");
   const [clock, setClock] = useState(Date.now());
   // Server time decides; the offset corrects a wrong client clock for display and button state.
   const [clockOffset, setClockOffset] = useState(0);
+  // Verwirft verspätete Antworten älterer Requests (Doppelklick, Retry, Mehrfachtabs).
+  const requestSeq = useRef(0);
   const syncClock = useCallback((serverTime?: number | null) => {
     if (typeof serverTime === "number") setClockOffset(serverTime - Date.now());
     setClock(Date.now());
@@ -315,7 +338,10 @@ function AsyncQuizPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [token, syncClock, applyState]);
-  useEffect(() => { setChoice(""); }, [state?.nextQuestionIndex]);
+  const question = state?.status === "ACTIVE" && canAnswer ? state.question ?? null : null;
+  const headingRef = useQuestionFocus(question ? question.questionIndex : null);
+  const selected = choice && question && choice.questionIndex === question.questionIndex ? choice.id : "";
+  const rule = scoringRuleOf(state ?? info);
   function roundEnded(latest: AsyncGuestState) {
     setInfo((current) => current && ({ ...current, status: latest.status, endedAt: latest.endedAt }));
   }
@@ -329,43 +355,104 @@ function AsyncQuizPage() {
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
-  function advance() {
-    setConfirmed(null); setNotice(""); setChoice("");
+  /** Übernimmt den bestätigten Fortschritt aus der Antwortbestätigung als einen zusammengehörigen Zustandswechsel. */
+  function applyReceipt(receipt: AsyncAnswerReceipt, answered: number, choiceId: string) {
+    syncClock(receipt.serverTime);
+    setState((current) => {
+      if (!current || current.answeredCount > receipt.answeredCount) return current;
+      return {
+        ...current,
+        answeredCount: receipt.answeredCount,
+        nextQuestionIndex: receipt.nextQuestionIndex ?? current.nextQuestionIndex,
+        attemptStatus: receipt.attemptStatus ?? current.attemptStatus,
+        status: receipt.status ?? current.status,
+        question: receipt.question ?? null,
+        answers: [...current.answers.filter((answer) => answer.questionIndex !== answered),
+          { questionIndex: answered, choiceId, acceptedAt: receipt.acceptedAt }],
+      };
+    });
   }
   async function submitAnswer() {
-    const question = state?.question;
-    if (!question || !choice || busy || !canAnswer) return;
-    setBusy(true); setError(""); setNotice("Wird gespeichert …");
+    if (!question || !selected || busy || !canAnswer) return;
+    const answered = question.questionIndex;
+    const choiceId = selected;
+    const request = ++requestSeq.current;
+    setBusy(true); setError(""); setAnnouncement("");
     try {
-      await cloud.submitAsyncAnswer(token, question.questionIndex, choice);
-      setConfirmed(question.questionIndex);
-      setNotice("");
-      const latest = await cloud.myAsyncState(token).catch(() => null);
-      if (latest) {
+      const receipt = await cloud.submitAsyncAnswer(token, answered, choiceId);
+      if (request !== requestSeq.current) return;
+      const complete = receipt.attemptStatus === "COMPLETED" || receipt.answeredCount >= (state?.questionCount ?? 0);
+      if (receipt.attemptStatus && receipt.status === "ACTIVE" && (receipt.question || complete)) {
+        applyReceipt(receipt, answered, choiceId);
+        setAnnouncement(receipt.question
+          ? `Antwort gespeichert. Frage ${receipt.question.questionIndex + 1} von ${state?.questionCount ?? ""}.`
+          : "Antwort gespeichert. Quiz abgeschlossen.");
+      } else {
+        // Ältere Backends oder Rundenende: tatsächlichen gespeicherten Stand laden statt eine Frage vorzutäuschen.
+        const latest = await cloud.myAsyncState(token);
+        if (request !== requestSeq.current || !latest) return;
         applyState(latest);
         if (latest.status !== "ACTIVE") roundEnded(latest);
+        setAnnouncement("Antwort gespeichert.");
       }
     } catch (caught) {
+      if (request !== requestSeq.current) return;
       try {
         const latest = await cloud.myAsyncState(token);
-        const saved = latest?.answers.find((answer) => answer.questionIndex === question.questionIndex);
+        if (request !== requestSeq.current) return;
+        const saved = latest?.answers.find((answer) => answer.questionIndex === answered);
         if (latest) applyState(latest);
-        if (saved?.choiceId === choice) { setConfirmed(question.questionIndex); setNotice(""); }
+        if (saved?.choiceId === choiceId) setAnnouncement("Antwort gespeichert.");
         else if (latest && latest.status !== "ACTIVE") {
           roundEnded(latest);
-          setNotice("");
           setError("Die Runde ist beendet. Deine Antwort wurde nicht mehr angenommen.");
         } else {
-          setNotice("");
           setError(saved
             ? "Ein anderer Tab hat bereits eine Antwort bestätigt. Der Serverstand wurde geladen."
             : `Antwort nicht bestätigt: ${message(caught)} Deine Auswahl bleibt erhalten.`);
         }
       } catch {
-        setNotice("");
         setError(`Antwort nicht bestätigt: ${message(caught)} Deine Auswahl bleibt erhalten. Prüfe die Verbindung und versuche es erneut.`);
       }
-    } finally { setBusy(false); }
+    } finally { if (request === requestSeq.current) setBusy(false); }
+  }
+  const status = <p className="sr-only" role="status" aria-live="polite">{announcement}</p>;
+  if (!loading && info && state && question) {
+    const columns = answerColumns(question.answers);
+    const nearDeadline = state.expiresAt - now <= 10 * 60 * 1000;
+    return <Layout gameMode="player">
+      <section className="compact-question async-question" aria-labelledby="async-question-title">
+        <div className="question-metabar">
+          <span className="question-meta-player"><Avatar avatarId={state.avatarId} /><span>{state.displayName}</span></span>
+          <span className="question-meta-progress">Frage {question.questionIndex + 1}/{state.questionCount}</span>
+          {rule && question.startedAt != null &&
+            <SpeedBonus key={`${question.questionIndex}-${question.startedAt}`} startedAt={question.startedAt} offset={clockOffset} rule={rule} />}
+        </div>
+        {nearDeadline && <p className="deadline-warning compact" role="status">Weniger als zehn Minuten bis zur Deadline.</p>}
+        <h1 id="async-question-title" ref={headingRef} tabIndex={-1}>{question.text}</h1>
+        <fieldset className={`async-options answer-columns-${columns}`} disabled={busy}>
+          <legend className="sr-only">Antwortmöglichkeiten zu Frage {question.questionIndex + 1}</legend>
+          {question.answers.map((answer) =>
+            <label className={`async-option${selected === answer.id ? " selected" : ""}`} key={`${question.questionIndex}-${answer.id}`}>
+              <input type="radio" name={`async-answer-${question.questionIndex}`} value={answer.id} checked={selected === answer.id}
+                onChange={() => setChoice({ questionIndex: question.questionIndex, id: answer.id })} />
+              <span>{answer.text}</span>
+            </label>)}
+        </fieldset>
+        <ErrorBanner error={error} />
+        <button className="button primary question-submit" disabled={!selected || busy || !canAnswer} onClick={() => void submitAnswer()}>
+          {busy ? "Wird gespeichert …" : error && selected ? "Erneut abgeben" : "Antwort abgeben"}
+        </button>
+        {status}
+        <details className="question-help">
+          <summary>Hinweise zum Quiz</summary>
+          <p>{info.title} · Deadline: {formatDateTimeInZone(info.expiresAt, info.timeZone)} ({info.timeZone})</p>
+          <p>Bestätigte Antworten sind endgültig. Ob du richtig liegst, siehst du nach Ende der Runde.</p>
+          {rule && <p>{speedIntro(rule)} Der Tempo-Bonus sinkt in den ersten {Math.round(rule.bonusWindowMs / 1000)} Sekunden
+            je Frage auf null; die Zeit misst der Server ab Freigabe der Frage, einschließlich Übertragung.</p>}
+        </details>
+      </section>
+    </Layout>;
   }
   return <Layout gameMode="player"><Link className="back" to="/">← Zur Startseite</Link>
     {loading ? <p>Quiz wird geladen …</p> : !info ? <div className="empty"><h1>Teilnahmelink nicht verfügbar</h1>
@@ -374,49 +461,36 @@ function AsyncQuizPage() {
         <p>{info.description}</p><p><Clock3 size={17} aria-hidden="true" /> Deadline: {formatDateTimeInZone(info.expiresAt, info.timeZone)} ({info.timeZone})</p>
         <p>{info.questionCount} Fragen. Deine Antworten werden einzeln gespeichert. Maximal {info.maxParticipants} Teilnahmen.</p></div>
       <ErrorBanner error={error} />
+      {status}
       {state ? <section className="card async-player-card">
         <div className="async-player-identity"><Avatar avatarId={state.avatarId} /><strong>{state.displayName}</strong></div>
-        {confirmed !== null && state.status === "ACTIVE" && canAnswer ? <div role="status">
-          <h2>Antwort gespeichert</h2>
-          <p>Frage {confirmed + 1} von {state.questionCount} ist bestätigt.</p>
-          <button className="button primary" onClick={advance}>
-            {state.question ? "Nächste Frage" : "Quiz abschließen"}
-          </button>
-        </div> : state.status === "ACTIVE" && canAnswer && state.question ? <>
-          <p>Frage {state.question.questionIndex + 1} von {state.questionCount}</p>
-          {state.expiresAt - now <= 10 * 60 * 1000 && <p className="deadline-warning" role="status">
-            Weniger als zehn Minuten bis zur Deadline.
-          </p>}
-          <h2>{state.question.text}</h2>
-          <p>Deine bestätigten Antworten sind endgültig und können nicht geändert werden.</p>
-          <div className="async-options">{state.question.answers.map((answer) =>
-            <label className={`async-option${choice === answer.id ? " selected" : ""}`} key={answer.id}>
-              <input type="radio" name="async-answer" value={answer.id} checked={choice === answer.id} disabled={busy}
-                onChange={() => setChoice(answer.id)} />
-              <span>{answer.text}</span>
-            </label>)}</div>
-          <button className="button primary" disabled={!choice || busy || !canAnswer} onClick={() => void submitAnswer()}>
-            {busy ? "Wird gespeichert …" : "Antwort abgeben"}
-          </button>
-          {notice && <p role="status">{notice}</p>}
-        </> : state.attemptStatus === "COMPLETED" || state.status !== "ACTIVE" || !canAnswer ? <>
+        {state.attemptStatus === "COMPLETED" || state.status !== "ACTIVE" || !canAnswer ? <>
           <h2>{state.attemptStatus === "COMPLETED" ? "Quiz abgeschlossen" : "Quiz beendet"}</h2>
           <p>{state.answeredCount} von {state.questionCount} Fragen beantwortet.
             {state.attemptStatus === "EXPIRED_PARTIAL" && " Nicht beantwortete Fragen zählen als 0 Punkte."}</p>
           {state.status === "ACTIVE" && <p>Deine Antworten sind gespeichert. Auflösung und Ergebnis siehst du nach Ende der Runde
             ({formatDateTimeInZone(state.expiresAt, state.timeZone)}, {state.timeZone}) über diesen Link.</p>}
-          {state.status !== "ACTIVE" && <><p>Dein Ergebnis: {state.points ?? 0} von {state.questionCount} Punkten</p>
+          {state.status !== "ACTIVE" && <><p className="async-own-total">Dein Ergebnis: <strong>{rule
+            ? `${pointsText(state.points ?? 0)} Punkte`
+            : `${state.points ?? 0} von ${state.questionCount} Punkten`}</strong></p>
+            {rule && <p className="hint">Wertung: {pointsText(rule.basePoints)} Grundpunkte je richtiger Antwort plus bis zu
+              {" "}{pointsText(rule.maxBonusPoints)} Punkte Tempo-Bonus.</p>}
             <ol className="async-own-results">{state.results.map((result) => <li key={result.questionIndex}>
               <strong>Frage {result.questionIndex + 1}: {result.questionText}</strong>
               <p>{result.answered ? result.correct ? "Richtig." : "Falsch." : "Nicht beantwortet."}</p>
               {result.selectedText && <p>Deine Antwort: {result.selectedText}.</p>}
               {result.correctText && <p>Richtige Antwort: {result.correctText}.</p>}
+              {rule && result.answered && <p className="async-score-line">
+                Grundpunkte {pointsText(result.basePoints ?? 0)} · Tempo-Bonus {pointsText(result.bonusPoints ?? 0)} ·
+                Gesamt <strong>{pointsText(result.points ?? 0)}</strong>
+                {result.elapsedMs != null && ` · Antwortzeit ${secondsText(result.elapsedMs)}`}</p>}
               {result.explanation && <p>{result.explanation}</p>}
             </li>)}</ol>
           </>}
-        </> : null}
+        </> : <p role="status">Die nächste Frage wird geladen …</p>}
       </section> : info.status === "ACTIVE" && canAnswer ? <section className="card async-player-card">
         <h2>Du spielst in deinem Tempo</h2><p>Deine Antworten werden gespeichert. Du kannst bis zum Ablaufdatum teilnehmen.</p>
+        {rule && <p className="async-speed-intro"><Zap size={17} aria-hidden="true" /> {speedIntro(rule)}</p>}
         <button className="button primary" disabled={busy} onClick={() => void start()}>
           {busy ? "Quiz wird geöffnet …" : "Quiz starten"}
         </button>
@@ -424,6 +498,19 @@ function AsyncQuizPage() {
         <p>Die Quizrunde endete am {formatDateTimeInZone(info.endedAt ?? info.expiresAt, info.timeZone)} ({info.timeZone}).</p></section>}
     </>}
   </Layout>;
+}
+
+const asyncStatusText = (status: string) => status === "ACTIVE" ? "Aktiv" : status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen";
+const attemptStatusText = (status: string) => status === "COMPLETED" ? "abgeschlossen" : status === "IN_PROGRESS" ? "läuft" : "Frist abgelaufen";
+
+function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncParticipantResult; rule: AsyncScoringRule | null; questionCount: number }) {
+  return <li className={`async-leader${player.rank <= 3 ? ` podium podium-${player.rank}` : ""}`}>
+    <span className="async-leader-rank" aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
+    <Avatar avatarId={player.avatarId} />
+    <span className="async-leader-name">{player.displayName}</span>
+    <strong className="async-leader-points">{rule ? `${pointsText(player.points)} P.` : `${player.points}/${questionCount}`}</strong>
+    <span className="async-leader-status">{attemptStatusText(player.status)}</span>
+  </li>;
 }
 
 function AsyncAdminResultsPage() {
@@ -436,6 +523,12 @@ function AsyncAdminResultsPage() {
   const [filter, setFilter] = useState<"ALL" | "COMPLETED" | "PARTIAL">("ALL");
   const [sort, setSort] = useState<"RANK" | "NAME" | "START">("RANK");
   const [stale, setStale] = useState(false);
+  // Aufklappzustände bleiben beim Aktualisieren erhalten.
+  const [open, setOpen] = useState({ more: false, questions: false, players: false, info: false });
+  const toggle = (key: keyof typeof open) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const isOpen = event.currentTarget.open;
+    setOpen((current) => current[key] === isOpen ? current : { ...current, [key]: isOpen });
+  };
   const refresh = useCallback(async () => {
     const result = await cloud.asyncPublicationResults(publicationId);
     setResults(result); setError(""); setStale(false);
@@ -463,34 +556,67 @@ function AsyncAdminResultsPage() {
       setResults((current) => {
         if (!current) return current;
         const seen = new Set(current.participants.map((player) => player.attemptId));
-        return { ...next, participants: [...current.participants, ...next.participants.filter((player) => !seen.has(player.attemptId))] };
+        return { ...next, leaders: current.leaders,
+          participants: [...current.participants, ...next.participants.filter((player) => !seen.has(player.attemptId))] };
       });
     } catch (caught) { setError(message(caught)); } finally { setRefreshing(false); }
   }
+  const rule = scoringRuleOf(results);
+  const leaders = results ? results.leaders ?? [...results.participants].sort((left, right) => left.rank - right.rank).slice(0, 5) : [];
+  const leaderIds = new Set(leaders.map((player) => player.attemptId));
+  const total = results ? results.totalParticipants ?? results.participantCount : 0;
+  const others = results ? results.participants.filter((player) => !leaderIds.has(player.attemptId))
+    .sort((left, right) => left.rank - right.rank || left.displayName.localeCompare(right.displayName, "de")) : [];
+  const moreCount = Math.max(0, total - leaders.length);
+  const pagination = results && <>
+    {stale && <p className="error-banner" role="status">Die Ergebnisse haben sich inzwischen geändert. Bitte neu laden,
+      damit die Ränge über alle Seiten konsistent sind. <button className="button secondary small" disabled={refreshing}
+        onClick={() => void reload()}>Neu laden</button></p>}
+    {results.nextCursor && !stale && <button className="button secondary" disabled={refreshing} onClick={() => void loadMore()}>
+      {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
+    </button>}
+  </>;
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <ErrorBanner error={error} />
-    {loading ? <p>Ergebnisse werden geladen …</p> : !results ? <p>Ergebnisse nicht verfügbar.</p> : <>
-      <div className="section-heading"><div><span className="eyebrow">QUIZ PER LINK</span><h1>{results.title}</h1>
-        <p>{results.isFinal ? "Endergebnis" : "Vorläufiger Stand – weitere Antworten sind möglich"} ·
-          {results.participantCount} von {results.maxParticipants} gestartet · {results.completedCount} abgeschlossen · {results.partialCount} unvollständig</p>
-        <p>Status: {results.status === "ACTIVE" ? "Aktiv" : results.status === "ENDED" ? "Vorzeitig beendet" : "Abgelaufen"}</p>
-        <p>Veröffentlicht: {formatDateTimeInZone(results.createdAt, results.timeZone)} ·
-          Deadline: {formatDateTimeInZone(results.expiresAt, results.timeZone)} ({results.timeZone})
-          {results.endedAt && results.endedAt !== results.expiresAt &&
-            ` · Tatsächliches Ende: ${formatDateTimeInZone(results.endedAt, results.timeZone)}`}</p>
-        <p>Aktualisiert: {new Date(results.updatedAt).toLocaleString("de-DE")}</p></div>
-        <button className="button secondary" disabled={refreshing} onClick={() => void reload()}>{refreshing ? "Wird aktualisiert …" : "Aktualisieren"}</button></div>
-      <section><h2>Auswertung je Frage</h2><div className="grid">
-        {results.questions.map((question) => <article className="card" key={question.questionIndex}>
-          <h3>Frage {question.questionIndex + 1}: {question.text}</h3>
-          <p>{question.answeredCount} Antworten · {results.participantCount - question.answeredCount} nicht beantwortet</p>
-          {question.answeredCount === 0 ? <p>Noch keine Antworten.</p> : question.options.map((option) =>
-            <p key={option.id} className={option.correct ? "async-correct-option" : ""}>{option.text}: {option.count} (
-              {Math.round(option.count / question.answeredCount * 100)}%){option.correct && " · richtig"}</p>)}
-        </article>)}
-      </div></section>
-      <section><h2>Teilnehmer und Rang</h2>
-        <p className="hint">Rangfolge nach Punkten; bei Gleichstand alphabetisch nach Spielname. Im eigenen Tempo gibt es kein Zeitlimit pro Frage und keine Geschwindigkeitspunkte.</p>
+    {loading ? <p>Ergebnisse werden geladen …</p> : !results ? <p>Ergebnisse nicht verfügbar.</p> : <div className="async-admin-results">
+      <div className="async-admin-head">
+        <div><span className="eyebrow">QUIZ PER LINK</span><h1>{results.title}</h1></div>
+        <span className={`badge async-status-${results.status.toLowerCase()}`}>{asyncStatusText(results.status)}</span>
+        <button className="button secondary small" disabled={refreshing} onClick={() => void reload()}>
+          {refreshing ? "Wird aktualisiert …" : "Aktualisieren"}</button>
+      </div>
+      <section className="card async-leaders" aria-labelledby="async-leaders-title">
+        <div className="async-leaders-head">
+          <h2 id="async-leaders-title">{results.isFinal ? "Gewinner · Endergebnis" : "Aktuelle Top 5"}</h2>
+          {!results.isFinal && <span className="badge">Vorläufig</span>}
+        </div>
+        {leaders.length === 0 ? <p className="hint">Noch keine Teilnahmen. Sobald jemand startet, erscheint hier die Rangliste.</p> :
+          <ol className="async-leader-list">{leaders.map((player) =>
+            <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>}
+        {moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
+          <summary>Weitere Platzierungen anzeigen ({moreCount})</summary>
+          <ol className="async-leader-list">{others.map((player) =>
+            <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>
+          {pagination}
+        </details>}
+      </section>
+      <p className="async-summary-line">{results.participantCount} von {results.maxParticipants} gestartet ·
+        {" "}{results.completedCount} abgeschlossen · {results.partialCount} unvollständig ·
+        {" "}{results.isFinal ? "Endergebnis" : "weitere Antworten möglich"}</p>
+      <details className="card async-admin-section" open={open.questions} onToggle={toggle("questions")}>
+        <summary><h2>Fragenauswertung</h2></summary>
+        <div className="grid">
+          {results.questions.map((question) => <article className="async-question-stat" key={question.questionIndex}>
+            <h3>Frage {question.questionIndex + 1}: {question.text}</h3>
+            <p>{question.answeredCount} Antworten · {results.participantCount - question.answeredCount} nicht beantwortet</p>
+            {question.answeredCount === 0 ? <p>Noch keine Antworten.</p> : question.options.map((option) =>
+              <p key={option.id} className={option.correct ? "async-correct-option" : ""}>{option.text}: {option.count} (
+                {Math.round(option.count / question.answeredCount * 100)}%){option.correct && " · richtig"}</p>)}
+          </article>)}
+        </div>
+      </details>
+      <details className="card async-admin-section" open={open.players} onToggle={toggle("players")}>
+        <summary><h2>Teilnehmerdetails</h2></summary>
         <div className="actions">
           <label className="field">Anzeigen
             <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
@@ -503,7 +629,7 @@ function AsyncAdminResultsPage() {
         </div>
         {filter !== "ALL" && <p className="hint">Die Ränge beziehen sich immer auf alle Teilnahmen.</p>}
         {results.participants.length === 0 ? <p>Noch keine Teilnehmer.</p> :
-        <div className="grid">{results.participants
+        <div className="grid">{[...results.participants]
           .filter((player) => filter === "ALL" || (filter === "COMPLETED") === (player.status === "COMPLETED"))
           .sort((left, right) => sort === "NAME" ? left.displayName.localeCompare(right.displayName, "de")
             : sort === "START" ? left.startedAt - right.startedAt : left.rank - right.rank)
@@ -511,12 +637,10 @@ function AsyncAdminResultsPage() {
           const correctCount = player.answers.filter((answer) => answer.correct).length;
           const wrongCount = player.answers.length - correctCount;
           const answerByIndex = new Map(player.answers.map((answer) => [answer.questionIndex, answer]));
-          return <details className="card async-result-player"
-          key={player.attemptId}><summary>
+          return <details className="async-result-player" key={player.attemptId}><summary>
             <span className="async-player-identity"><Avatar avatarId={player.avatarId} />
               <strong>Rang {player.rank} · {player.displayName}</strong></span>
-            <span>{player.points}/{player.questionCount} Punkte · {player.status === "COMPLETED" ? "abgeschlossen" :
-              player.status === "IN_PROGRESS" ? "in Bearbeitung" : "Frist abgelaufen"}</span>
+            <span>{rule ? `${pointsText(player.points)} Punkte` : `${player.points}/${player.questionCount} Punkte`} · {attemptStatusText(player.status)}</span>
             <span>{correctCount} richtig · {wrongCount} falsch · {player.questionCount - player.answers.length} nicht beantwortet</span>
             <span>Start: {formatDateTimeInZone(player.startedAt, results.timeZone)}
               {player.completedAt ? ` · Abschluss: ${formatDateTimeInZone(player.completedAt, results.timeZone)}` : ""}</span>
@@ -528,17 +652,26 @@ function AsyncAdminResultsPage() {
             const option = question.options.find((item) => item.id === answer.choiceId);
             return <li key={question.questionIndex}><strong>{question.text}</strong><p>Antwort: {option?.text ?? "Unbekannt"}
               {answer.correct ? " · richtig" : ` · falsch (richtig: ${correct?.text ?? "unbekannt"})`}</p>
-              <p>{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
+              {rule && <p className="async-score-line">Grundpunkte {pointsText(answer.basePoints ?? 0)} · Tempo-Bonus {pointsText(answer.bonusPoints ?? 0)} ·
+                Gesamt <strong>{pointsText(answer.points ?? 0)}</strong>
+                {answer.elapsedMs != null && ` · Antwortzeit ${secondsText(answer.elapsedMs)}`}</p>}
+              <p className="hint">{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
           })}</ol></details>;
         })}</div>}
-        {stale && <p className="error-banner" role="status">Die Ergebnisse haben sich inzwischen geändert. Bitte neu laden,
-          damit die Ränge über alle Seiten konsistent sind. <button className="button secondary small" disabled={refreshing}
-            onClick={() => void reload()}>Neu laden</button></p>}
-        {results.nextCursor && !stale && <button className="button secondary" disabled={refreshing} onClick={() => void loadMore()}>
-          {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
-        </button>}
-      </section>
-    </>}
+        {!open.more && pagination}
+      </details>
+      <details className="card async-admin-section" open={open.info} onToggle={toggle("info")}>
+        <summary><h2>Quizinformationen</h2></summary>
+        <p>Veröffentlicht: {formatDateTimeInZone(results.createdAt, results.timeZone)} ·
+          Deadline: {formatDateTimeInZone(results.expiresAt, results.timeZone)} ({results.timeZone})
+          {results.endedAt && results.endedAt !== results.expiresAt &&
+            ` · Tatsächliches Ende: ${formatDateTimeInZone(results.endedAt, results.timeZone)}`}</p>
+        <p>Aktualisiert: {new Date(results.updatedAt).toLocaleString("de-DE")}</p>
+        <p>{rule ? `Wertung: ${pointsText(rule.basePoints)} Grundpunkte je richtiger Antwort plus bis zu ${pointsText(rule.maxBonusPoints)} Punkte Tempo-Bonus, linear fallend in den ersten ${Math.round(rule.bonusWindowMs / 1000)} Sekunden ab serverseitiger Freigabe der Frage. Kein hartes Zeitlimit pro Frage.`
+          : "Wertung: ein Punkt je richtiger Antwort (ältere Veröffentlichung ohne Tempo-Bonus)."}</p>
+        <p className="hint">Gleich viele Punkte ergeben denselben Rang. Innerhalb eines Gleichstands wird nur zur Anzeige alphabetisch nach Spielname sortiert.</p>
+      </details>
+    </div>}
   </Layout>;
 }
 

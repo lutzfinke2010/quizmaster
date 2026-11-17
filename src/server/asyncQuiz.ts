@@ -12,6 +12,7 @@ import { QuizStore } from "./quizStore";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 import { batchGetAll, mapWithConcurrency } from "./batchGet";
 import { ASYNC_MAX_DURATION_MS, ASYNC_MAX_DURATION_DAYS } from "../domain/limits";
+import { ASYNC_LEGACY_SCORING, ASYNC_SPEED_V1, scoreAsyncSpeedAnswer, type AsyncScoringRule } from "../domain/scoring";
 
 const uuidSchema = z.string().uuid();
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -49,6 +50,13 @@ const publicationSchema = z.object({
   // Ab statsVersion 1 werden Abschlüsse und Antwortverteilung beim Antworten aggregiert (keine Vollscans beim Lesen).
   statsVersion: z.literal(1).optional(),
   completedCount: z.number().int().nonnegative().optional(),
+  // Fehlt bei historischen Runden: dann gilt die Legacy-Wertung (1 Punkt je richtiger Antwort), keine Umwertung.
+  scoringVersion: z.literal(ASYNC_SPEED_V1.version).optional(),
+  scoring: z.object({
+    basePoints: z.number().int().positive().max(1_000_000),
+    maxBonusPoints: z.number().int().nonnegative().max(1_000_000),
+    bonusWindowMs: z.number().int().positive().max(86_400_000),
+  }).optional(),
 });
 type Publication = z.infer<typeof publicationSchema> & { optionCounts?: Map<string, number> };
 const statPattern = /^stat_(\d{3})_(a[0-7])$/;
@@ -57,7 +65,14 @@ const statAttribute = (questionIndex: number, choiceId: string) => `stat_${Strin
 const answerRecordSchema = z.object({
   questionIndex: z.number().int().nonnegative(), choiceId: z.string().regex(/^a[0-7]$/),
   acceptedAt: z.number().int().positive(),
+  // Nur ASYNC_SPEED_V1: bei Annahme serverseitig berechnete, danach unveränderliche Wertung.
+  questionStartedAt: z.number().int().positive().optional(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  basePoints: z.number().int().nonnegative().optional(),
+  bonusPoints: z.number().int().nonnegative().optional(),
+  points: z.number().int().nonnegative().optional(),
 });
+type AnswerRecord = z.infer<typeof answerRecordSchema>;
 const attemptSchema = z.object({
   identityHash: z.string().regex(/^[a-f0-9]{64}$/),
   displayName: z.string().min(1).max(80),
@@ -67,10 +82,44 @@ const attemptSchema = z.object({
   status: z.enum(["IN_PROGRESS", "COMPLETED"]),
   completedAt: z.number().int().positive().optional(),
   points: z.number().int().nonnegative().optional(),
+  // Nur ASYNC_SPEED_V1: serverseitiger Start der aktuell freigegebenen Frage dieses Versuchs.
+  currentQuestionIndex: z.number().int().nonnegative().optional(),
+  currentQuestionStartedAt: z.number().int().positive().optional(),
 });
 type Attempt = z.infer<typeof attemptSchema>;
 const maxStartAttempts = 20;
 
+
+function scoringRuleOf(publication: Publication): AsyncScoringRule {
+  if (publication.scoringVersion !== ASYNC_SPEED_V1.version) return ASYNC_LEGACY_SCORING;
+  return { version: ASYNC_SPEED_V1.version, ...(publication.scoring ?? ASYNC_SPEED_V1) };
+}
+
+function isSpeedScoring(publication: Publication): boolean {
+  return publication.scoringVersion === ASYNC_SPEED_V1.version;
+}
+
+function scoringInfo(publication: Publication) {
+  const rule = scoringRuleOf(publication);
+  return { scoringVersion: rule.version, basePoints: rule.basePoints, maxBonusPoints: rule.maxBonusPoints,
+    bonusWindowMs: rule.bonusWindowMs };
+}
+
+/** Gespeicherter Fragebeginn der aktuellen Frage – nur gültig, wenn er genau zu dieser Frage gehört. */
+function questionStartOf(attempt: Attempt, questionIndex: number): number | null {
+  return attempt.currentQuestionIndex === questionIndex && attempt.currentQuestionStartedAt !== undefined
+    ? attempt.currentQuestionStartedAt : null;
+}
+
+function questionPayload(publication: Publication, questionIndex: number, startedAt: number | null) {
+  const question = publication.snapshot.questions[questionIndex];
+  return {
+    questionIndex,
+    text: question.text,
+    answers: question.answers.map((answer, index) => ({ id: `a${index}`, text: answer.text })),
+    startedAt,
+  };
+}
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -131,6 +180,7 @@ function metadata(publication: Publication, now: number) {
     endedAt: publication.endedAt ?? (status === "EXPIRED" ? publication.expiresAt : null),
     maxParticipants: publication.maxParticipants,
     serverTime: now,
+    ...scoringInfo(publication),
   };
 }
 
@@ -191,6 +241,9 @@ export async function publishAsyncQuiz(
     publicationId, ownerId, quizId: input.quizId, title: snapshot.title, snapshot,
     status: "ACTIVE", tokenHash, createdAt, expiresAt: input.expiresAt, timeZone: input.timeZone,
     retentionAt, retentionDays, maxParticipants, startedCount: 0, statsVersion: 1, completedCount: 0,
+    scoringVersion: ASYNC_SPEED_V1.version,
+    scoring: { basePoints: ASYNC_SPEED_V1.basePoints, maxBonusPoints: ASYNC_SPEED_V1.maxBonusPoints,
+      bonusWindowMs: ASYNC_SPEED_V1.bonusWindowMs },
   };
   const idempotency = { ...requestKey, publicationId, token, expiresAt: input.expiresAt, timeZone: input.timeZone,
     retentionAt, retentionDays, maxParticipants, requestHash,
@@ -267,7 +320,7 @@ async function getAttempt(
 
 async function listAttemptAnswers(
   client: DynamoDBDocumentClient, tableName: string, publicationId: string, identity: string,
-): Promise<z.infer<typeof answerRecordSchema>[]> {
+): Promise<AnswerRecord[]> {
   const result = await client.send(new QueryCommand({
     TableName: tableName, ConsistentRead: true,
     KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
@@ -277,14 +330,29 @@ async function listAttemptAnswers(
     .sort((left, right) => left.questionIndex - right.questionIndex);
 }
 
-function guestState(publication: Publication, attempt: Attempt, answers: z.infer<typeof answerRecordSchema>[], now: number) {
+function correctChoiceIdOf(publication: Publication, questionIndex: number): string {
+  return `a${publication.snapshot.questions[questionIndex].answers.findIndex((choice) => choice.correct)}`;
+}
+
+/** Punkte einer gespeicherten Antwort gemäß der Wertungsregel ihrer Veröffentlichung (keine Neuberechnung bei V1). */
+function answerScore(publication: Publication, answer: AnswerRecord) {
+  const correct = answer.choiceId === correctChoiceIdOf(publication, answer.questionIndex);
+  if (!isSpeedScoring(publication)) {
+    return { correct, points: correct ? 1 : 0, basePoints: correct ? 1 : 0, bonusPoints: 0, elapsedMs: null };
+  }
+  return { correct, points: answer.points ?? 0, basePoints: answer.basePoints ?? 0, bonusPoints: answer.bonusPoints ?? 0,
+    elapsedMs: answer.elapsedMs ?? null };
+}
+
+function guestState(publication: Publication, attempt: Attempt, answers: AnswerRecord[], now: number) {
   const roundStatus = statusOf(publication, now);
   const complete = attempt.answeredCount === publication.snapshot.questions.length;
   const nextIndex = complete ? -1 : attempt.answeredCount;
   const question = roundStatus === "ACTIVE" && nextIndex >= 0
-    ? publication.snapshot.questions[nextIndex] : null;
+    ? questionPayload(publication, nextIndex, questionStartOf(attempt, nextIndex)) : null;
   const resultAvailable = roundStatus !== "ACTIVE";
   const answerByQuestion = new Map(answers.map((answer) => [answer.questionIndex, answer]));
+  const hidden = { points: null, basePoints: null, bonusPoints: null, elapsedMs: null };
   return {
     ...metadata(publication, now),
     displayName: attempt.displayName,
@@ -295,9 +363,10 @@ function guestState(publication: Publication, attempt: Attempt, answers: z.infer
     nextQuestionIndex: nextIndex,
     answers: answers.map((answer) => {
       const question = publication.snapshot.questions[answer.questionIndex];
-      const correctChoiceId = `a${question.answers.findIndex((choice) => choice.correct)}`;
+      const correctChoiceId = correctChoiceIdOf(publication, answer.questionIndex);
       const selectedChoice = question.answers[Number(answer.choiceId.slice(1))];
       const correctChoice = question.answers[Number(correctChoiceId.slice(1))];
+      const { correct: _correct, ...score } = answerScore(publication, answer);
       return {
         questionIndex: answer.questionIndex, choiceId: answer.choiceId, acceptedAt: answer.acceptedAt,
         correct: resultAvailable ? answer.choiceId === correctChoiceId : null,
@@ -306,21 +375,18 @@ function guestState(publication: Publication, attempt: Attempt, answers: z.infer
         questionText: resultAvailable ? question.text : null,
         selectedText: resultAvailable ? selectedChoice.text : null,
         correctText: resultAvailable ? correctChoice.text : null,
+        // Vor Quizende würde schon der Punktwert die Richtigkeit verraten.
+        ...(resultAvailable ? score : hidden),
       };
     }),
-    question: question ? {
-      questionIndex: nextIndex,
-      text: question.text,
-      answers: question.answers.map((answer, index) => ({ id: `a${index}`, text: answer.text })),
-    } : null,
-    points: resultAvailable ? answers.reduce((sum, answer) => {
-      const question = publication.snapshot.questions[answer.questionIndex];
-      return sum + (answer.choiceId === `a${question.answers.findIndex((choice) => choice.correct)}` ? 1 : 0);
-    }, 0) : null,
+    question,
+    points: resultAvailable ? answers.reduce((sum, answer) => sum + answerScore(publication, answer).points, 0) : null,
     results: resultAvailable ? publication.snapshot.questions.map((resultQuestion, questionIndex) => {
       const answer = answerByQuestion.get(questionIndex);
       const correctIndex = resultQuestion.answers.findIndex((choice) => choice.correct);
       const selectedIndex = answer ? Number(answer.choiceId.slice(1)) : -1;
+      const score = answer ? answerScore(publication, answer)
+        : { points: 0, basePoints: 0, bonusPoints: 0, elapsedMs: null };
       return {
         questionIndex,
         questionText: resultQuestion.text,
@@ -330,9 +396,42 @@ function guestState(publication: Publication, attempt: Attempt, answers: z.infer
         correct: answer ? selectedIndex === correctIndex : null,
         explanation: resultQuestion.explanation,
         acceptedAt: answer?.acceptedAt ?? null,
+        points: score.points, basePoints: score.basePoints, bonusPoints: score.bonusPoints, elapsedMs: score.elapsedMs,
       };
     }) : [],
   };
+}
+
+/**
+ * ASYNC_SPEED_V1: Stellt sicher, dass die aktuell freigegebene Frage einen persistierten Startzeitpunkt hat.
+ * Setzt ihn nur, wenn er für diese Frage noch fehlt – Refresh, zweiter Tab oder erneutes Abrufen setzen ihn nie zurück.
+ */
+async function ensureQuestionStart(
+  client: DynamoDBDocumentClient, tableName: string, publication: Publication, attempt: Attempt,
+): Promise<Attempt> {
+  const questionIndex = attempt.answeredCount;
+  if (!isSpeedScoring(publication) || attempt.status !== "IN_PROGRESS" ||
+      questionIndex >= publication.snapshot.questions.length || questionStartOf(attempt, questionIndex) !== null) {
+    return attempt;
+  }
+  const startedAt = Date.now();
+  if (statusOf(publication, startedAt) !== "ACTIVE") return attempt;
+  const key = { pk: `ASYNC#${publication.publicationId}`, sk: `ATTEMPT#${attempt.identityHash}` };
+  try {
+    await client.send(new UpdateCommand({
+      TableName: tableName, Key: key,
+      UpdateExpression: "SET currentQuestionIndex = :index, currentQuestionStartedAt = :startedAt",
+      ConditionExpression: "#status = :progress AND answeredCount = :index AND " +
+        "(attribute_not_exists(currentQuestionIndex) OR currentQuestionIndex <> :index)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":index": questionIndex, ":startedAt": startedAt, ":progress": "IN_PROGRESS" },
+    }));
+    return { ...attempt, currentQuestionIndex: questionIndex, currentQuestionStartedAt: startedAt };
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
+    const latest = await client.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }));
+    return latest.Item ? attemptSchema.parse(latest.Item) : attempt;
+  }
 }
 
 export async function startAsyncQuiz(
@@ -355,6 +454,8 @@ export async function startAsyncQuiz(
       if (startedAt >= publication.expiresAt) throw new Error("Diese Quizrunde ist beendet. Ein neuer Versuch ist nicht mehr möglich.");
       const item: Attempt = {
         identityHash: identity, displayName, avatarId: avatar.id, startedAt, answeredCount: 0, status: "IN_PROGRESS",
+        // Der tatsächliche Quizstart (nicht der bloße Linkaufruf) gibt Frage 1 frei und startet ihren Bonus-Timer.
+        ...(isSpeedScoring(publication) ? { currentQuestionIndex: 0, currentQuestionStartedAt: startedAt } : {}),
       };
       const ttl = Math.ceil(publication.retentionAt / 1000);
       try {
@@ -389,6 +490,7 @@ export async function startAsyncQuiz(
     }
     if (!attempt) throw new Error("Es konnte kein eindeutiger Spielname vergeben werden.");
   }
+  attempt = await ensureQuestionStart(client, tableName, publication, attempt);
   const answers = await listAttemptAnswers(client, tableName, publication.publicationId, identity);
   return guestState(publication, attempt, answers, Date.now());
 }
@@ -399,12 +501,42 @@ export async function getMyAsyncState(
   assertTime(now);
   const publication = await resolveToken(client, tableName, token, now);
   const identity = identityHash(identityId);
-  const attempt = await getAttempt(client, tableName, publication, identityId);
-  if (!attempt) return null;
+  const stored = await getAttempt(client, tableName, publication, identityId);
+  if (!stored) return null;
+  const attempt = await ensureQuestionStart(client, tableName, publication, stored);
   const answers = await listAttemptAnswers(client, tableName, publication.publicationId, identity);
   const serverTime = Date.now();
   if (publication.retentionAt <= serverTime) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
   return guestState(publication, attempt, answers, serverTime);
+}
+
+/**
+ * Antwortbestätigung inklusive des danach bestätigten Fortschritts: Die nächste freigegebene Frage samt
+ * serverseitigem Startzeitpunkt kommt direkt mit, damit der Client ohne Zwischenseite weiterschalten kann.
+ */
+function answerReceipt(publication: Publication, attempt: Attempt, answeredQuestionIndex: number, acceptedAt: number) {
+  const serverTime = Date.now();
+  const roundStatus = statusOf(publication, serverTime);
+  const questionCount = publication.snapshot.questions.length;
+  const complete = attempt.answeredCount >= questionCount;
+  const nextIndex = complete ? -1 : attempt.answeredCount;
+  const question = nextIndex >= 0 && roundStatus === "ACTIVE" && attempt.status === "IN_PROGRESS"
+    ? questionPayload(publication, nextIndex, questionStartOf(attempt, nextIndex)) : null;
+  return {
+    acceptedAt, answeredCount: attempt.answeredCount, questionIndex: answeredQuestionIndex,
+    attemptStatus: complete ? "COMPLETED" : roundStatus === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
+    status: roundStatus, nextQuestionIndex: nextIndex, question, serverTime,
+  };
+}
+
+async function confirmedReceipt(
+  client: DynamoDBDocumentClient, tableName: string, publication: Publication, attemptKey: { pk: string; sk: string },
+  answeredQuestionIndex: number, acceptedAt: number,
+) {
+  const latest = await client.send(new GetCommand({ TableName: tableName, Key: attemptKey, ConsistentRead: true }));
+  if (!latest.Item) throw new Error("Kein eigener Quizversuch gefunden.");
+  const attempt = await ensureQuestionStart(client, tableName, publication, attemptSchema.parse(latest.Item));
+  return answerReceipt(publication, attempt, answeredQuestionIndex, acceptedAt);
 }
 
 export async function submitAsyncAnswer(
@@ -430,25 +562,43 @@ export async function submitAsyncAnswer(
     if (publication.retentionAt <= Date.now()) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
     const saved = answerRecordSchema.parse(prior.Item);
     if (saved.choiceId !== input.choiceId) throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
-    return { acceptedAt: saved.acceptedAt, answeredCount: attempt.answeredCount };
+    // Idempotenter Retry: gespeicherter Annahmezeitpunkt und gespeicherte Punkte bleiben unverändert.
+    return answerReceipt(publication, await ensureQuestionStart(client, tableName, publication, attempt),
+      input.questionIndex, saved.acceptedAt);
   }
   if (statusOf(publication, now) !== "ACTIVE") throw new Error("Die Quizfrist ist abgelaufen. Es werden keine neuen Antworten angenommen.");
   if (input.questionIndex !== attempt.answeredCount) throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
+  const speed = isSpeedScoring(publication);
+  const questionStartedAt = questionStartOf(attempt, input.questionIndex);
+  // Ohne gespeicherten Fragebeginn wird keine Antwortzeit erfunden; der Client lädt den Stand neu (setzt den Start).
+  if (speed && questionStartedAt === null) {
+    throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
+  }
   const acceptedAt = Date.now();
   const completed = input.questionIndex === answers.length - 1;
   const correct = input.choiceId === `a${question.answers.findIndex((choice) => choice.correct)}`;
+  const score = speed && questionStartedAt !== null
+    ? scoreAsyncSpeedAnswer(correct, questionStartedAt, acceptedAt, scoringRuleOf(publication)) : null;
   const answer = { ...answerKey, questionIndex: input.questionIndex, choiceId: input.choiceId, acceptedAt,
+    ...(score ? { questionStartedAt, elapsedMs: score.elapsedMs, basePoints: score.basePoints,
+      bonusPoints: score.bonusPoints, points: score.points } : {}),
     ttl: Math.ceil(publication.retentionAt / 1000) };
+  // ASYNC_SPEED_V1: Die Folgefrage wird atomar mit dem bestätigten Fortschritt freigegeben (Start = Annahmezeitpunkt).
+  const setParts = completed ? ["#status = :completed", "completedAt = :now"]
+    : ["#status = :progress", ...(speed ? ["currentQuestionIndex = :nextIndex", "currentQuestionStartedAt = :nextStart"] : [])];
   try {
     await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: tableName, Key: attemptKey,
-        UpdateExpression: completed ? "SET #status = :completed, completedAt = :now ADD answeredCount :one, points :points"
-          : "SET #status = :progress ADD answeredCount :one, points :points",
-        ConditionExpression: "#status = :progress AND answeredCount = :index",
+        UpdateExpression: `SET ${setParts.join(", ")} ADD answeredCount :one, points :points`,
+        ConditionExpression: "#status = :progress AND answeredCount = :index" +
+          (speed ? " AND currentQuestionIndex = :index AND currentQuestionStartedAt = :questionStart" : ""),
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
-          ":progress": "IN_PROGRESS", ":one": 1, ":index": input.questionIndex, ":points": correct ? 1 : 0,
+          ":progress": "IN_PROGRESS", ":one": 1, ":index": input.questionIndex,
+          ":points": score ? score.points : correct ? 1 : 0,
           ...(completed ? { ":completed": "COMPLETED", ":now": acceptedAt } : {}),
+          ...(speed ? { ":questionStart": questionStartedAt } : {}),
+          ...(speed && !completed ? { ":nextIndex": input.questionIndex + 1, ":nextStart": acceptedAt } : {}),
         } } },
       // Aggregierte Antwortverteilung und Abschlusszähler; Async-Runden haben geringe Schreibraten je Veröffentlichung.
       { Update: { TableName: tableName, Key: publicationKey(publication.publicationId),
@@ -464,7 +614,9 @@ export async function submitAsyncAnswer(
     const retry = await client.send(new GetCommand({ TableName: tableName, Key: answerKey, ConsistentRead: true }));
     if (retry.Item) {
       const saved = answerRecordSchema.parse(retry.Item);
-      if (saved.choiceId === input.choiceId) return { acceptedAt: saved.acceptedAt, answeredCount: attempt.answeredCount + 1 };
+      if (saved.choiceId === input.choiceId) {
+        return confirmedReceipt(client, tableName, publication, attemptKey, input.questionIndex, saved.acceptedAt);
+      }
       throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
     }
     const current = await client.send(new GetCommand({
@@ -480,7 +632,11 @@ export async function submitAsyncAnswer(
     }
     throw new Error("Die Antwort wurde nicht bestätigt. Bitte versuche es erneut.");
   }
-  return { acceptedAt, answeredCount: input.questionIndex + 1 };
+  const confirmed: Attempt = {
+    ...attempt, answeredCount: input.questionIndex + 1, status: completed ? "COMPLETED" : "IN_PROGRESS",
+    ...(speed && !completed ? { currentQuestionIndex: input.questionIndex + 1, currentQuestionStartedAt: acceptedAt } : {}),
+  };
+  return answerReceipt(publication, confirmed, input.questionIndex, acceptedAt);
 }
 
 async function queryAll(
@@ -680,7 +836,7 @@ export async function getAsyncPublicationResults(
   const questionCount = publication.snapshot.questions.length;
   const aggregated = publication.statsVersion === 1;
   // Ältere Veröffentlichungen ohne Aggregate: alle Antworten einmalig laden (Rückwärtskompatibilität).
-  const legacyAnswers = new Map<string, z.infer<typeof answerRecordSchema>[]>();
+  const legacyAnswers = new Map<string, AnswerRecord[]>();
   if (!aggregated) {
     for (const rawAnswer of await queryAll(client, tableName, `ASYNC#${input.publicationId}`, "ANSWER#")) {
       const match = /^ANSWER#([a-f0-9]{64})#/.exec(String(rawAnswer.sk));
@@ -690,7 +846,7 @@ export async function getAsyncPublicationResults(
       legacyAnswers.set(match[1], list);
     }
   }
-  const isCorrect = (answer: z.infer<typeof answerRecordSchema>) => answer.choiceId ===
+  const isCorrect = (answer: AnswerRecord) => answer.choiceId ===
     `a${publication.snapshot.questions[answer.questionIndex].answers.findIndex((choice) => choice.correct)}`;
   if (aggregated) {
     for (const question of answers) {
@@ -721,7 +877,6 @@ export async function getAsyncPublicationResults(
       status: complete ? "COMPLETED" : statusOf(publication, now) === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
       points: aggregated ? attempt.points ?? 0 : legacy.filter(isCorrect).length,
       rank: 0,
-      answers: [] as Array<{ questionIndex: number; choiceId: string; acceptedAt: number; correct: boolean }>,
     };
   });
   // Gleichstand: alphabetisch nach Spielname, danach stabile Versuchskennung (siehe README „Quiz per Link“).
@@ -747,12 +902,18 @@ export async function getAsyncPublicationResults(
       ? await listAttemptAnswers(client, tableName, publication.publicationId, player.identityHash)
       : (legacyAnswers.get(player.identityHash) ?? []).sort((left, right) => left.questionIndex - right.questionIndex);
     const { identityHash: _identity, ...visible } = player;
-    return { ...visible, answers: list.map((answer) => ({ questionIndex: answer.questionIndex, choiceId: answer.choiceId,
-      acceptedAt: answer.acceptedAt, correct: isCorrect(answer) })) };
+    return { ...visible, answers: list.map((answer) => {
+      const { correct: _correct, ...score } = answerScore(publication, answer);
+      return { questionIndex: answer.questionIndex, choiceId: answer.choiceId, acceptedAt: answer.acceptedAt,
+        correct: isCorrect(answer), ...score };
+    }) };
   });
+  // Globale Top 5 unabhängig von der angeforderten Seite (Einzelantworten bleiben den Teilnehmerseiten vorbehalten).
+  const leaders = players.slice(0, 5).map(({ identityHash: _identity, ...visible }) => ({ ...visible, answers: [] }));
   return {
-    ...summary, token: undefined, updatedAt: resultTime, isFinal: statusOf(publication, resultTime) !== "ACTIVE",
-    questions: answers, participants: participantPage,
+    ...summary, ...scoringInfo(publication), token: undefined, updatedAt: resultTime,
+    isFinal: statusOf(publication, resultTime) !== "ACTIVE",
+    questions: answers, participants: participantPage, leaders, totalParticipants: players.length,
     nextCursor: offset + participantPage.length < players.length ? String(offset + participantPage.length) : null,
   };
 }
