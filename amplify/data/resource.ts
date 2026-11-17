@@ -79,7 +79,8 @@ const schema = a.schema({
   AsyncGuestState: a.customType({
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
-    retentionAt: a.float().required(), endedAt: a.float(), displayName: a.string().required(), avatarId: a.string().required(),
+    retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
+    displayName: a.string().required(), avatarId: a.string().required(),
     startedAt: a.float().required(), answeredCount: a.integer().required(), attemptStatus: a.string().required(),
     nextQuestionIndex: a.integer().required(), answers: a.ref("AsyncGuestAnswer").array().required(),
     question: a.ref("AsyncQuestion"), points: a.integer(),
