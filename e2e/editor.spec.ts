@@ -97,8 +97,13 @@ test("Vorhandene Entwürfe bleiben bis zur Aktivierung unberührt und werden gez
   await storageToggle.uncheck();
   expect(await page.evaluate(() => localStorage.getItem("quizrush.local-drafts.v1"))).toBe(legacyDrafts);
   await storageToggle.check();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Alle lokalen Entwürfe löschen" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Alle Entwürfe löschen?" });
+  await expect(dialog).toContainText("endgültig gelöscht");
+  await dialog.getByRole("button", { name: "Abbrechen" }).click();
+  expect(await page.evaluate(() => localStorage.getItem("quizrush.local-drafts.v1"))).toBe(legacyDrafts);
+  await page.getByRole("button", { name: "Alle lokalen Entwürfe löschen" }).click();
+  await dialog.getByRole("button", { name: "Alle Entwürfe löschen" }).click();
   await expect(page.getByRole("status")).toContainText("Alle lokalen Quiz-Entwürfe wurden gelöscht");
   expect(await page.evaluate(() => localStorage.getItem("quizrush.local-drafts.v1"))).toBeNull();
   expect(await page.evaluate(() => localStorage.getItem("unrelated-app-data"))).toBe("keep");
@@ -107,12 +112,72 @@ test("Vorhandene Entwürfe bleiben bis zur Aktivierung unberührt und werden gez
 test("Ungespeicherte Änderungen warnen vor interner Navigation", async ({ page }) => {
   await page.goto("/admin/quizzes/new");
   await page.getByLabel("Quiztitel").fill("Noch nicht gespeichert");
-  let warning = "";
-  page.once("dialog", async (dialog) => {
-    warning = dialog.message();
-    await dialog.dismiss();
-  });
-  await page.getByRole("link", { name: "Zur Übersicht" }).click();
-  expect(warning).toContain("Deine Änderungen sind noch nicht gespeichert");
+  const back = page.getByRole("link", { name: "Zur Übersicht" });
+  await back.click();
+  const dialog = page.getByRole("alertdialog", { name: "Änderungen verwerfen?" });
+  await expect(dialog).toContainText("Deine Änderungen sind noch nicht gespeichert");
+  await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(back).toBeFocused();
+  await expect(page.getByLabel("Quiztitel")).toHaveValue("Noch nicht gespeichert");
   await expect(page).toHaveURL(/\/admin\/quizzes\/new$/);
+  await back.click();
+  await dialog.getByRole("button", { name: "Änderungen verwerfen" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("main")).toBeFocused();
+});
+
+for (const width of [320, 1440]) {
+  test(`Löschdialog ist responsiv, hält den Fokus und löscht erst nach Bestätigung (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 });
+    if (width === 320) await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/admin");
+    await page.getByLabel("Gespeicherte Entwürfe anzeigen und lokale Speicherung aktivieren").check();
+    await page.getByRole("button", { name: "Beispielquiz verwenden" }).click();
+    const title = "Ein langer Quiztitel für unsere gemeinsame Feierabendrunde mit Freunden";
+    await page.getByLabel("Quiztitel").fill(title);
+    await page.getByRole("button", { name: "Entwurf speichern" }).click();
+    const trigger = page.getByRole("button", { name: `${title} löschen` });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("alertdialog", { name: "Entwurf löschen?" });
+    const cancel = dialog.getByRole("button", { name: "Abbrechen" });
+    const confirm = dialog.getByRole("button", { name: "Entwurf löschen" });
+    await expect(dialog).toContainText(title);
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(confirm).toBeFocused();
+    await page.mouse.click(4, 4);
+    await expect(dialog).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem("quizrush.local-drafts.v1"))).toContain(title);
+    const box = await dialog.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(720);
+    await page.screenshot({ path: test.info().outputPath(`confirm-delete-${width}.png`), animations: "disabled" });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await confirm.click();
+    await expect(page.getByRole("heading", { name: title })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("quizrush.local-drafts.v1"))).toBe("[]");
+    await expect(page.getByRole("main")).toBeFocused();
+  });
+}
+
+test("Neuladen behält den nativen Schutz ungespeicherter lokaler Änderungen", async ({ page }) => {
+  await page.goto("/admin/quizzes/new");
+  await page.getByLabel("Quiztitel").fill("Noch nicht gespeichert");
+  const warning = page.waitForEvent("dialog");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.reload();
+  expect((await warning).type()).toBe("beforeunload");
+  await expect(page.getByLabel("Quiztitel")).toHaveValue("");
 });

@@ -121,6 +121,7 @@
 .game-view .podium > .podium-player { flex: 0 1 30%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: center; }
 .podium-player > strong { font-size: clamp(.9rem, 1.8vw, 1.4rem); font-weight: 700; }
 .podium-player > span { font-size: .85rem; color: var(--muted); }
+.podium-detail { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 .game-view .podium .avatar { width: 80px; height: 80px; }
 .pedestal { display: grid; place-items: center; height: 85px; width: 100%; border-radius: 16px 16px 0 0; background: var(--game-lilac); font-size: 2.5rem; font-weight: 850; margin-top: 8px; }
 .podium-rank-1 .pedestal { height: 125px; background: var(--lime); }
@@ -258,8 +259,7 @@
 .async-leader-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
 .async-leader-status { grid-area: status; font-size: .75rem; color: var(--muted); }
 .async-leader-points { grid-area: points; font-variant-numeric: tabular-nums; }
-.async-leader.podium { border-color: #c9d79a; background: #f7faea; }
-.async-leader.podium-1 { border-width: 2px; }
+.async-leaders > .button { align-self: flex-start; margin-top: 12px; }
 .async-more { margin-top: 8px; }
 .async-more summary, .async-admin-section > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--teal); font-weight: 750; }
 .async-more summary { text-decoration: underline; text-underline-offset: 4px; }

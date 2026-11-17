@@ -9,6 +9,7 @@ import { CloudApp } from "./CloudApp";
 import { Layout as SharedLayout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 
 function Layout({ children }: { children: React.ReactNode }) {
   return <SharedLayout localMode>{children}</SharedLayout>;
@@ -86,8 +87,11 @@ function Overview({ storageEnabled, onStorageEnabledChange }: {
           onChange={(event) => { setNotice(""); onStorageEnabledChange(event.target.checked); }} />
         Gespeicherte Entwürfe anzeigen und lokale Speicherung aktivieren
       </label>
-      {storageEnabled && <button className="button danger" onClick={() => {
-        if (!window.confirm("Alle lokalen Quiz-Entwürfe auf diesem Gerät löschen?")) return;
+      {storageEnabled && <ConfirmDialog title="Alle Entwürfe löschen?"
+        description="Alle lokalen Quiz-Entwürfe auf diesem Gerät werden endgültig gelöscht. Das lässt sich nicht rückgängig machen."
+        confirmLabel="Alle Entwürfe löschen"
+        trigger={<button className="button danger">Alle lokalen Entwürfe löschen</button>}
+        onConfirm={() => {
         try {
           clearDrafts();
           setDrafts([]);
@@ -95,7 +99,7 @@ function Overview({ storageEnabled, onStorageEnabledChange }: {
           setNotice("Alle lokalen Quiz-Entwürfe wurden gelöscht.");
           onStorageEnabledChange(false);
         } catch (caught) { setError(message(caught)); }
-      }}>Alle lokalen Entwürfe löschen</button>}
+      }} />}
       {notice && <p className="draft-storage-status" role="status">{notice}</p>}
     </section>
     {error && <p className="error-banner" role="alert">{error}</p>}
@@ -112,12 +116,11 @@ function Overview({ storageEnabled, onStorageEnabledChange }: {
           <Link className="button small secondary" to={`/admin/quizzes/${draft.id}`}>Bearbeiten</Link>
           <button className="icon-button" title="Duplizieren" aria-label={`${draft.quiz.title} duplizieren`}
             onClick={() => save([...drafts, newDraft(draft.quiz)])}><Copy size={18} /></button>
-          <button className="icon-button" title="Löschen" aria-label={`${draft.quiz.title} löschen`}
-            onClick={() => {
-              if (window.confirm(`„${draft.quiz.title}“ wirklich löschen?`)) {
-                save(drafts.filter((item) => item.id !== draft.id));
-              }
-            }}><Trash2 size={18} /></button>
+          <ConfirmDialog title="Entwurf löschen?"
+            description={`„${draft.quiz.title}“ wird auf diesem Gerät endgültig gelöscht. Das lässt sich nicht rückgängig machen.`}
+            confirmLabel="Entwurf löschen" onConfirm={() => save(drafts.filter((item) => item.id !== draft.id))}
+            trigger={<button className="icon-button" title="Löschen" aria-label={`${draft.quiz.title} löschen`}>
+              <Trash2 size={18} /></button>} />
         </div>
       </article>)}
       <button className="card add-card" onClick={addExample}><Plus size={22} /> Beispielquiz hinzufügen</button>

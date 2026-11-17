@@ -22,6 +22,7 @@ import { useNoIndex } from "./hooks/useNoIndex";
 import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits";
 import { ASYNC_SPEED_V1, type AsyncScoringRule } from "./domain/scoring";
 import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
 function toLocalInput(timestamp: number): string {
@@ -92,7 +93,10 @@ function AsyncPublicationCard({ publication, busy, onEnd }: {
     </div>
     {active && <details className="async-card-more">
       <summary>Weitere Aktionen</summary>
-      <button type="button" className="button danger small" disabled={busy} onClick={onEnd}>Vorzeitig beenden</button>
+      <ConfirmDialog title="Quizrunde beenden?" variant="warning" confirmLabel="Jetzt beenden"
+        description={`„${publication.title}“ jetzt für alle Teilnehmenden beenden? Offene Teilnahmen enden sofort. Weitere Antworten werden nicht mehr angenommen. Link, QR-Code und Quiz-Code zeigen danach nur noch die Endseite mit Ergebnissen.`}
+        onConfirm={onEnd} confirmDisabled={busy}
+        trigger={<button type="button" className="button danger small" disabled={busy}>Vorzeitig beenden</button>} />
     </details>}
   </article>;
 }
@@ -170,9 +174,11 @@ function Overview() {
           })}>Live-Quiz starten</button>
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}/publish`}>Quizrunde veröffentlichen</Link>
           <button className="button small secondary" disabled={busy} onClick={() => void run(async () => { await cloud.duplicateQuiz(record.quizId); })}>Duplizieren</button>
-          <button className="button small secondary" disabled={busy} onClick={() => {
-            if (window.confirm(`„${record.title}“ wirklich löschen?`)) void run(async () => { await cloud.deleteQuiz(record.quizId, record.version); });
-          }}>Löschen</button>
+          <ConfirmDialog title="Quiz löschen?" confirmLabel="Quiz löschen"
+            description={`„${record.title}“ wird endgültig gelöscht. Das lässt sich nicht rückgängig machen.`}
+            onConfirm={() => void run(async () => { await cloud.deleteQuiz(record.quizId, record.version); })}
+            confirmDisabled={busy}
+            trigger={<button className="button small secondary" disabled={busy}>Löschen</button>} />
         </div></article>)}
       <button className="card add-card" disabled={busy} onClick={() => void run(async () => { await cloud.createQuiz(exampleQuiz); })}>
         <Sparkles size={28} aria-hidden="true" />Beispielquiz hinzufügen<span className="hint">10 Fragen als Starthilfe</span></button>
@@ -197,12 +203,7 @@ function Overview() {
     {asyncPublications.length === 0 ? <p>Noch keine Quizrunden veröffentlicht.</p> : <>
       {activePublications.length === 0 ? <p className="archive-empty">Gerade ist keine Quizrunde aktiv.</p> : <div className="grid async-publication-grid">
         {activePublications.map((publication) => <AsyncPublicationCard key={publication.publicationId} publication={publication}
-          busy={busy} onEnd={() => {
-            if (window.confirm(`„${publication.title}“ jetzt für alle Teilnehmenden beenden? Offene Teilnahmen enden sofort, ` +
-              "weitere Antworten werden nicht mehr angenommen und Link, QR-Code und Quiz-Code zeigen danach nur noch die Endseite mit Ergebnissen.")) {
-              void run(async () => { await cloud.endAsyncPublication(publication.publicationId); });
-            }
-          }} />)}
+          busy={busy} onEnd={() => void run(async () => { await cloud.endAsyncPublication(publication.publicationId); })} />)}
       </div>}
       <ArchiveSection label="Beendete Quizrunden" count={endedPublications.length}>
         {endedPublications.map((publication) => <ArchiveRow key={publication.publicationId} title={publication.title}
@@ -655,7 +656,7 @@ function AsyncQuizPage() {
 const attemptStatusText = (status: string) => status === "COMPLETED" ? "abgeschlossen" : status === "IN_PROGRESS" ? "läuft" : "Frist abgelaufen";
 
 function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncParticipantResult; rule: AsyncScoringRule | null; questionCount: number }) {
-  return <li className={`async-leader${player.rank <= 3 ? ` podium podium-${player.rank}` : ""}`}>
+  return <li className="async-leader">
     <span className="async-leader-rank" aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
     <Avatar avatarId={player.avatarId} />
     <span className="async-leader-name">{player.displayName}</span>
@@ -729,11 +730,9 @@ function AsyncAdminResultsPage() {
       {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
     </button>}
   </>;
-  const morePlacements = results && moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
+  const morePlacements = results?.isFinal && moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
     <summary>Weitere Platzierungen anzeigen ({moreCount})</summary>
-    {results.isFinal ? <Leaderboard players={rankingPlayers(others)} formatPoints={formatPoints} /> :
-      <ol className="async-leader-list">{others.map((player) =>
-        <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>}
+    <Leaderboard players={rankingPlayers(others)} formatPoints={formatPoints} />
     {pagination}
   </details>;
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
@@ -761,15 +760,23 @@ function AsyncAdminResultsPage() {
           {morePlacements}
         </section>
         <p className="game-footnote">{total} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>
-      </div> : <section className="card async-leaders" aria-labelledby="async-leaders-title">
+      </div> : <section className="card game-view async-leaders" aria-labelledby="async-leaders-title">
         <div className="async-leaders-head">
-          <h2 id="async-leaders-title">Aktuelle Top 5</h2>
+          <h2 id="async-leaders-title">Zwischenstand</h2>
           <span className="badge">Vorläufig</span>
         </div>
         {leaders.length === 0 ? <p className="hint">Noch keine Teilnahmen. Sobald jemand startet, erscheint hier die Rangliste.</p> :
-          <ol className="async-leader-list">{leaders.map((player) =>
-            <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}</ol>}
-        {morePlacements}
+          <>
+            <Podium players={rankingPlayers(leaders).map((player) => ({
+              ...player, detail: player.status === "COMPLETED" ? "fertig" : attemptStatusText(player.status),
+            }))}
+              final={false} formatPoints={formatPoints} />
+            {total > 3 && <ol className="async-leader-list" aria-label="Weitere Plätze">
+              {[...leaders.slice(3), ...others].map((player) =>
+                <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}
+            </ol>}
+          </>}
+        {pagination}
       </section>}
       <p className="async-summary-line">{results.participantCount} von {results.maxParticipants} gestartet ·
         {" "}{results.completedCount} abgeschlossen · {results.partialCount} unvollständig ·
@@ -829,7 +836,7 @@ function AsyncAdminResultsPage() {
               <p className="hint">{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
           })}</ol></details>;
         })}</div>}
-        {!open.more && pagination}
+        {results.isFinal && !open.more && pagination}
       </details>
       <details className="card async-admin-section" open={open.info} onToggle={toggle("info")}>
         <summary><h2>Quizinformationen</h2></summary>
@@ -921,9 +928,11 @@ function AdminSession() {
         {state.status === "LEADERBOARD" && state.questionIndex === state.questionCount - 1 && <button className="button primary" disabled={busy}
           onClick={() => void run(() => cloud.transition("finishSession", sessionId, state.version))}>Endstand anzeigen</button>}
         {["FINISHED", "CANCELLED"].includes(state.status) && <Link className="button primary" to="/admin">Zur Quizübersicht</Link>}
-        {!["FINISHED", "CANCELLED"].includes(state.status) && <button className="button danger" disabled={busy}
-          onClick={() => { if (window.confirm("Diese Sitzung wirklich abbrechen?")) void run(() => cloud.transition("cancelSession", sessionId, state.version)); }}>
-          Sitzung abbrechen</button>}
+        {!["FINISHED", "CANCELLED"].includes(state.status) && <ConfirmDialog title="Sitzung abbrechen?" variant="warning"
+          description="Die Live-Runde endet sofort für alle Teilnehmenden und kann nicht fortgesetzt werden."
+          confirmLabel="Sitzung abbrechen" confirmDisabled={busy}
+          onConfirm={() => void run(() => cloud.transition("cancelSession", sessionId, state.version))}
+          trigger={<button className="button danger" disabled={busy}>Sitzung abbrechen</button>} />}
       </aside></div>
     </>}</Layout>;
 }
@@ -936,7 +945,6 @@ function Play() {
 const runningStatuses = ["COUNTDOWN", "QUESTION_OPEN", "QUESTION_CLOSED", "SCORING"];
 
 function DeleteOwnData({ sessionId, status, onDeleted }: { sessionId: string; status: string; onDeleted: () => void }) {
-  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const running = runningStatuses.includes(status);
@@ -948,17 +956,13 @@ function DeleteOwnData({ sessionId, status, onDeleted }: { sessionId: string; st
   return <section className="delete-own-data" aria-labelledby="delete-own-data-heading">
     <h2 id="delete-own-data-heading">Meine Spieldaten</h2>
     <ErrorBanner error={error} />
-    {confirming ? <>
-      <p>Deine Teilnahme, Antworten und Punkte werden gelöscht. Du verlässt damit das Spiel und kannst nicht mehr weiterspielen.</p>
-      <div className="actions">
-        <button className="button primary" disabled={busy || running} onClick={() => void remove()}>
-          {busy ? "Wird gelöscht …" : "Ja, endgültig löschen"}</button>
-        <button className="button secondary" disabled={busy} onClick={() => setConfirming(false)}>Abbrechen</button>
-      </div>
-    </> : <>
-      <button className="button secondary" disabled={running} onClick={() => setConfirming(true)}>Meine Spieldaten löschen</button>
-      {running && <p className="delete-hint">Während einer laufenden Frage nicht möglich. Nach der Auflösung kannst du löschen.</p>}
-    </>}
+    <ConfirmDialog title="Spieldaten löschen?" confirmLabel="Ja, endgültig löschen"
+      description={running ? "Während einer laufenden Frage ist das Löschen nicht möglich. Bitte warte auf die Auflösung." :
+        "Deine Teilnahme, Antworten und Punkte werden endgültig gelöscht. Du verlässt damit das Spiel und kannst nicht mehr weiterspielen."}
+      confirmDisabled={busy || running} onConfirm={() => void remove()}
+      trigger={<button className="button secondary" disabled={busy || running}>
+        {busy ? "Wird gelöscht …" : "Meine Spieldaten löschen"}</button>} />
+    {running && <p className="delete-hint">Während einer laufenden Frage nicht möglich. Nach der Auflösung kannst du löschen.</p>}
   </section>;
 }
 

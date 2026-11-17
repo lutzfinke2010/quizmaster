@@ -107,6 +107,11 @@ async function mockGame(page: Page) {
           return { acceptedAt: receivedAt };
         },
         listSessions: async () => [{ sessionId: "design", title: "Runde", status: state().status, joinCode: "123456", presentationToken: "design", createdAt: 1 }],
+        getSession: async () => ({ sessionId: "design", title: "Runde", status: state().status, joinCode: "123456", presentationToken: "design", createdAt: 1 }),
+        deleteMyParticipation: async () => {
+          if (sessionStorage.getItem("fail-delete")) throw new Error("Löschen nicht möglich. Bitte erneut versuchen.");
+          sessionStorage.setItem("deleted-participation", "design");
+        },
         questions: async () => [{ questionId: "q1", index: 0, text: "Frage 1" }, { questionId: "q2", index: 1, text: "Frage 2" }],
         control: async (action, sessionId, questionId, expectedVersion) => {
           sessionStorage.setItem("last-control", JSON.stringify({ action, sessionId, questionId, expectedVersion }));
@@ -117,7 +122,11 @@ async function mockGame(page: Page) {
           return { version: expectedVersion + 1 };
         },
         subscribe: (session, mode, token, onEvent) => {
-          const listener = () => onEvent(state().version);
+          const listener = () => {
+            const current = state();
+            onEvent({ sessionId: current.sessionId, version: current.version,
+              participantCount: current.participantCount, answerCount: current.answerCount });
+          };
           window.addEventListener("quiz-test-state", listener);
           return { unsubscribe: () => window.removeEventListener("quiz-test-state", listener) };
         }
@@ -776,12 +785,45 @@ test("Quizmaster steuert ausschließlich zulässige Schritte, Sonderaktionen ble
   await updateGame(page, { questionIndex: 1 });
   await expect(controls.locator(".primary")).toHaveText("Endstand anzeigen");
   await screenshot(page, "quizmaster.png");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "Sitzung abbrechen" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Sitzung abbrechen?" });
+  await expect(dialog).toContainText("endet sofort für alle Teilnehmenden");
+  await expectReadableText(page, ".confirm-dialog h2, .confirm-description, .confirm-dialog .eyebrow, .confirm-dialog .button");
+  await dialog.getByRole("button", { name: "Abbrechen", exact: true }).click();
   expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("last-control")) ?? "{}").action).toBe("showLeaderboard");
+  await page.getByRole("button", { name: "Sitzung abbrechen" }).click();
+  await dialog.getByRole("button", { name: "Sitzung abbrechen" }).click();
+  expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("last-control")) ?? "{}").action).toBe("cancelSession");
   await updateGame(page, { status: "FINISHED" });
   await expect(page.getByRole("button", { name: "Sitzung abbrechen" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Präsentationsansicht öffnen/ })).toHaveAttribute("target", "_blank");
+});
+
+test("Spieldaten-Löschdialog schützt laufende Fragen und zeigt fehlgeschlagene Löschungen", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const trigger = page.getByRole("button", { name: "Meine Spieldaten löschen" });
+  await expect(trigger).toBeDisabled();
+  await setPhase(page, "REVEAL");
+  await trigger.click();
+  const dialog = page.getByRole("alertdialog", { name: "Spieldaten löschen?" });
+  const confirm = dialog.getByRole("button", { name: "Ja, endgültig löschen" });
+  await expect(dialog).toContainText("Teilnahme, Antworten und Punkte");
+  await updateGame(page, { status: "QUESTION_OPEN" });
+  await expect(confirm).toBeDisabled();
+  await expect(dialog).toContainText("Bitte warte auf die Auflösung");
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => sessionStorage.getItem("deleted-participation"))).toBeNull();
+  await setPhase(page, "FINISHED");
+  await trigger.click();
+  await page.evaluate(() => sessionStorage.setItem("fail-delete", "1"));
+  await confirm.click();
+  await expect(page.getByRole("alert")).toContainText("Löschen nicht möglich");
+  await page.evaluate(() => sessionStorage.removeItem("fail-delete"));
+  await trigger.click();
+  await confirm.click();
+  await expect(page.getByRole("heading", { name: "Deine Spieldaten wurden gelöscht" })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("deleted-participation"))).toBe("design");
 });
 
 test("Datenhinweis ist prominent eingebettet, wahrheitsgemäß und per Tastatur aufklappbar", async ({ page }) => {

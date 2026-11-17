@@ -1,9 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowDown, ArrowUp, Check, CheckCircle2, CircleHelp, Plus, Save, Trash2 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { FormProvider, useFieldArray, useForm, useFormContext, useWatch } from "react-hook-form";
 import { newQuestion, quizSchema, type Quiz } from "./domain/quiz";
 import { Button } from "./components/ui/button";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 
 function FieldError({ message, id }: { message?: string; id: string }) {
   return message ? <span id={id} className="field-error" role="alert">{message}</span> : null;
@@ -125,10 +127,11 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
   const questions = useWatch({ control: form.control, name: "questions" });
   const chosenCount = questions.filter((question) => question.answers.some((answer) => answer.correct)).length;
   const isDirty = form.formState.isDirty;
+  const navigate = useNavigate();
+  const [destination, setDestination] = useState<string | null>(null);
 
   useEffect(() => {
     if (cloudMode || !isDirty) return;
-    const warning = "Deine Änderungen sind noch nicht gespeichert. Wenn du die Seite verlässt, gehen sie verloren.";
     function beforeUnload(event: BeforeUnloadEvent) {
       event.preventDefault();
       event.returnValue = "";
@@ -141,10 +144,9 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
       const destination = new URL(link.href, window.location.href);
       if (destination.origin !== window.location.origin ||
           (destination.pathname === window.location.pathname && destination.search === window.location.search)) return;
-      if (!window.confirm(warning)) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      event.preventDefault();
+      event.stopPropagation();
+      setDestination(destination.pathname + destination.search + destination.hash);
     }
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", confirmNavigation, true);
@@ -155,6 +157,11 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
   }, [cloudMode, isDirty]);
 
   return <FormProvider {...form}>
+    <ConfirmDialog title="Änderungen verwerfen?" variant="warning"
+      description="Deine Änderungen sind noch nicht gespeichert. Wenn du die Seite verlässt, gehen sie verloren."
+      confirmLabel="Änderungen verwerfen" open={destination !== null}
+      onOpenChange={(open) => { if (!open) setDestination(null); }}
+      onConfirm={() => { if (destination !== null) void navigate(destination); }} />
     <form onSubmit={form.handleSubmit(onSave)} noValidate className="editor-layout" aria-label="Quiz bearbeiten">
       <aside className="editor-outline" aria-label="Quizübersicht">
         <span className="eyebrow">DEIN QUIZ IM BLICK</span>

@@ -15,7 +15,7 @@ export const phaseLabels: Record<string, string> = {
 
 const avatarById = new Map(avatars.avatars.map((avatar) => [avatar.id, avatar]));
 type RankedPlayer = GameState["leaderboard"][number];
-type RankingPlayer = Pick<RankedPlayer, "participantId" | "avatarId" | "displayName" | "points" | "rank">;
+type RankingPlayer = Pick<RankedPlayer, "participantId" | "avatarId" | "displayName" | "points" | "rank"> & { detail?: string };
 export type PersonalStanding = { questionIndex: number; player: RankedPlayer };
 const number = (value: number) => value.toLocaleString("de-DE");
 
@@ -75,6 +75,7 @@ export function Podium({ players, final = true, formatPoints = number }: {
   return <div className="podium" aria-label={final ? "Siegerpodest" : "Führende der Runde"}>
     {podium.map((player) => <div className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
       <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span>{formatPoints(player.points)} Punkte</span>
+      {player.detail && <small className="podium-detail">{player.detail}</small>}
       <div className="pedestal"><span className="sr-only">Platz </span>{player.rank}</div>
     </div>)}
   </div>;

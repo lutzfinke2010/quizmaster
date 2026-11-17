@@ -2,12 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Quiz zum Mitmachen mit ASYNC_SPEED_V1: Fragenansicht im Live-Design (Antwortkacheln, Abgabe per Tipp),
- * Pause zwischen den Fragen, Tempo-Bonus-Anzeige, Admin-Top-5 und Siegerpodest. Das Backend wird im Browser simuliert.
+ * Pause zwischen den Fragen, Tempo-Bonus-Anzeige und Admin-Podest mit weiteren Plätzen. Das Backend wird im Browser simuliert.
  * Wie der Server öffnet der Mock eine Folgefrage (und ihren Tempo-Timer) erst über startAsyncQuiz.
  */
 async function mockAsync(page: Page, options: {
   questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean;
-  status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number;
+  status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number; names?: string[];
 } = {}) {
   const questions = options.questions ?? [
     { text: "Welcher Planet ist für seine auffälligen Ringe bekannt und mit bloßem Auge am Nachthimmel zu sehen?", answers: ["Mars", "Saturn", "Venus", "Merkur"] },
@@ -77,7 +77,7 @@ async function mockAsync(page: Page, options: {
         asyncPublicationResults: async (publicationId, cursor) => {
           const status = sessionStorage.getItem("async-status") || ${JSON.stringify(options.status ?? "ACTIVE")};
           const isFinal = status !== "ACTIVE";
-          const names = ["Anna", "Ben", "Cem", "Dana", "Emil", "Fritz", "Gül", "Hanna"];
+          const names = ${JSON.stringify(options.names ?? ["Anna", "Ben", "Cem", "Dana", "Emil", "Fritz", "Gül", "Hanna"])};
           const points = ${JSON.stringify(options.scores ?? [2900, 2900, 2400, 2100, 1800, 1200, 1000, 0])};
           let rank = 0;
           const participants = points.map((score, i) => {
@@ -240,27 +240,85 @@ test("Ältere Veröffentlichungen zeigen keinen Tempo-Bonus, pausieren aber eben
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie viele Beine hat eine Spinne?");
 });
 
-test("Admin-Ergebnisse zeigen zuerst die Top 5, Details bleiben eingeklappt", async ({ page }) => {
+test("Zwischenstand zeigt ein Podest mit Gleichständen und alle übrigen Plätze direkt darunter", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockAsync(page);
   await page.goto("/admin/async/p1");
-  await expect(page.getByRole("heading", { name: "Aktuelle Top 5" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Zwischenstand" })).toBeVisible();
   await expect(page.getByText("Vorläufig", { exact: true })).toBeVisible();
+  await expect(page.locator(".podium")).toHaveAttribute("aria-label", "Führende der Runde");
+  await expect(page.locator(".podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  await expect(page.locator(".podium-player > span")).toHaveText(["2.900 Punkte", "2.900 Punkte", "2.400 Punkte"]);
+  await expect(page.locator(".podium-detail")).toHaveText(["fertig", "fertig", "fertig"]);
+  await expect(page.locator(".pedestal")).toHaveText(["Platz 1", "Platz 1", "Platz 3"]);
+  const heights = await page.locator(".pedestal").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+  expect(heights).toEqual([125, 125, 62]);
   const leaders = page.locator(".async-leaders > .async-leader-list > li");
   await expect(leaders).toHaveCount(5);
-  await expect(leaders.nth(0)).toContainText("1.");
-  await expect(leaders.nth(1)).toContainText("1.");
-  await expect(leaders.nth(2)).toContainText("3.");
-  await expect(leaders.nth(0)).toContainText("2.900");
+  await expect(leaders.locator(".async-leader-name")).toHaveText(["Dana", "Emil", "Fritz", "Gül", "Hanna"]);
+  await expect(leaders.locator(".async-leader-rank")).toHaveText(["4.", "5.", "6.", "7.", "8."]);
+  await expect(leaders.last()).toContainText("läuft");
+  const podiumBottom = await page.locator(".podium").evaluate((item) => item.getBoundingClientRect().bottom);
+  expect(await leaders.first().evaluate((item) => item.getBoundingClientRect().top)).toBeGreaterThanOrEqual(podiumBottom);
   await expect(page.getByRole("heading", { name: "Fragenauswertung" })).toBeVisible();
   await expect(page.locator(".async-question-stat").first()).toBeHidden();
-  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
-  await expect(page.locator(".async-more li")).toHaveCount(3);
+  await expect(page.locator(".async-more")).toHaveCount(0);
   await page.getByRole("button", { name: "Aktualisieren" }).click();
-  await expect(page.locator(".async-more")).toHaveAttribute("open", "");
-  const top5Bottom = await leaders.nth(4).evaluate((item) => item.getBoundingClientRect().bottom);
-  expect(top5Bottom).toBeLessThanOrEqual(844);
+  await expect(leaders).toHaveCount(5);
   await page.screenshot({ path: test.info().outputPath("async-admin.png"), fullPage: true, animations: "disabled" });
+});
+
+for (const width of [320, 1440]) {
+  test(`Zwischenstand nutzt die Treppe 2–1–3 auch mit langen Namen (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockAsync(page, { scores: [4401, 1319, 0, 0], names: [
+      "Außergewöhnlich neugieriger Fuchs", "Fröhlicher Waschbär mit Quizlaune", "Cem", "Dana",
+    ] });
+    await page.goto("/admin/async/p1");
+    await expect(page.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1", "Platz 3"]);
+    const steps = await page.locator(".pedestal").evaluateAll((items) => items.map((item) => ({
+      height: item.getBoundingClientRect().height, bottom: item.getBoundingClientRect().bottom,
+    })));
+    expect(steps.map((step) => step.height)).toEqual([85, 125, 62]);
+    expect(steps[0].bottom).toBeCloseTo(steps[1].bottom);
+    expect(steps[1].bottom).toBeCloseTo(steps[2].bottom);
+    await expect(page.locator(".async-leader-rank")).toHaveText("3.");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`async-interim-${width}.png`), fullPage: true, animations: "disabled" });
+  });
+}
+
+for (const count of [0, 1, 2]) {
+  test(`Zwischenstand mit ${count} Teilnehmenden und Nullpunkten erfindet keine Plätze`, async ({ page }) => {
+    await mockAsync(page, { scores: Array(count).fill(0) });
+    await page.goto("/admin/async/p1");
+    await expect(page.getByRole("heading", { name: "Zwischenstand" })).toBeVisible();
+    await expect(page.locator(".podium-player")).toHaveCount(count);
+    if (count === 0) await expect(page.getByText(/Noch keine Teilnahmen\./)).toBeVisible();
+    else await expect(page.locator(".podium-player > span")).toHaveText(Array(count).fill("0 Punkte"));
+    await expect(page.locator(".async-leader")).toHaveCount(0);
+  });
+}
+
+test("Zwischenstand lädt übrige Plätze unterhalb des Podests ohne Duplikate nach", async ({ page }) => {
+  await mockAsync(page, { pageSize: 2 });
+  await page.goto("/admin/async/p1");
+  const rows = page.locator(".async-leader-name");
+  await expect(rows).toHaveText(["Dana", "Emil"]);
+  for (const count of [2, 3, 5]) {
+    await page.getByRole("button", { name: "Weitere Teilnehmer laden" }).click();
+    await expect(rows).toHaveCount(count);
+  }
+  await expect(rows).toHaveText(["Dana", "Emil", "Fritz", "Gül", "Hanna"]);
+  await expect(page.locator(".podium-player")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toHaveCount(0);
+});
+
+test("Zwischenstand behält ältere Punktewertung auf dem Podest und darunter", async ({ page }) => {
+  await mockAsync(page, { legacy: true, scores: [3, 2, 1, 0] });
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".podium-player > span")).toHaveText(["2/3 Punkte", "3/3 Punkte", "1/3 Punkte"]);
+  await expect(page.locator(".async-leader-points")).toHaveText("0/3");
 });
 
 for (const viewport of [{ width: 1272, height: 900 }, { width: 390, height: 844 }]) {
@@ -346,19 +404,18 @@ test("Ältere Veröffentlichungen behalten die Punkte pro Fragenzahl im Endstand
   await expect(page.locator(".podium-player > span")).toHaveText(["2/3 Punkte", "3/3 Punkte"]);
 });
 
-test("Aktualisieren wechselt beim Rundenende von der Top-5-Liste zum Podest", async ({ page }) => {
+test("Aktualisieren wechselt vom vorläufigen Podest zum Endstand und behält offene Details", async ({ page }) => {
   await mockAsync(page);
   await page.goto("/admin/async/p1");
-  await expect(page.getByRole("heading", { name: "Aktuelle Top 5" })).toBeVisible();
-  await expect(page.locator(".podium-player")).toHaveCount(0);
-  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
+  await expect(page.getByRole("heading", { name: "Zwischenstand" })).toBeVisible();
+  await expect(page.locator(".podium-player")).toHaveCount(3);
   await page.getByText("Fragenauswertung", { exact: true }).click();
   await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
   await page.getByRole("button", { name: "Aktualisieren" }).click();
   await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Aktuelle Top 5" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Zwischenstand" })).toHaveCount(0);
   await expect(page.locator(".podium-player")).toHaveCount(3);
-  await expect(page.locator(".async-more")).toHaveAttribute("open", "");
+  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
   await expect(page.locator(".async-more .rank-name")).toHaveText(["Fritz", "Gül", "Hanna"]);
   await expect(page.locator(".async-question-stat").first()).toBeVisible();
 });

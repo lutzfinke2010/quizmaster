@@ -27,7 +27,10 @@ function scenario(now = Date.now()) {
   return { sessions, publications };
 }
 
-async function mockCloud(page: Page, data: { sessions: Session[]; publications: Publication[] }) {
+async function mockCloud(page: Page, data: {
+  sessions: Session[]; publications: Publication[];
+  quizzes?: Array<{ quizId: string; title: string; version: number; questionCount: number }>;
+}) {
   await page.route("**/src/AdminAuth.tsx", (route) => route.fulfill({
     contentType: "application/javascript", body: "export function AdminGate({children}) { return children; }",
   }));
@@ -35,6 +38,7 @@ async function mockCloud(page: Page, data: { sessions: Session[]; publications: 
     contentType: "application/javascript",
     body: `
       const data = ${JSON.stringify(data)};
+      let quizzes = data.quizzes ?? [];
       const sessions = data.sessions.map((session, index) => ({ joinCode: String(100000 + index), presentationToken: "t" + index, ...session }));
       const publications = data.publications.map((publication, index) => ({ quizId: "q" + index, token: "tok" + index,
         joinCode: String(200000 + index), createdAt: publication.expiresAt - 7 * ${DAY}, timeZone: "Europe/Berlin", endedAt: null,
@@ -43,7 +47,18 @@ async function mockCloud(page: Page, data: { sessions: Session[]; publications: 
       export async function configureCloud() { return true; }
       export const client = {};
       const impl = {
-        listQuizzes: async () => [],
+        listQuizzes: async () => quizzes,
+        deleteQuiz: async (quizId, version) => {
+          sessionStorage.setItem("delete-quiz", JSON.stringify({ quizId, version }));
+          if (sessionStorage.getItem("fail-delete")) throw new Error("Quiz konnte nicht gelöscht werden.");
+          quizzes = quizzes.filter((quiz) => quiz.quizId !== quizId);
+        },
+        endAsyncPublication: async (publicationId) => {
+          sessionStorage.setItem("end-publication", publicationId);
+          const publication = publications.find((item) => item.publicationId === publicationId);
+          publication.status = "ENDED";
+          publication.endedAt = Date.now();
+        },
         listSessions: async () => sessions,
         listAsyncPublications: async () => publications,
         ensureAsyncJoinCode: async (publicationId) => ({ publicationId, joinCode: "482619" }),
@@ -70,6 +85,59 @@ async function toggleText(archive: ReturnType<Page["locator"]>) {
 
 const sessionArchive = (page: Page) => page.locator("details.archive-section").filter({ hasText: "Beendete Sitzungen" });
 const publicationArchive = (page: Page) => page.locator("details.archive-section").filter({ hasText: "Beendete Quizrunden" });
+
+test("Cloud-Quiz wird nur nach Bestätigung gelöscht; Fehler bleiben sichtbar", async ({ page }) => {
+  await mockCloud(page, { sessions: [], publications: [], quizzes: [{ quizId: "q1", title: LONG_TITLE, version: 7, questionCount: 3 }] });
+  await page.goto("/admin");
+  const trigger = page.getByRole("button", { name: "Löschen", exact: true });
+  await trigger.click();
+  const dialog = page.getByRole("alertdialog", { name: "Quiz löschen?" });
+  await expect(dialog).toContainText(LONG_TITLE);
+  await dialog.getByRole("button", { name: "Abbrechen" }).click();
+  expect(await page.evaluate(() => sessionStorage.getItem("delete-quiz"))).toBeNull();
+  await page.evaluate(() => sessionStorage.setItem("fail-delete", "1"));
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Quiz löschen" }).click();
+  await expect(page.getByRole("alert")).toContainText("Quiz konnte nicht gelöscht werden");
+  await expect(page.getByRole("heading", { name: LONG_TITLE })).toBeVisible();
+  await page.evaluate(() => sessionStorage.removeItem("fail-delete"));
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Quiz löschen" }).click();
+  await expect(page.getByRole("heading", { name: LONG_TITLE })).toHaveCount(0);
+  expect(JSON.parse(await page.evaluate(() => sessionStorage.getItem("delete-quiz")) ?? "{}")).toEqual({ quizId: "q1", version: 7 });
+});
+
+test("Quizrunde wird erst nach der gestalteten Rückfrage vorzeitig beendet", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mockCloud(page, { sessions: [], publications: [{
+    publicationId: "p-active", title: LONG_TITLE, status: "ACTIVE", expiresAt: Date.now() + DAY,
+  }] });
+  await page.goto("/admin");
+  await page.getByText("Weitere Aktionen", { exact: true }).click();
+  const trigger = page.getByRole("button", { name: "Vorzeitig beenden" });
+  await trigger.click();
+  const dialog = page.getByRole("alertdialog", { name: "Quizrunde beenden?" });
+  await expect(dialog).toContainText("Weitere Antworten werden nicht mehr angenommen");
+  await expect(dialog).toContainText("Link, QR-Code und Quiz-Code");
+  const bounds = await dialog.boundingBox();
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(568);
+  for (const button of await dialog.getByRole("button").all()) {
+    const box = await button.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(bounds!.y);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+  }
+  await page.screenshot({ path: test.info().outputPath("confirm-end-320.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => sessionStorage.getItem("end-publication"))).toBeNull();
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Jetzt beenden" }).click();
+  await expect(page.locator(".async-publication-card")).toHaveCount(0);
+  await publicationArchive(page).locator("summary").click();
+  await expect(publicationArchive(page)).toContainText("Vorzeitig beendet");
+  expect(await page.evaluate(() => sessionStorage.getItem("end-publication"))).toBe("p-active");
+});
 
 test.describe("Verwaltung: beendete Einträge eingeklappt", () => {
   test("laufende Einträge bleiben oben, beendete liegen geschlossen mit Anzahl darunter", async ({ page }) => {
