@@ -14,6 +14,8 @@ export type LegalConfig = {
   canonicalOrigin: string;
   /** Muss zu QUIZRUSH_RETENTION_DAYS im Backend passen (wird von legal:check verglichen). */
   sessionRetentionDays: number;
+  /** Muss zu QUIZRUSH_ASYNC_RETENTION_DAYS im Backend passen. */
+  asyncResultsRetentionDays: number;
   /** Aufbewahrung der Lambda-Logs in Tagen (amplify/backend.ts). */
   logRetentionDays: number;
   privacyContactEmail: string;
@@ -32,6 +34,7 @@ export const legal: LegalConfig = {
   additionalContact: null,
   canonicalOrigin: "https://www.ratelama.de",
   sessionRetentionDays: 7,
+  asyncResultsRetentionDays: 30,
   logRetentionDays: 14,
   privacyContactEmail: "lutzfinke2010@gmail.com",
   dataProtectionOfficer: null,

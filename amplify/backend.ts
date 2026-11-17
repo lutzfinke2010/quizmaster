@@ -57,12 +57,15 @@ table.grantReadWriteData(backend.gameApi.resources.lambda);
 backend.gameApi.addEnvironment("IDENTITY_POOL_ID", backend.auth.resources.cfnResources.cfnIdentityPool.ref);
 const maxParticipants = Number(process.env.QUIZRUSH_MAX_PARTICIPANTS ?? "100");
 const retentionDays = Number(process.env.QUIZRUSH_RETENTION_DAYS ?? "7");
+const asyncRetentionDays = Number(process.env.QUIZRUSH_ASYNC_RETENTION_DAYS ?? "30");
 if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 1000 ||
-    !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+    !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365 ||
+    !Number.isInteger(asyncRetentionDays) || asyncRetentionDays < 1 || asyncRetentionDays > 365) {
   throw new Error("Invalid quiz participant limit or retention period.");
 }
 backend.gameApi.addEnvironment("MAX_PARTICIPANTS", String(maxParticipants));
 backend.gameApi.addEnvironment("RETENTION_DAYS", String(retentionDays));
+backend.gameApi.addEnvironment("ASYNC_RETENTION_DAYS", String(asyncRetentionDays));
 table.grantReadData(backend.subscriptionAuth.resources.lambda);
 backend.subscriptionAuth.addEnvironment("IDENTITY_POOL_ID", backend.auth.resources.cfnResources.cfnIdentityPool.ref);
 
@@ -114,9 +117,11 @@ new Policy(Stack.of(api), "QuizmasterIdentityPoolAccess", {
   statements: [new PolicyStatement({
     actions: ["appsync:GraphQL"],
     resources: [
-      ...["getMyParticipation", "getGameState", "getMyResult", "getMyAnswer", "getLeaderboard", "getPresentationState"]
+      ...["getMyParticipation", "getGameState", "getMyResult", "getMyAnswer", "getLeaderboard", "getPresentationState",
+        "getAsyncPublicInfo", "getMyAsyncState"]
         .map((field) => `${api.arn}/types/Query/fields/${field}`),
-      ...["joinSession", "deleteMyParticipation", "submitAnswer"].map((field) => `${api.arn}/types/Mutation/fields/${field}`),
+      ...["joinSession", "deleteMyParticipation", "submitAnswer", "startAsyncQuiz", "submitAsyncAnswer"]
+        .map((field) => `${api.arn}/types/Mutation/fields/${field}`),
       `${api.arn}/types/Subscription/fields/onGameChange`,
     ],
   })],

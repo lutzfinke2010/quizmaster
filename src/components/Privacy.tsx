@@ -6,11 +6,12 @@ type Fact = { label: string; text: string };
 
 const cloudFacts: Fact[] = [
   { label: "Ohne Klarnamen", text: "Zum Mitspielen brauchst du kein Konto, keinen Namen und keine E-Mail-Adresse. Spielname und Avatar werden automatisch vergeben." },
-  { label: "Für die Runde gespeichert", text: "Eine technische Teilnahme-Kennung, Spielname, Avatar, Antworten, Antwortzeiten und Punkte werden gespeichert." },
-  { label: "Aufbewahrung", text: `Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
-  { label: "Sichtbar für die Runde", text: "Spielname, Avatar, Punkte und Platzierung sind für die anderen Teilnehmenden, den Quizmaster und die Präsentationsansicht sichtbar." },
+  { label: "Für die Runde gespeichert", text: "Eine technische Teilnahme-Kennung, Spielname und Avatar werden vergeben. Quizantworten und Ergebnisse sind nur für den Quizmaster und den jeweiligen Gast sichtbar." },
+  { label: "Live-Aufbewahrung", text: `Live-Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
+  { label: "Quiz per Link", text: `Ergebnisse bleiben bis ${legal.asyncResultsRetentionDays} Tage nach Rundenende gespeichert. Vor Ende sehen Gäste keine Lösungen oder Punkte; danach nur ihr eigenes Ergebnis.` },
+  { label: "Sichtbar im Live-Quiz", text: "Spielname, Avatar, Punkte und Platzierung sind für andere Teilnehmende, Quizmaster und Präsentationsansicht sichtbar." },
   { label: "Selbst löschen", text: "Im Spiel kannst du deine Teilnahme selbst löschen, sobald keine Frage läuft. Antworten und Ergebnisse werden dabei entfernt." },
-  { label: "Technik", text: "Erst beim Beitritt oder Öffnen eines konkreten Live-Spiels wird eine technische Gast-Kennung benötigt. Sie verfällt nach höchstens 24 Stunden; bloße Informationsseiten erzeugen sie nicht." },
+  { label: "Technik", text: "Für Cloud-Funktionen wird eine technische Gast-Kennung benötigt. Sie verfällt standardmäßig nach 24 Stunden; bei einem gestarteten Quiz per Link bleibt sie bis zum Ende der Ergebnis-Aufbewahrung erhalten, damit du fortsetzen kannst." },
   { label: "Quizmaster-Konten", text: "Anmeldetokens speichert Amplify erst während einer gestarteten Anmeldung. Refresh-Tokens können die Sitzung bis zum Ablauf ihrer Cognito-Gültigkeit erneuern; Abmelden beendet sie über Cognito." },
   { label: "Browser-Speicher", text: "Die App setzt keine Cookies über ihren Frontend-Code. Sie nutzt localStorage für ausdrücklich angeforderte Funktionen; die konkrete Speichernutzung steht in der Datenschutzerklärung." },
   { label: "Keine Tracker", text: "RateLama lädt keine Analyse- oder Werbe-Tracker, externen Schriftarten oder Avatarbilder. Cloud-Anfragen gehen nur an AWS-Dienste, wenn die zugehörige Funktion genutzt wird." },

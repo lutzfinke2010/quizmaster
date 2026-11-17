@@ -96,6 +96,20 @@ describe("Gast-Kennung im Browser", () => {
     expect(credentialsCleared).toBe(1);
   });
 
+  it("verlängert die Kennung gezielt bis zum Ende der Aufbewahrung", async () => {
+    const { data, storage } = memory();
+    let time = 1_000;
+    const expiring = createExpiringIdentityStorage(storage, () => time);
+    await expiring.setItem(identityKey, "id-1");
+    const retentionAt = time + 60 * 24 * 60 * 60 * 1000;
+    await expiring.extendIdentityUntil(retentionAt);
+    time += 25 * 60 * 60 * 1000;
+    expect(await expiring.getItem(identityKey)).toBe("id-1");
+    expect(Number(data.get(`quizrush.expiry.${identityKey}`))).toBe(retentionAt);
+    time = retentionAt;
+    expect(await expiring.getItem(identityKey)).toBeNull();
+  });
+
   it("stößt die Speicherung unmittelbar an, auch wenn Amplify den Promise nicht abwartet", async () => {
     const { data, storage } = memory();
     const expiring = createExpiringIdentityStorage(storage, () => 1);

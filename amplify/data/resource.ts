@@ -53,6 +53,73 @@ const schema = a.schema({
   }),
   MyAnswer: a.customType({ questionId: a.id(), choiceId: a.id() }),
   GameEvent: a.customType({ sessionId: a.id().required(), version: a.integer().required() }),
+  AsyncPublicInfo: a.customType({
+    title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
+    expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
+    retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
+  }),
+  AsyncPublishReceipt: a.customType({
+    publicationId: a.id().required(), token: a.string().required(), expiresAt: a.float().required(),
+    timeZone: a.string().required(), retentionDays: a.integer().required(), maxParticipants: a.integer().required(),
+  }),
+  AsyncEndReceipt: a.customType({ status: a.string().required(), endedAt: a.float().required() }),
+  AsyncQuestion: a.customType({
+    questionIndex: a.integer().required(), text: a.string().required(), answers: a.ref("PublicAnswer").array().required(),
+  }),
+  AsyncGuestAnswer: a.customType({
+    questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
+    correct: a.boolean(), correctChoiceId: a.id(), explanation: a.string(),
+    questionText: a.string(), selectedText: a.string(), correctText: a.string(),
+  }),
+  AsyncOwnQuestionResult: a.customType({
+    questionIndex: a.integer().required(), questionText: a.string().required(), answered: a.boolean().required(),
+    selectedText: a.string(), correctText: a.string(), correct: a.boolean(), explanation: a.string(),
+    acceptedAt: a.float(),
+  }),
+  AsyncGuestState: a.customType({
+    title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
+    expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
+    retentionAt: a.float().required(), endedAt: a.float(), displayName: a.string().required(), avatarId: a.string().required(),
+    startedAt: a.float().required(), answeredCount: a.integer().required(), attemptStatus: a.string().required(),
+    nextQuestionIndex: a.integer().required(), answers: a.ref("AsyncGuestAnswer").array().required(),
+    question: a.ref("AsyncQuestion"), points: a.integer(),
+    results: a.ref("AsyncOwnQuestionResult").array().required(),
+  }),
+  AsyncAnswerReceipt: a.customType({ acceptedAt: a.float().required(), answeredCount: a.integer().required() }),
+  AsyncPublicationSummary: a.customType({
+    publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(), token: a.string().required(),
+    createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
+    status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
+    participantCount: a.integer().required(), maxParticipants: a.integer().required(),
+    completedCount: a.integer().required(), partialCount: a.integer().required(),
+  }),
+  AsyncPlayerAnswer: a.customType({
+    questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
+    correct: a.boolean().required(),
+  }),
+  AsyncParticipantResult: a.customType({
+    displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
+    completedAt: a.float(), answeredCount: a.integer().required(), questionCount: a.integer().required(),
+    status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
+    answers: a.ref("AsyncPlayerAnswer").array().required(),
+  }),
+  AsyncOptionResult: a.customType({
+    id: a.id().required(), text: a.string().required(), correct: a.boolean().required(), count: a.integer().required(),
+  }),
+  AsyncQuestionResult: a.customType({
+    questionIndex: a.integer().required(), text: a.string().required(), correctChoiceId: a.id().required(),
+    explanation: a.string().required(), options: a.ref("AsyncOptionResult").array().required(),
+    answeredCount: a.integer().required(),
+  }),
+  AsyncPublicationResults: a.customType({
+    publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(),
+    createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
+    status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
+    participantCount: a.integer().required(), maxParticipants: a.integer().required(),
+    completedCount: a.integer().required(), partialCount: a.integer().required(), isFinal: a.boolean().required(),
+    updatedAt: a.float().required(), questions: a.ref("AsyncQuestionResult").array().required(),
+    participants: a.ref("AsyncParticipantResult").array().required(), nextCursor: a.string(),
+  }),
 
   createQuiz: a.mutation().arguments({ quiz: a.ref("Quiz").required() }).returns(a.ref("QuizRecord"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
@@ -111,6 +178,28 @@ const schema = a.schema({
     .arguments({ sessionId: a.id().required(), presentationToken: a.string() })
     .handler(a.handler.function(subscriptionAuth))
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool"), allow.group("Quizmasters")]),
+
+  publishAsyncQuiz: a.mutation().arguments({
+    quizId: a.id().required(), requestId: a.id().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
+  }).returns(a.ref("AsyncPublishReceipt"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  listAsyncPublications: a.query().returns(a.ref("AsyncPublicationSummary").array())
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  endAsyncPublication: a.mutation().arguments({ publicationId: a.id().required() }).returns(a.ref("AsyncEndReceipt"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  getAsyncPublicationResults: a.query().arguments({ publicationId: a.id().required(), cursor: a.string() })
+    .returns(a.ref("AsyncPublicationResults"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  getAsyncPublicInfo: a.query().arguments({ token: a.string().required() }).returns(a.ref("AsyncPublicInfo"))
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
+  startAsyncQuiz: a.mutation().arguments({ token: a.string().required() }).returns(a.ref("AsyncGuestState"))
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
+  getMyAsyncState: a.query().arguments({ token: a.string().required() }).returns(a.ref("AsyncGuestState"))
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
+  submitAsyncAnswer: a.mutation().arguments({
+    token: a.string().required(), questionIndex: a.integer().required(), choiceId: a.id().required(),
+  }).returns(a.ref("AsyncAnswerReceipt"))
+    .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

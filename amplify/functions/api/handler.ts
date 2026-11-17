@@ -13,6 +13,10 @@ import { finalizeQuestion } from "../../../src/server/finalizeQuestion";
 import { enforceRateLimit } from "../../../src/server/rateLimit";
 import { listSessions } from "../../../src/server/listSessions";
 import { guestIdentity, quizmasterIdentity } from "../../../src/server/appsyncIdentity";
+import {
+  endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, getMyAsyncState,
+  listAsyncPublications, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
+} from "../../../src/server/asyncQuiz";
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -112,6 +116,32 @@ export async function handler(raw: unknown): Promise<unknown> {
     case "getPresentationState":
       guest(event.identity);
       return getPresentationState(client, tableName, args.presentationToken, now);
+    case "publishAsyncQuiz":
+      return publishAsyncQuiz(client, tableName, args, quizmaster(event.identity),
+        z.coerce.number().int().min(1).max(365).parse(process.env.ASYNC_RETENTION_DAYS ?? "30"),
+        z.coerce.number().int().min(1).max(1000).parse(process.env.MAX_PARTICIPANTS ?? "100"), Date.now());
+    case "listAsyncPublications":
+      return listAsyncPublications(client, tableName, quizmaster(event.identity), Date.now());
+    case "endAsyncPublication":
+      return endAsyncPublication(client, tableName, args, quizmaster(event.identity), Date.now());
+    case "getAsyncPublicationResults":
+      return getAsyncPublicationResults(client, tableName, args, quizmaster(event.identity), Date.now());
+    case "getAsyncPublicInfo":
+      guest(event.identity);
+      return getAsyncPublicInfo(client, tableName, args.token, Date.now());
+    case "startAsyncQuiz": {
+      const identityId = guest(event.identity);
+      const currentTime = Date.now();
+      await enforceRateLimit(client, tableName, identityId, "join", currentTime);
+      return startAsyncQuiz(client, tableName, args.token, identityId, Date.now());
+    }
+    case "getMyAsyncState":
+      return getMyAsyncState(client, tableName, args.token, guest(event.identity), Date.now());
+    case "submitAsyncAnswer": {
+      const identityId = guest(event.identity);
+      await enforceRateLimit(client, tableName, identityId, "answer", Date.now());
+      return submitAsyncAnswer(client, tableName, args, identityId, Date.now());
+    }
     case "publishGameEvent": {
       if (!event.identity || typeof event.identity !== "object" || !("userArn" in event.identity) ||
           ("cognitoIdentityId" in event.identity && event.identity.cognitoIdentityId)) {

@@ -1,6 +1,6 @@
 import { defaultStorage, type KeyValueStorageInterface } from "aws-amplify/utils";
 
-/** Maximale Lebensdauer der anonymen Gast-Kennung im Browser. */
+/** Standardlebensdauer; aktive Quiz-per-Link-Versuche verlängern sie bis zur Ergebnislöschung. */
 export const guestIdentityMaxAgeMs = 24 * 60 * 60 * 1000;
 const expiryPrefix = "quizrush.expiry.";
 const maxTimeoutMs = 2_147_483_647;
@@ -8,6 +8,10 @@ const maxTimeoutMs = 2_147_483_647;
 type ExpiryScheduler = {
   setTimeout(callback: () => void | Promise<void>, delay: number): number;
   clearTimeout(timer: number): void;
+};
+
+export type ExpiringIdentityStorage = KeyValueStorageInterface & {
+  extendIdentityUntil(expiry: number): Promise<void>;
 };
 
 function browserScheduler(): ExpiryScheduler | undefined {
@@ -23,14 +27,14 @@ function isIdentityKey(key: string): boolean {
 }
 
 /**
- * Gast-Kennungen verfallen 24 Stunden nach ihrer ersten Speicherung. Lesezugriffe verlängern
- * die Frist nicht; alle anderen Schlüssel bleiben unverändert.
+ * Gast-Kennungen verfallen standardmäßig nach 24 Stunden. Ein bestätigter Async-Versuch darf die
+ * Frist gezielt bis zum Ende seiner Aufbewahrung verlängern; Lesezugriffe selbst verlängern nichts.
  */
 export function createExpiringIdentityStorage(
   inner: KeyValueStorageInterface = defaultStorage, now: () => number = Date.now,
   scheduler = browserScheduler(),
   onExpire?: () => Promise<void> | void,
-): KeyValueStorageInterface {
+): ExpiringIdentityStorage {
   const identityKeys = new Set<string>();
   const timers = new Map<string, number>();
   const expiries = new Map<string, number>();
@@ -77,6 +81,25 @@ export function createExpiringIdentityStorage(
     return Promise.all([...identityKeys].map((key) => checkExpiry(key))).then(() => undefined);
   }
 
+  async function extendIdentityUntil(expiry: number): Promise<void> {
+    if (!Number.isSafeInteger(expiry) || expiry <= now()) throw new Error("Ungültige Frist für die Gast-Kennung.");
+    if (identityKeys.size === 0) throw new Error("Die Gast-Kennung ist noch nicht verfügbar.");
+    await Promise.all([...identityKeys].map(async (key) => {
+      const value = await inner.getItem(key);
+      if (value === null) return;
+      const previous = Number(await inner.getItem(expiryPrefix + key));
+      const nextExpiry = Math.max(Number.isSafeInteger(previous) ? previous : now(), expiry);
+      await inner.setItem(expiryPrefix + key, String(nextExpiry));
+      expiries.set(key, nextExpiry);
+      identityValues.set(key, value);
+      cancelExpiry(key);
+      if (scheduler) timers.set(key, scheduler.setTimeout(async () => {
+        timers.delete(key);
+        await checkExpiry(key);
+      }, Math.min(nextExpiry - now(), maxTimeoutMs)));
+    }));
+  }
+
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", refreshTrackedIdentities);
   }
@@ -90,6 +113,7 @@ export function createExpiringIdentityStorage(
   }
 
   return {
+    extendIdentityUntil,
     setItem(key, value) {
       if (!isIdentityKey(key)) {
         return inner.setItem(key, value);

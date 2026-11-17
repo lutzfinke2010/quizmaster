@@ -25,7 +25,7 @@ const adjectiveStems = ["Flott", "Mutig", "Neugierig", "Fröhlich", "Clever", "W
 const feminineLabels = new Set(["Eule", "Giraffe", "Katze", "Schildkröte", "Maus", "Fledermaus", "Robbe", "Krabbe", "Ente"]);
 const neuterLabels = new Set(["Lama", "Faultier", "Nilpferd", "Krokodil", "Walross", "Eichhörnchen",
   "Reh", "Zebra", "Seepferdchen", "Huhn"]);
-const avatarIds = avatars.avatars.map(({ id }) => id);
+export const avatarIds = avatars.avatars.map(({ id }) => id);
 const maxJoinAttempts = 1000;
 
 function assertTime(now: number): void {
@@ -94,7 +94,7 @@ async function avatarUsage(
   return counts;
 }
 
-function chooseAvatar(counts: Map<string, number>): { id: string; reserve: boolean } {
+export function chooseAvatar(counts: Map<string, number>): { id: string; reserve: boolean } {
   const unused = avatarIds.filter((id) => (counts.get(id) ?? 0) === 0);
   const candidates = unused.length ? unused : avatarIds.filter((id) => {
     const minimum = Math.min(...avatarIds.map((candidate) => counts.get(candidate) ?? 0));
@@ -103,7 +103,7 @@ function chooseAvatar(counts: Map<string, number>): { id: string; reserve: boole
   return { id: candidates[randomInt(candidates.length)], reserve: unused.length > 0 };
 }
 
-function displayNameFor(label: string): string {
+export function displayNameFor(label: string): string {
   const ending = feminineLabels.has(label) ? "e" : neuterLabels.has(label) ? "es" : "er";
   return `${adjectiveStems[randomInt(adjectiveStems.length)]}${ending} ${label}`;
 }

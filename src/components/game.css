@@ -66,6 +66,39 @@
 .game-personal .timer small { font-size: .5rem; }
 .game-personal .answer-progress { margin-top: 20px; }
 .game-personal .game-footnote { padding: 12px 0; text-align: center; }
+.async-quiz-heading { overflow-wrap: anywhere; }
+.async-quiz-heading h1 { margin: 10px 0; font-size: clamp(2rem, 8vw, 3rem); }
+.async-quiz-heading p { display: flex; align-items: flex-start; gap: 7px; }
+.deadline-warning { border-left: 4px solid #a34a34; padding: 10px 12px; background: #fff0e8; color: #703322; font-weight: 750; }
+.async-player-card { width: 100%; min-height: 0; margin: 20px 0; }
+.async-player-card h2 { overflow-wrap: anywhere; }
+.async-player-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.async-player-identity .avatar { width: 42px; height: 42px; flex: none; object-fit: contain; }
+.async-options { display: grid; gap: 10px; width: 100%; margin: 16px 0 22px; }
+.async-option { display: flex; align-items: flex-start; gap: 12px; min-height: 64px; width: 100%; padding: 16px; border: 1.5px solid var(--game-border); border-radius: 14px; background: var(--game-surface); cursor: pointer; overflow-wrap: anywhere; }
+.async-option.selected { background: var(--game-soft); border: 2px solid var(--teal); padding: 15px; }
+.async-option input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--teal); }
+.async-option span { min-width: 0; line-height: 1.4; }
+.async-own-results { padding-left: 22px; }
+.async-own-results li { margin: 14px 0; overflow-wrap: anywhere; }
+.async-own-results p { margin: 6px 0; }
+.async-publish-form { width: min(100%, 700px); margin-inline: auto; min-height: 0; }
+.async-publish-form > input[type="datetime-local"] { min-height: 48px; max-width: 100%; border: 1px solid #7c9084; border-radius: 10px; background: #fff; padding: 10px; font: inherit; }
+.async-publish-form fieldset { display: grid; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.async-publish-form legend { font-weight: 750; }
+.radio-option { display: flex; align-items: center; gap: 10px; min-height: 44px; overflow-wrap: anywhere; }
+.radio-option input { width: 20px; height: 20px; accent-color: var(--teal); }
+.async-published { width: min(100%, 700px); margin-inline: auto; min-height: 0; }
+.async-published .field, .async-publication-card .field { width: 100%; margin-bottom: 14px; }
+.async-publication-card { min-width: 0; min-height: 0; }
+.async-publication-card h3, .async-result-player summary { overflow-wrap: anywhere; }
+.async-publication-card > p { display: flex; align-items: flex-start; gap: 7px; }
+.async-result-player { min-width: 0; min-height: 0; }
+.async-result-player summary { display: grid; gap: 9px; width: 100%; cursor: pointer; }
+.async-result-player ol { padding-left: 22px; }
+.async-result-player li { margin: 14px 0; overflow-wrap: anywhere; }
+.async-correct-option { color: #285d46; font-weight: 750; }
+.async-publication-card input, .async-published input { min-width: 0; }
 .game-view .reveal-question { font-size: clamp(1.5rem, 2.5vw, 2.5rem); letter-spacing: -.03em; margin: 0 0 24px; }
 .game-view .result-option { display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--game-soft); }
 .result-option-heading { display: flex; align-items: center; gap: 12px; font-size: clamp(1rem, 1.6vw, 1.5rem); }

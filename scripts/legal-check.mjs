@@ -22,6 +22,10 @@ const configuredDays = Number(process.env.QUIZRUSH_RETENTION_DAYS ?? "7");
 if (configuredDays !== legal.sessionRetentionDays) {
   problems.push(`Aufbewahrungsfrist weicht ab: legal.ts=${legal.sessionRetentionDays} Tage, QUIZRUSH_RETENTION_DAYS=${configuredDays}`);
 }
+const configuredAsyncDays = Number(process.env.QUIZRUSH_ASYNC_RETENTION_DAYS ?? "30");
+if (configuredAsyncDays !== legal.asyncResultsRetentionDays) {
+  problems.push(`Async-Aufbewahrungsfrist weicht ab: legal.ts=${legal.asyncResultsRetentionDays} Tage, QUIZRUSH_ASYNC_RETENTION_DAYS=${configuredAsyncDays}`);
+}
 
 const outputsFile = new URL("amplify_outputs.json", root);
 try {

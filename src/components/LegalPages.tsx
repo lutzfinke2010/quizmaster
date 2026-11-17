@@ -39,8 +39,9 @@ export function ImpressumPage() {
 }
 
 const storageRows: { key: string; purpose: string; duration: string; who: string }[] = [
-  { key: "com.amplify.Cognito.<Identity-Pool-ID>.identityId", purpose: "Technische Gast-Kennung für angeforderte Live-Spiel- und Präsentationsfunktionen; sie ist von Zugangsdaten und serverseitiger Spielteilnahme getrennt.",
-    duration: "24 Stunden ab erster Speicherung. Lesen oder erneutes Schreiben verlängert die Frist nicht. Eine einzelne gelöschte Teilnahme entfernt diese gemeinsame Kennung nicht.", who: "Mitspielende, Präsentationsansicht" },
+  { key: "com.amplify.Cognito.<Identity-Pool-ID>.identityId", purpose: "Technische Gast-Kennung für angeforderte Cloud-Funktionen; sie ist von Zugangsdaten und serverseitiger Spielteilnahme getrennt.",
+    duration: `Standardmäßig 24 Stunden. Bei einem ausdrücklich gestarteten Quiz per Link bis zum Ende der Ergebnis-Aufbewahrung (maximal ${legal.asyncResultsRetentionDays} Tage nach dem Rundenende), damit der Versuch fortgesetzt werden kann. Lesen oder erneutes Schreiben allein verlängert die Frist nicht.`,
+    who: "Mitspielende, Präsentationsansicht" },
   { key: "quizrush.expiry.<…>", purpose: "Lokaler Ablaufzeitpunkt der Gast-Kennung",
     duration: "Wird zusammen mit der Kennung entfernt; die Bereinigung erfolgt bei Fristablauf im offenen Tab oder bei der nächsten Ausführung nach Rückkehr.", who: "Mitspielende, Präsentationsansicht" },
   { key: "CognitoIdentityServiceProvider.<Client-ID>.*", purpose: "SDK-verwaltete Quizmaster-Anmeldung einschließlich Access-, ID- und Refresh-Token",
@@ -108,12 +109,15 @@ export function PrivacyPolicyPage() {
       <p>Der Frontend-Code verwendet Amplifys Standard-Browserspeicher (localStorage), nicht CookieStorage, und setzt selbst keine Cookies.
         Im geprüften lokalen Browserlauf wurden weder Cookies noch Set-Cookie-Antwortheader beobachtet. Ob Hosting oder CDN im Produktivbetrieb
         eigene Set-Cookie-Header ausliefern, ist damit nicht geprüft. Die Anwendung verwendet keine Analyse-, Werbe- oder Tracking-Dienste und lädt
-        keine externen Schriftarten. Beim Beitritt, bei Live-Spiel- und Präsentationsansichten sowie bei einer gestarteten Quizmaster-Anmeldung
-        werden für diese Funktionen Anfragen an AWS-Dienste gesendet.</p>
+        keine externen Schriftarten. Beim Öffnen eines Quiz-per-Link-Teilnahmelinks, beim Beitritt zu einem Live-Spiel, in Live-Spiel- und
+        Präsentationsansichten sowie bei einer gestarteten Quizmaster-Anmeldung werden für diese Funktionen Anfragen an AWS-Dienste gesendet.
+        Das bloße Öffnen des Links legt keinen Quizversuch an.</p>
       <p>§ 25 TDDDG betrifft das Speichern von Informationen in einer Endeinrichtung und den Zugriff darauf. Die Ausnahme in Absatz 2 Nummer 2 ist
         auf den jeweils ausdrücklich gewünschten digitalen Dienst und die dafür unbedingt erforderlichen Zugriffe zu beziehen; nicht jeder
         localStorage-Eintrag ist allein wegen der SDK-Nutzung automatisch erforderlich. Die technische Gast-Kennung wird erst beim angeforderten
-        Live-Zugriff benötigt. Die optionale Entwurfsspeicherung ist standardmäßig ausgeschaltet; bestehende Entwürfe werden erst nach bewusster
+        angeforderten Cloud-Zugriff benötigt. Beim ausdrücklichen Start eines Quiz per Link wird ihre lokale Ablaufzeit bis zur Ergebnis-Aufbewahrung
+        verlängert, damit ein bereits begonnener Versuch wiederaufgenommen werden kann. Die optionale Entwurfsspeicherung ist standardmäßig
+        ausgeschaltet; bestehende Entwürfe werden erst nach bewusster
         Aktivierung gelesen und neue erst nach ausdrücklichem Speichern abgelegt. Diese Funktionsauswahl ist keine pauschale Einwilligung und wird
         nicht als automatisch rechtlich ausreichende TDDDG-Einwilligung ausgegeben. Die endgültige rechtliche Einordnung hängt auch vom konkreten
         Dienstangebot und der Live-Konfiguration ab.</p>
@@ -151,15 +155,18 @@ export function PrivacyPolicyPage() {
         <li>Sitzungsdaten (Teilnahme, Antworten, Ergebnisse, Beitritts- und Präsentationscode): spätestens {retention} Tage nach Erstellung der
           Sitzung. Danach sind die Daten nicht mehr abrufbar; die physische Löschung in der Datenbank erfolgt automatisch, kann aber technisch
           zeitversetzt (in der Regel innerhalb einiger Tage) erfolgen.</li>
+        <li>Quiz per Link: Veröffentlichungsinhalt, Versuche und Antworten bleiben bis zu {legal.asyncResultsRetentionDays} Tage nach dem tatsächlichen
+          Rundenende für die eigene Auswertung und Wiederaufnahme gespeichert. Danach sind die Daten nicht mehr abrufbar; die technische Löschung
+          erfolgt automatisch und kann zeitversetzt sein. Der Quizentwurf kann unabhängig davon geändert oder gelöscht werden.</li>
         <li>Deine eigene Teilnahme kannst du im Spiel jederzeit löschen, solange keine Frage läuft. Die Teilnahme wird sofort unzugänglich,
           Antworten und Ergebnisse werden entfernt. Die technische Gast-Kennung wird nicht gelöscht, da sie auch für andere noch offene Runden
           verwendet werden kann; sie enthält keine direkt angegebenen Kontaktdaten.</li>
         <li>Technische Logs (Betrieb, Fehleranalyse): {legal.logRetentionDays} Tage, soweit die Aufbewahrung im Betrieb entsprechend eingerichtet ist.</li>
         <li>Quizvorlagen und Quizmaster-Konten: bis zur Löschung durch den Quizmaster bzw. auf Anfrage.</li>
-        <li>Gast-Kennung im Browser: höchstens 24 Stunden ab Speicherung. Die Anwendung prüft den Fristablauf im geöffneten Tab und bei Rückkehr
-          zur Seite. Ist der Browser geschlossen, kann JavaScript nicht punktgenau löschen; die logische Frist gilt unabhängig davon, und die
-          physische Bereinigung erfolgt bei der nächsten Ausführung. Die lokale Frist nutzt die Browseruhr und ist keine serverseitige
-          Sicherheitsgrenze. Serverseitige Zugriffe auf Spielteilnahmen werden zusätzlich anhand serverseitiger Ablaufzeiten geprüft.</li>
+        <li>Gast-Kennung im Browser: standardmäßig höchstens 24 Stunden, bei einem gestarteten Quiz per Link bis zur dort ausgewiesenen
+          Ergebnis-Aufbewahrungsfrist. Die Anwendung prüft den Fristablauf im geöffneten Tab und bei Rückkehr zur Seite. Ist der Browser geschlossen,
+          kann JavaScript nicht punktgenau löschen; die lokale Frist ist keine serverseitige Sicherheitsgrenze. Serverseitige Zugriffe werden
+          zusätzlich anhand der serverseitigen Fristen geprüft.</li>
       </ul>
     </section>
     <section>
