@@ -1,0 +1,222 @@
+{
+  "format": "ratelama-quiz-authoring-v1",
+  "note": "Redaktionelle Daten für die UI-Anlage, kein behauptetes RateLama-Importformat. Fragenreihenfolge und Antwortzuordnung unverändert übernehmen.",
+  "title": "KI im Team: Gemeinsam weiterdenken",
+  "description": "Acht lockere Fragen zu KI-Agenten, klaren Anforderungen und gemeinsamer Softwareentwicklung. Für Entwickler und Requirements Engineers beim Einstieg in DevOps und KI.",
+  "language": "de",
+  "defaultUse": "LIVE_QUIZ_DRAFT",
+  "publish": false,
+  "questions": [
+    {
+      "id": "q01",
+      "difficulty": "leicht",
+      "seconds": 20,
+      "question": "Was kann ein KI-Agent im gezeigten Entwicklungsablauf übernehmen?",
+      "options": [
+        "Das Produktziel eigenständig neu festlegen",
+        "Die fachliche Abnahme verbindlich ersetzen",
+        "Ein Ticket umsetzen und Änderungen vorschlagen",
+        "Die fachliche Verantwortung des Teams übernehmen"
+      ],
+      "correct": "C",
+      "explanation": "Agenten können geklärte Aufgaben bearbeiten und Änderungen vorbereiten. Das Team prüft die Ergebnisse und trägt weiter Verantwortung für die Lösung.",
+      "moderation": "Denkt an den Agenten als zusätzlichen Mitspieler: Er kann Arbeit erledigen, wir behalten die Verantwortung.",
+      "sources": [
+        {
+          "slide": 8,
+          "title": "Phase 2: Umsetzung",
+          "hidden": false
+        },
+        {
+          "slide": 9,
+          "title": "Phase 3: Validierung und Anpassung",
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "difficulty": "leicht",
+      "seconds": 20,
+      "question": "Welche Aufgabenbeschreibung hilft einem Agenten am meisten?",
+      "options": [
+        "Ziel, Beispiel und klare Akzeptanzkriterien",
+        "Nur der Titel des nächsten geplanten Sprints",
+        "Möglichst viele technische Schlagwörter",
+        "Der komplette Verlauf des letzten Projekts"
+      ],
+      "correct": "A",
+      "explanation": "Ein klares Ziel, ein Beispiel und überprüfbare Akzeptanzkriterien geben Orientierung. So können Team und Agent besser beurteilen, ob die Lösung zur Aufgabe passt.",
+      "moderation": "Gute Anforderungen helfen uns Menschen schon lange. Jetzt helfen sie auch unserem zusätzlichen Mitspieler.",
+      "sources": [
+        {
+          "slide": 7,
+          "title": "Phase 1: Refinement & Backlogpflege",
+          "hidden": false
+        },
+        {
+          "slide": 12,
+          "title": "Herausforderungen: Geschwindigkeit braucht Vorarbeit",
+          "hidden": false
+        },
+        {
+          "slide": 21,
+          "title": "Gemeinsame Spezifikation im Zielbild",
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "difficulty": "mittel",
+      "seconds": 30,
+      "question": "Ein Agent soll den aktuellen Status eines GitHub-Issues lesen. Was braucht er für den Zugriff?",
+      "options": [
+        "Ein Sprachmodell mit mehr Trainingsdaten",
+        "Ein angebundenes Tool mit Berechtigung",
+        "Den vollständigen Chatverlauf aller Sprints",
+        "Einen zusätzlichen Plan für das nächste Release"
+      ],
+      "correct": "B",
+      "explanation": "Ein Tool verbindet den Agenten mit einem externen System. Für aktuelle GitHub-Daten braucht er einen passenden Zugriff mit den erforderlichen Berechtigungen.",
+      "moderation": "Der Unterschied ist wichtig: Über ein Issue sprechen kann ein Modell auch ohne Zugriff. Den aktuellen Status lesen braucht eine Verbindung zum System.",
+      "sources": [
+        {
+          "slide": 4,
+          "title": "Agentic Development: Die Bausteine, Tool",
+          "hidden": true
+        },
+        {
+          "slide": 10,
+          "title": "Phase 4: Review, GitHub-Anbindung im Diagramm",
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "difficulty": "mittel",
+      "seconds": 30,
+      "question": "Ein Team will seine API-Prüfregeln als wiederverwendbare Anleitung bündeln. Was passt dazu?",
+      "options": [
+        "Ein zusätzlicher Branch für jede Prüfung",
+        "Eine Kopie der API im Kontextfenster",
+        "Ein vollständiger neuer Chat pro Prüfung",
+        "Ein Skill mit diesen Prüfregeln"
+      ],
+      "correct": "D",
+      "explanation": "Ein Skill kann wiederverwendbare Anleitungen und Prüfschritte bündeln. Im Vortrag nutzt das Team einen API-Design-Assistenten, um Änderungen gegen gemeinsame Regeln zu prüfen.",
+      "moderation": "Unser Fachwissen kann dem Agenten als wiederverwendbare Anleitung zur Verfügung stehen. Wir müssen es dann nicht jedes Mal neu erklären.",
+      "sources": [
+        {
+          "slide": 8,
+          "title": "Phase 2: Umsetzung, API-Design-Assistent als Skill",
+          "hidden": false
+        },
+        {
+          "slide": 4,
+          "title": "Agentic Development: Die Bausteine, Skill",
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "difficulty": "mittel",
+      "seconds": 25,
+      "question": "Eine Idee ist noch unklar. Wie können REs und Agenten sie früh gemeinsam greifbar machen?",
+      "options": [
+        "Direkt die vollständige Umsetzung beauftragen",
+        "Einen kleinen Prototyp ausprobieren",
+        "Zuerst sämtliche technischen Details festlegen",
+        "Bis zum nächsten fertigen Release abwarten"
+      ],
+      "correct": "B",
+      "explanation": "Ein kleiner Prototyp macht eine Idee erlebbar. REs, Entwicklung und Stakeholder können daran gemeinsam klären, was gebraucht wird.",
+      "moderation": "Das ist eine schöne Chance für REs: Eine Idee lässt sich zeigen und ausprobieren, bevor wir sie vollständig festschreiben.",
+      "sources": [
+        {
+          "slide": 20,
+          "title": "Wenn Agenten Tickets schreiben und danach entwickeln",
+          "hidden": true
+        },
+        {
+          "slide": 22,
+          "title": "Requirements Engineering mit Agenten, Ideen erproben",
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "difficulty": "mittel",
+      "seconds": 25,
+      "question": "Ein Agent liefert Code. Was gehört im Vortrag zur gemeinsamen Validierung?",
+      "options": [
+        "Vor allem die Zahl der geänderten Dateien bewerten",
+        "Alle Änderungen von einem zweiten Agenten neu schreiben lassen",
+        "Änderungen prüfen und fachlich rückkoppeln",
+        "Sich allein auf die Beschreibung des Agenten verlassen"
+      ],
+      "correct": "C",
+      "explanation": "Im gezeigten Ablauf folgen auf die Umsetzung Code-Review, gegebenenfalls Anpassungen und die fachliche Prüfung. Agenten unterstützen dabei, das Team bewertet das Ergebnis.",
+      "moderation": "Wir können unsere Zeit stärker darauf verwenden, ob die Lösung fachlich passt und gut umgesetzt ist.",
+      "sources": [
+        {
+          "slide": 9,
+          "title": "Phase 3: Validierung und Anpassung, Review-Ablauf",
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "difficulty": "Aha",
+      "seconds": 30,
+      "question": "Was hilft, damit schnell entwickelter Code auch schneller beim Kunden ankommt?",
+      "options": [
+        "Noch mehr Features gleichzeitig beginnen",
+        "Änderungen vor allem nach Dateigröße sortieren",
+        "Reviews zu einem großen Abschlusstermin bündeln",
+        "Kleine Änderungen zeitnah prüfen und abnehmen"
+      ],
+      "correct": "D",
+      "explanation": "Im Vortrag zählen nutzbare Ergebnisse beim Kunden. Kleine Änderungen und früh eingeplante Reviews und Abnahmen helfen, schneller von der Umsetzung zur Nutzung zu kommen.",
+      "moderation": "Hier treffen KI und DevOps aufeinander: Wir schauen gemeinsam auf den ganzen Weg bis zum nutzbaren Ergebnis.",
+      "sources": [
+        {
+          "slide": 15,
+          "title": "Schnell entwickelt. Noch nicht beim Kunden.",
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "difficulty": "Aha",
+      "seconds": 30,
+      "question": "Wie sollen neue Erkenntnisse aus einem Review ins Team zurückfließen?",
+      "options": [
+        "Die gemeinsame Spezifikation aktualisieren",
+        "Für jede Rolle ein getrenntes Dokument anlegen",
+        "Nur im Chat der gerade steuernden Person sammeln",
+        "Erst beim nächsten neuen Projekt berücksichtigen"
+      ],
+      "correct": "A",
+      "explanation": "Das Zielbild führt Perspektiven und Feedback in einer gemeinsamen Spezifikation zusammen. So können das Team und seine Agenten auf demselben aktuellen Stand weiterarbeiten.",
+      "moderation": "Das ist für mich der gemeinsame Punkt: Unser Wissen fließt zusammen und hilft uns bei der nächsten Entscheidung weiter.",
+      "sources": [
+        {
+          "slide": 21,
+          "title": "Gemeinsam die Spezifikation entwickeln, Feedback fließt zurück",
+          "hidden": true
+        },
+        {
+          "slide": 10,
+          "title": "Phase 4: Review, Rückfluss aus Review und Wunschliste",
+          "hidden": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
 import { ArrowRight, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
@@ -97,6 +97,29 @@ function AsyncPublicationCard({ publication, busy, onEnd }: {
   </article>;
 }
 
+const ENDED_SESSION_STATUSES = new Set(["FINISHED", "CANCELLED"]);
+const archivedSessionLabel = (status: string) => status === "CANCELLED" ? "Abgebrochen" : "Beendet";
+
+/** Beendete Einträge standardmäßig eingeklappt, damit laufende Runden oben im Blick bleiben. */
+function ArchiveSection({ label, count, children }: { label: string; count: number; children: ReactNode }) {
+  if (count === 0) return null;
+  return <details className="archive-section">
+    <summary><span className="archive-label">{label}</span><span className="archive-count">{count}</span>
+      <span className="archive-toggle" aria-hidden="true" /></summary>
+    <ul className="archive-list">{children}</ul>
+  </details>;
+}
+
+function ArchiveRow({ title, status, to, action, children }: { title: string; status: string; to: string; action: string; children: ReactNode }) {
+  return <li className="archive-row">
+    <div className="archive-row-main">
+      <h3>{title}</h3>
+      <div className="archive-row-meta"><span className="badge">{status}</span>{children}</div>
+    </div>
+    <Link className="button secondary small" to={to}>{action}</Link>
+  </li>;
+}
+
 function Overview() {
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -120,6 +143,15 @@ function Overview() {
     setBusy(true); setError("");
     try { await signOut(); navigate("/"); } catch (caught) { setError(message(caught)); } finally { setBusy(false); }
   }
+  const activeSessions = sessions.filter((session) => !ENDED_SESSION_STATUSES.has(session.status));
+  const endedSessions = sessions.filter((session) => ENDED_SESSION_STATUSES.has(session.status));
+  const now = Date.now();
+  const isActivePublication = (publication: AsyncPublicationSummary) =>
+    liveAsyncStatus(publication.status, publication.expiresAt, now) === "ACTIVE";
+  const activePublications = asyncPublications.filter(isActivePublication);
+  const endedPublications = asyncPublications.filter((publication) => !isActivePublication(publication))
+    .sort((left, right) => (right.endedAt ?? right.expiresAt) - (left.endedAt ?? left.expiresAt));
+  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return <Layout><div className="section-heading"><div><span className="eyebrow">DEINE IDEEN, DEINE BÜHNE</span><h1>Deine Quizze</h1>
     <p>Eine gute Frage ist der Anfang einer großartigen Runde.</p></div>
     <div className="actions"><Link className="button primary" to="/admin/quizzes/new"><Plus size={18} aria-hidden="true" /> Neues Quiz</Link>
@@ -145,23 +177,44 @@ function Overview() {
       <button className="card add-card" disabled={busy} onClick={() => void run(async () => { await cloud.createQuiz(exampleQuiz); })}>
         <Sparkles size={28} aria-hidden="true" />Beispielquiz hinzufügen<span className="hint">10 Fragen als Starthilfe</span></button>
     </div><div className="section-heading"><div><span className="eyebrow">SPIELVERLAUF</span><h2>Sitzungen</h2>
-      <p>Verfügbare laufende und vergangene Sitzungen.</p></div></div>
-    {sessions.length === 0 ? <p>Noch keine Sitzungen vorhanden.</p> : <div className="grid">
-      {sessions.map((session) => <article className="card" key={session.sessionId}><h2>{session.title}</h2>
-        <span className="badge">{phaseLabels[session.status] ?? session.status}</span><p>Spielcode {session.joinCode}</p>
-        <Link className="button secondary small" to={`/admin/sessions/${session.sessionId}`}>Sitzung öffnen</Link></article>)}
-    </div>}
+      <p>Laufende Live-Quizze stehen oben, beendete findest du eingeklappt darunter.</p></div></div>
+    {sessions.length === 0 ? <p>Noch keine Sitzungen vorhanden.</p> : <>
+      {activeSessions.length === 0 ? <p className="archive-empty">Gerade läuft keine Live-Sitzung.</p> : <div className="grid session-grid">
+        {activeSessions.map((session) => <article className="card" key={session.sessionId}><h2>{session.title}</h2>
+          <span className="badge">{phaseLabels[session.status] ?? session.status}</span><p>Spielcode {session.joinCode}</p>
+          <Link className="button secondary small" to={`/admin/sessions/${session.sessionId}`}>Sitzung öffnen</Link></article>)}
+      </div>}
+      <ArchiveSection label="Beendete Sitzungen" count={endedSessions.length}>
+        {endedSessions.map((session) => <ArchiveRow key={session.sessionId} title={session.title}
+          status={archivedSessionLabel(session.status)} to={`/admin/sessions/${session.sessionId}`} action="Sitzung öffnen">
+          <span className="archive-meta-item"><Clock3 size={14} aria-hidden="true" />
+            Erstellt am {formatDateTimeWithZone(session.createdAt, browserTimeZone)}</span>
+        </ArchiveRow>)}
+      </ArchiveSection>
+    </>}
     <div className="section-heading"><div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h2>Veröffentlichte Quizrunden</h2>
       <p>Teile deine Quizrunde. Alle spielen in ihrem Tempo bis zum angegebenen Ende.</p></div></div>
-    {asyncPublications.length === 0 ? <p>Noch keine Quizrunden veröffentlicht.</p> : <div className="grid async-publication-grid">
-      {asyncPublications.map((publication) => <AsyncPublicationCard key={publication.publicationId} publication={publication}
-        busy={busy} onEnd={() => {
-          if (window.confirm(`„${publication.title}“ jetzt für alle Teilnehmenden beenden? Offene Teilnahmen enden sofort, ` +
-            "weitere Antworten werden nicht mehr angenommen und Link, QR-Code und Quiz-Code zeigen danach nur noch die Endseite mit Ergebnissen.")) {
-            void run(async () => { await cloud.endAsyncPublication(publication.publicationId); });
-          }
-        }} />)}
-    </div>}
+    {asyncPublications.length === 0 ? <p>Noch keine Quizrunden veröffentlicht.</p> : <>
+      {activePublications.length === 0 ? <p className="archive-empty">Gerade ist keine Quizrunde aktiv.</p> : <div className="grid async-publication-grid">
+        {activePublications.map((publication) => <AsyncPublicationCard key={publication.publicationId} publication={publication}
+          busy={busy} onEnd={() => {
+            if (window.confirm(`„${publication.title}“ jetzt für alle Teilnehmenden beenden? Offene Teilnahmen enden sofort, ` +
+              "weitere Antworten werden nicht mehr angenommen und Link, QR-Code und Quiz-Code zeigen danach nur noch die Endseite mit Ergebnissen.")) {
+              void run(async () => { await cloud.endAsyncPublication(publication.publicationId); });
+            }
+          }} />)}
+      </div>}
+      <ArchiveSection label="Beendete Quizrunden" count={endedPublications.length}>
+        {endedPublications.map((publication) => <ArchiveRow key={publication.publicationId} title={publication.title}
+          status={asyncStatusText(liveAsyncStatus(publication.status, publication.expiresAt, now))}
+          to={`/admin/async/${publication.publicationId}`} action="Ergebnisse ansehen">
+          <span className="archive-meta-item"><Clock3 size={14} aria-hidden="true" />
+            Beendet am {formatDateTimeWithZone(publication.endedAt ?? publication.expiresAt, publication.timeZone)}</span>
+          <span className="archive-meta-item"><Users size={14} aria-hidden="true" />
+            {publication.participantCount} gestartet · {publication.completedCount} fertig</span>
+        </ArchiveRow>)}
+      </ArchiveSection>
+    </>}
     </Layout>;
 }
 

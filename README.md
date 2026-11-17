@@ -140,6 +140,8 @@ Veröffentlichungen laufen höchstens 90 Tage (serverseitig erzwungen, im UI ang
 
 Nach Rundenende zeigt die Admin-Ergebnisseite beim Quiz zum Mitmachen dieselbe Endstand-Karte wie beim Live-Quiz: große Avatare, Punkte und ein Siegerpodest in der Anordnung 2–1–3. Geteilte Ränge behalten dieselbe Podesthöhe; weitere Platzierungen sowie Fragen- und Teilnehmerdetails bleiben verfügbar. Solange die Runde läuft, bleibt die kompakte, vorläufige Top-5-Liste bestehen.
 
+In der Übersicht unter `/admin` stehen laufende Live-Sitzungen und aktive Quizrunden als Karten oben. Beendete oder abgebrochene Sitzungen sowie vorzeitig beendete oder abgelaufene Quizrunden liegen darunter jeweils in einem standardmäßig eingeklappten Bereich mit Anzahl („Beendete Sitzungen“, „Beendete Quizrunden“). Dort erscheinen sie als kompakte Zeilen mit Status, Datum und Link zur Sitzung bzw. zu den Ergebnissen.
+
 ## Hosting und Betrieb
 
 In Amplify Hosting das Repository mit Gen-2-Backend verbinden und den Backend-Build mit den gewünschten Umgebungsvariablen konfigurieren. Die versionierte `amplify.yml` deployt das Backend und kopiert dessen erzeugte `amplify_outputs.json` vor dem Frontend-Build nach `public/amplify_outputs.json`. Das Build-Artefakt ist `dist`; der Build schlägt fehl, falls die Ausgabe fehlt.

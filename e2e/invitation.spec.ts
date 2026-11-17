@@ -122,12 +122,16 @@ test.describe("Verwaltung: kompakte Karten", () => {
     expect(await counter(page, "ensure-calls")).toBeGreaterThanOrEqual(1);
     expect(await counter(page, "ensure-calls")).toBeLessThanOrEqual(2);
 
-    const ended = page.locator(".async-publication-card").filter({ hasText: "Sommerquiz" });
+    const archive = page.locator("details.archive-section").filter({ hasText: "Beendete Quizrunden" });
+    await expect(archive).not.toHaveAttribute("open");
+    await expect(page.locator(".async-publication-card").filter({ hasText: "Sommerquiz" })).toHaveCount(0);
+    await archive.locator("summary").click();
+    const ended = archive.locator(".archive-row").filter({ hasText: "Sommerquiz" });
     await expect(ended.locator(".badge")).toHaveText("Vorzeitig beendet");
     await expect(ended).toContainText("Beendet am");
     await expect(ended.getByRole("link", { name: "Einladung anzeigen" })).toHaveCount(0);
     await expect(ended.locator(".join-code-digits")).toHaveCount(0);
-    await expect(ended.getByRole("link", { name: "Ergebnisse ansehen" })).toBeVisible();
+    await expect(ended.getByRole("link", { name: "Ergebnisse ansehen" })).toHaveAttribute("href", "/admin/async/p-ended");
 
     const text = await page.locator("main").innerText();
     expect(text).not.toMatch(forbidden);
