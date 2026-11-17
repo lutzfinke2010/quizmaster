@@ -8,7 +8,7 @@ import {
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  endAsyncPublication, getAsyncPublicInfo, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
+  endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
 } from "./asyncQuiz";
 
 const database = mockClient(DynamoDBDocumentClient);
@@ -276,6 +276,13 @@ describe("Quiz per Link", () => {
     records.set(metaKey, { ...records.get(metaKey), status: "ENDED", endedAt: Date.now() });
     await expect(submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now()))
       .rejects.toThrow(/Quizfrist ist abgelaufen|beendet/);
+  });
+
+  it("liefert Ergebnisse, wenn AppSync den fehlenden Cursor als null übergibt", async () => {
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    const results = await getAsyncPublicationResults(db, "table", { publicationId, cursor: null }, principal, Date.now());
+    expect(results.participants).toHaveLength(1);
   });
 
   it("listet Runden robust, auch wenn eine Veröffentlichung bereits gelöscht wurde", async () => {

@@ -627,7 +627,7 @@ export async function getAsyncPublicationResults(
   client: DynamoDBDocumentClient, tableName: string, raw: unknown, principal: unknown, now: number,
 ) {
   const ownerId = requireQuizmaster(principal);
-  const input = z.object({ publicationId: uuidSchema, cursor: z.string().regex(/^\d+$/).optional() }).strict().parse(raw);
+  const input = z.object({ publicationId: uuidSchema, cursor: z.string().regex(/^\d+$/).nullish() }).strict().parse(raw);
   const offset = input.cursor ? Number(input.cursor) : 0;
   if (!Number.isSafeInteger(offset)) throw new Error("Ungültiger Ergebniscursor.");
   const pageSize = 50;
