@@ -260,10 +260,7 @@
 .async-leader-status { grid-area: status; font-size: .75rem; color: var(--muted); }
 .async-leader-points { grid-area: points; font-variant-numeric: tabular-nums; }
 .async-leaders > .button { align-self: flex-start; margin-top: 12px; }
-.async-more { margin-top: 8px; }
-.async-more summary, .async-admin-section > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--teal); font-weight: 750; }
-.async-more summary { text-decoration: underline; text-underline-offset: 4px; }
-.async-more .async-leader-list { margin: 6px 0 10px; }
+.async-admin-section > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--teal); font-weight: 750; }
 .async-admin-results .card { min-height: 0; padding: 14px 16px; }
 .async-admin-results .card p { flex: none; margin: 0 0 10px; }
 .async-admin-results .card h2 { margin: 0; font-size: 1.15rem; }
@@ -275,6 +272,43 @@
 .async-summary-line { margin: 0; font-size: .85rem; }
 .async-question-stat { min-width: 0; overflow-wrap: anywhere; }
 .async-status-active { background: #e2f0dc; color: #285d46; }
+.async-presentation[hidden] { display: none; }
+.async-presentation { position: fixed; z-index: 1000; inset: 0; width: 100%; height: 100dvh; overflow: auto; background: var(--game-surface); }
+.async-presentation:fullscreen { width: 100vw; height: 100vh; }
+.async-presentation-board { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 100%; padding: clamp(12px, 2vh, 24px) clamp(20px, 4vw, 72px); border: 0; border-radius: 0; }
+.async-presentation-header { display: flex; flex: none; justify-content: space-between; align-items: flex-start; gap: 12px 30px; }
+.async-presentation-header > div { min-width: 0; }
+.async-presentation-title { margin: 0; color: var(--teal); font-size: clamp(1.05rem, 1.5vw, 1.6rem); font-weight: 750; line-height: 1.2; overflow-wrap: anywhere; }
+.game-view .async-presentation-header h1 { margin: 4px 0 0; font-size: clamp(1.8rem, 3vw, 3rem); }
+.async-presentation-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; max-width: 52%; color: var(--ink); font-size: clamp(.9rem, 1.2vw, 1.25rem); }
+.async-presentation-meta strong { color: var(--teal); }
+.async-presentation-error, .async-presentation-hint { flex: none; margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fff3e6; color: #6b3314; font-size: 1rem; }
+.async-presentation-empty { margin: 16px 0; font-size: 1.25rem; }
+.game-view.async-presentation-board .podium { flex: none; gap: 12px; margin: 4px 0 8px; }
+.async-presentation-board .podium-player > strong { font-size: clamp(1.25rem, 1.8vw, 2rem); line-height: 1.1; overflow-wrap: anywhere; }
+.async-presentation-board .podium-player > span { font-size: clamp(1rem, 1.3vw, 1.4rem); line-height: 1.1; }
+.game-view.async-presentation-board .podium .avatar { width: clamp(52px, 8vh, 84px); height: clamp(52px, 8vh, 84px); }
+.async-presentation-board .pedestal { height: clamp(48px, 10vh, 85px); margin-top: 0; }
+.async-presentation-board .podium-rank-1 .pedestal { height: clamp(70px, 14vh, 125px); }
+.async-presentation-board .podium-rank-3 .pedestal { height: clamp(35px, 7vh, 62px); }
+.async-presentation-list-area { flex: 1 1 0; min-height: 0; overflow: auto; }
+.async-presentation-list { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.async-presentation-list li { display: grid; grid-template-columns: 3rem 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 64px; padding: 4px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--game-soft); }
+.async-presentation-list .avatar { width: 40px; height: 40px; }
+.async-presentation-rank, .async-presentation-name, .async-presentation-points { font-size: clamp(1.25rem, 1.6vw, 2rem); line-height: 1.25; }
+.async-presentation-rank { color: var(--teal); font-weight: 800; font-variant-numeric: tabular-nums; }
+.async-presentation-name { min-width: 0; overflow-wrap: anywhere; }
+.async-presentation-points { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.async-presentation-controls { display: flex; flex: none; justify-content: space-between; align-items: center; gap: 8px 20px; margin-top: 8px; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: clamp(.9rem, 1.1vw, 1.15rem); }
+.async-presentation-controls .actions { justify-content: flex-end; margin: 0; }
+@media (max-width: 700px), (max-height: 560px) {
+  .async-presentation-board { height: auto; }
+  .async-presentation-header, .async-presentation-controls { flex-wrap: wrap; }
+  .async-presentation-meta { justify-content: flex-start; max-width: 100%; }
+  .async-presentation-list-area { flex: none; min-height: 70px; overflow: visible; }
+  .async-presentation-list li { grid-template-columns: 2rem 32px minmax(0, 1fr) auto; gap: 6px; padding-inline: 8px; }
+  .async-presentation-list .avatar { width: 32px; height: 32px; }
+}
 @media (max-width: 600px) {
   .game-layout-player .container { width: calc(100% - 24px); padding-top: 10px; padding-bottom: 24px; }
 }

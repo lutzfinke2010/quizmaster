@@ -128,6 +128,11 @@ const schema = a.schema({
     status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
     answers: a.ref("AsyncPlayerAnswer").array().required(),
   }),
+  AsyncStandingParticipant: a.customType({
+    attemptId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
+    completedAt: a.float(), answeredCount: a.integer().required(), questionCount: a.integer().required(),
+    status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
+  }),
   AsyncOptionResult: a.customType({
     id: a.id().required(), text: a.string().required(), correct: a.boolean().required(), count: a.integer().required(),
   }),
@@ -145,6 +150,17 @@ const schema = a.schema({
     updatedAt: a.float().required(), questions: a.ref("AsyncQuestionResult").array().required(),
     participants: a.ref("AsyncParticipantResult").array().required(), nextCursor: a.string(),
     leaders: a.ref("AsyncParticipantResult").array().required(), totalParticipants: a.integer().required(),
+    scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
+    bonusWindowMs: a.integer().required(),
+  }),
+  AsyncStandings: a.customType({
+    publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(),
+    createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
+    status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
+    participantCount: a.integer().required(), maxParticipants: a.integer().required(),
+    completedCount: a.integer().required(), partialCount: a.integer().required(), isFinal: a.boolean().required(),
+    updatedAt: a.float().required(), questions: a.ref("AsyncQuestionResult").array().required(),
+    participants: a.ref("AsyncStandingParticipant").array().required(), totalParticipants: a.integer().required(),
     scoringVersion: a.string().required(), basePoints: a.integer().required(), maxBonusPoints: a.integer().required(),
     bonusWindowMs: a.integer().required(),
   }),
@@ -227,6 +243,9 @@ const schema = a.schema({
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   getAsyncPublicationResults: a.query().arguments({ publicationId: a.id().required(), cursor: a.string() })
     .returns(a.ref("AsyncPublicationResults"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  getAsyncStandings: a.query().arguments({ publicationId: a.id().required() })
+    .returns(a.ref("AsyncStandings"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   getAsyncPublicInfo: a.query().arguments({ token: a.string().required() }).returns(a.ref("AsyncPublicInfo"))
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool")]).handler(a.handler.function(gameApi)),

@@ -9,7 +9,8 @@ import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as participation from "./participation";
 import {
-  endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, listAsyncPublications, getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
+  endAsyncPublication, getAsyncPublicInfo, getAsyncPublicationResults, getAsyncStandings, listAsyncPublications,
+  getMyAsyncState, publishAsyncQuiz, startAsyncQuiz, submitAsyncAnswer,
 } from "./asyncQuiz";
 
 const database = mockClient(DynamoDBDocumentClient);
@@ -515,6 +516,75 @@ describe("Quiz per Link", () => {
     expect(results.participants[0].attemptId).toMatch(/^[a-f0-9]{24}$/);
     expect(results.participants[0].attemptId).not.toBe(results.participants[1].attemptId);
     expect(JSON.stringify(results)).not.toContain(createHash("sha256").update(identityId).digest("hex"));
+  });
+
+  it.each([250, 500])("liefert alle %i Plätze ohne Einzelantwortabfragen", async (count) => {
+    const metaKey = keyOf(pk, "META");
+    records.set(metaKey, { ...records.get(metaKey), statsVersion: 1, startedCount: count, completedCount: count,
+      maxParticipants: count, stat_000_a0: count, scoringVersion: "ASYNC_SPEED_V1" });
+    for (let index = 0; index < count; index++) {
+      const identity = index.toString(16).padStart(64, "0");
+      records.set(keyOf(pk, `ATTEMPT#${identity}`), {
+        pk, sk: `ATTEMPT#${identity}`, identityHash: identity, displayName: `Spieler ${String(index).padStart(3, "0")}`,
+        avatarId: "avatar-001", startedAt: Date.now(), answeredCount: 1, status: "COMPLETED",
+        completedAt: Date.now(), points: 4000 - Math.floor(index / 2),
+      });
+    }
+    if (count === 500) {
+      database.on(QueryCommand).callsFake((input: QueryCommandInput) => {
+        assertValidExpressions(input);
+        const partition = input.ExpressionAttributeValues?.[":pk"];
+        const prefix = input.ExpressionAttributeValues?.[":prefix"];
+        const items = [...records.values()].filter((item) => item.pk === partition &&
+          typeof item.sk === "string" && item.sk.startsWith(String(prefix))).sort((a, b) => String(a.sk).localeCompare(String(b.sk)));
+        const start = input.ExclusiveStartKey ? items.findIndex((item) => item.sk === input.ExclusiveStartKey?.sk) + 1 : 0;
+        const page = items.slice(start, start + 100);
+        return { Items: page, LastEvaluatedKey: start + page.length < items.length
+          ? { pk: partition, sk: page.at(-1)?.sk } : undefined };
+      });
+    }
+    const principal = { subject: "admin", groups: ["Quizmasters"] };
+    const before = database.commandCalls(QueryCommand).length;
+    const standings = await getAsyncStandings(db, "table", { publicationId }, principal, Date.now());
+    const reads = database.commandCalls(QueryCommand).slice(before);
+    expect(reads.some((call) => String(call.args[0].input.ExpressionAttributeValues?.[":prefix"]).startsWith("ANSWER#"))).toBe(false);
+    expect(reads.filter((call) => call.args[0].input.ExpressionAttributeValues?.[":prefix"] === "ATTEMPT#"))
+      .toHaveLength(count === 500 ? 5 : 1);
+    expect(standings).toMatchObject({ participantCount: count, completedCount: count, totalParticipants: count, isFinal: false });
+    expect(standings.participants).toHaveLength(count);
+    expect(standings.participants.slice(0, 4).map(({ rank }) => rank)).toEqual([1, 1, 3, 3]);
+    expect(standings.questions[0].options.map(({ count: value }) => value)).toEqual([count, 0]);
+    expect(standings.participants[0]).not.toHaveProperty("answers");
+    expect(JSON.stringify(standings)).not.toContain("identityHash");
+    expect(standings).not.toHaveProperty("token");
+    expect(standings).not.toHaveProperty("joinCode");
+    const details = await getAsyncPublicationResults(db, "table", { publicationId }, principal, Date.now());
+    expect(standings.participants.slice(0, 5).map(({ attemptId, points, rank }) => ({ attemptId, points, rank })))
+      .toEqual(details.leaders.map(({ attemptId, points, rank }) => ({ attemptId, points, rank })));
+  });
+
+  it("berechnet den Zwischenstand älterer Veröffentlichungen aus den gespeicherten Antworten", async () => {
+    await startAsyncQuiz(db, "table", token, identityId, Date.now());
+    await submitAsyncAnswer(db, "table", { token, questionIndex: 0, choiceId: "a0" }, identityId, Date.now());
+    const before = database.commandCalls(QueryCommand).length;
+    const standings = await getAsyncStandings(db, "table", { publicationId },
+      { subject: "admin", groups: ["Quizmasters"] }, Date.now());
+    expect(database.commandCalls(QueryCommand).slice(before)
+      .some((call) => call.args[0].input.ExpressionAttributeValues?.[":prefix"] === "ANSWER#")).toBe(true);
+    expect(standings).toMatchObject({ scoringVersion: "LEGACY_CORRECT", participantCount: 1 });
+    expect(standings.participants[0]).toMatchObject({ points: 1, rank: 1, answeredCount: 1 });
+    expect(standings.questions[0].options.map(({ count }) => count)).toEqual([1, 0]);
+  });
+
+  it("beschränkt den Zwischenstand auf Quizmaster, Eigentümer und die Aufbewahrungsfrist", async () => {
+    const input = { publicationId };
+    await expect(getAsyncStandings(db, "table", input, { subject: "admin", groups: [] }, Date.now()))
+      .rejects.toThrow("Keine Berechtigung");
+    await expect(getAsyncStandings(db, "table", input, { subject: "other", groups: ["Quizmasters"] }, Date.now()))
+      .rejects.toThrow("gehört nicht zu diesem Konto");
+    records.set(keyOf(pk, "META"), { ...records.get(keyOf(pk, "META")), retentionAt: Date.now() - 1 });
+    await expect(getAsyncStandings(db, "table", input, { subject: "admin", groups: ["Quizmasters"] }, Date.now()))
+      .rejects.toThrow("Aufbewahrungsfrist");
   });
 
   describe("ASYNC_SPEED_V1", () => {

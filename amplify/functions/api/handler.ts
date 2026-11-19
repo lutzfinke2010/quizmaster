@@ -16,7 +16,7 @@ import { logger, setLogContext } from "../../../src/server/logger";
 import { toClientError } from "../../../src/server/clientError";
 import { guestIdentity, quizmasterIdentity } from "../../../src/server/appsyncIdentity";
 import {
-  endAsyncPublication, ensureAsyncJoinCode, getAsyncPublicInfo, getAsyncPublicationResults, getMyAsyncState,
+  endAsyncPublication, ensureAsyncJoinCode, getAsyncPublicInfo, getAsyncPublicationResults, getAsyncStandings, getMyAsyncState,
   listAsyncPublications, publishAsyncQuiz, resolveJoinCode, startAsyncQuiz, submitAsyncAnswer,
 } from "../../../src/server/asyncQuiz";
 import { isJoinCodeLike } from "../../../src/server/joinCode";
@@ -153,6 +153,8 @@ async function dispatch(raw: unknown, now: number): Promise<unknown> {
       return endAsyncPublication(client, tableName, args, quizmaster(event.identity), now);
     case "getAsyncPublicationResults":
       return getAsyncPublicationResults(client, tableName, args, quizmaster(event.identity), now);
+    case "getAsyncStandings":
+      return getAsyncStandings(client, tableName, args, quizmaster(event.identity), now);
     case "ensureAsyncJoinCode":
       return ensureAsyncJoinCode(client, tableName, args, quizmaster(event.identity), now);
     case "resolveJoinCode": {

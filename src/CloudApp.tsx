@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
 import { ArrowRight, Check, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
-import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncParticipantResult, type AsyncPublicationResults, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
+import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncStandingParticipant, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
 import type { Quiz } from "./domain/quiz";
@@ -23,6 +23,8 @@ import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits"
 import { ASYNC_SPEED_V1, type AsyncScoringRule } from "./domain/scoring";
 import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { AsyncStandingsPresentation } from "./components/AsyncStandingsPresentation";
+import { ASYNC_DETAIL_PAGE_SIZE, matchesAsyncDetail, useAsyncParticipantDetails, useAsyncStandings } from "./hooks/useAsyncStandings";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
 function toLocalInput(timestamp: number): string {
@@ -655,7 +657,7 @@ function AsyncQuizPage() {
 
 const attemptStatusText = (status: string) => status === "COMPLETED" ? "abgeschlossen" : status === "IN_PROGRESS" ? "läuft" : "Frist abgelaufen";
 
-function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncParticipantResult; rule: AsyncScoringRule | null; questionCount: number }) {
+function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncStandingParticipant; rule: AsyncScoringRule | null; questionCount: number }) {
   return <li className="async-leader">
     <span className="async-leader-rank" aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
     <Avatar avatarId={player.avatarId} />
@@ -668,80 +670,41 @@ function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncParticip
 function AsyncAdminResultsPage() {
   useNoIndex();
   const { publicationId = "" } = useParams();
-  const [results, setResults] = useState<AsyncPublicationResults | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
+  return <AsyncAdminResults key={publicationId} publicationId={publicationId} />;
+}
+
+function AsyncAdminResults({ publicationId }: { publicationId: string }) {
+  const { standings: results, loading, error, expired, refreshing, refresh } = useAsyncStandings(publicationId);
   const [filter, setFilter] = useState<"ALL" | "COMPLETED" | "PARTIAL">("ALL");
   const [sort, setSort] = useState<"RANK" | "NAME" | "START">("RANK");
-  const [stale, setStale] = useState(false);
-  // Aufklappzustände bleiben beim Aktualisieren erhalten.
-  const [open, setOpen] = useState({ more: false, questions: false, players: false, info: false });
+  const [rankingLimit, setRankingLimit] = useState(ASYNC_DETAIL_PAGE_SIZE);
+  const [detailLimit, setDetailLimit] = useState(ASYNC_DETAIL_PAGE_SIZE);
+  const [presenting, setPresenting] = useState(false);
+  const [open, setOpen] = useState({ questions: false, players: false, info: false });
+  const participantDetails = useAsyncParticipantDetails(publicationId, results, open.players && !presenting, detailLimit);
   const toggle = (key: keyof typeof open) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
     const isOpen = event.currentTarget.open;
     setOpen((current) => current[key] === isOpen ? current : { ...current, [key]: isOpen });
   };
-  const refresh = useCallback(async () => {
-    const result = await cloud.asyncPublicationResults(publicationId);
-    setResults(result); setError(""); setStale(false);
-  }, [publicationId]);
-  useEffect(() => {
-    let active = true;
-    refresh().catch((caught) => { if (active) setError(message(caught)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [refresh]);
-  async function reload() {
-    setRefreshing(true);
-    try { await refresh(); } catch (caught) { setError(message(caught)); } finally { setRefreshing(false); }
-  }
-  async function loadMore() {
-    if (!results?.nextCursor) return;
-    setRefreshing(true);
-    try {
-      const next = await cloud.asyncPublicationResults(publicationId, results.nextCursor);
-      // Hat sich der Stand zwischen den Seiten geändert, wären Ränge seitenübergreifend inkonsistent: neu laden.
-      if (next.participantCount !== results.participantCount || next.completedCount !== results.completedCount ||
-          next.status !== results.status) {
-        setStale(true);
-        return;
-      }
-      setResults((current) => {
-        if (!current) return current;
-        const seen = new Set(current.participants.map((player) => player.attemptId));
-        return { ...next, leaders: current.leaders,
-          participants: [...current.participants, ...next.participants.filter((player) => !seen.has(player.attemptId))] };
-      });
-    } catch (caught) { setError(message(caught)); } finally { setRefreshing(false); }
-  }
   const rule = scoringRuleOf(results);
-  const leaders = results ? results.leaders ?? [...results.participants].sort((left, right) => left.rank - right.rank).slice(0, 5) : [];
-  const leaderIds = new Set(leaders.map((player) => player.attemptId));
-  const total = results ? results.totalParticipants ?? results.participantCount : 0;
-  const others = results ? results.participants.filter((player) => !leaderIds.has(player.attemptId))
-    .sort((left, right) => left.rank - right.rank || left.displayName.localeCompare(right.displayName, "de")) : [];
-  const moreCount = Math.max(0, total - leaders.length);
+  const leaders = results?.participants.slice(0, 3) ?? [];
+  const others = results?.participants.slice(3, rankingLimit) ?? [];
+  const total = results?.totalParticipants ?? 0;
   const formatPoints = !rule && results ? (points: number) => `${points}/${results.questions.length}` : pointsText;
-  const rankingPlayers = (players: AsyncParticipantResult[]) => players.map((player) => ({ ...player, participantId: player.attemptId }));
-  const pagination = results && <>
-    {stale && <p className="error-banner" role="status">Die Ergebnisse haben sich inzwischen geändert. Bitte neu laden,
-      damit die Ränge über alle Seiten konsistent sind. <button className="button secondary small" disabled={refreshing}
-        onClick={() => void reload()}>Neu laden</button></p>}
-    {results.nextCursor && !stale && <button className="button secondary" disabled={refreshing} onClick={() => void loadMore()}>
-      {refreshing ? "Weitere Ergebnisse werden geladen …" : "Weitere Teilnehmer laden"}
-    </button>}
-  </>;
-  const morePlacements = results?.isFinal && moreCount > 0 && <details className="async-more" open={open.more} onToggle={toggle("more")}>
-    <summary>Weitere Platzierungen anzeigen ({moreCount})</summary>
-    <Leaderboard players={rankingPlayers(others)} formatPoints={formatPoints} />
-    {pagination}
-  </details>;
+  const rankingPlayers = (players: AsyncStandingParticipant[]) => players.map((player) => ({ ...player, participantId: player.attemptId }));
+  const moreRanks = results && rankingLimit < total && <button className="button secondary" onClick={() =>
+    setRankingLimit((value) => value + ASYNC_DETAIL_PAGE_SIZE)}>Weitere Plätze anzeigen</button>;
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <ErrorBanner error={error} />
-    {loading ? <p>Ergebnisse werden geladen …</p> : !results ? <p>Ergebnisse nicht verfügbar.</p> : <div className="async-admin-results">
+    {loading && !results ? <p>Ergebnisse werden geladen …</p> : !results ? <div>
+      <p>Ergebnisse nicht verfügbar.</p>{!expired && <button className="button secondary" disabled={refreshing} onClick={refresh}>Erneut versuchen</button>}
+    </div> : <div className="async-admin-results">
       <div className="async-admin-head">
         <div><span className="eyebrow">QUIZ ZUM MITMACHEN</span>{!results.isFinal && <h1>{results.title}</h1>}</div>
         {!results.isFinal && <span className={`badge async-status-${results.status.toLowerCase()}`}>{asyncStatusText(results.status)}</span>}
-        <button className="button secondary small" disabled={refreshing} onClick={() => void reload()}>
+        <AsyncStandingsPresentation standings={results} statusText={asyncStatusText(results.status)} formatPoints={formatPoints}
+          error={error} refreshing={refreshing} onRefresh={refresh} onPresentationChange={setPresenting} />
+        <button className="button secondary small" disabled={refreshing} onClick={refresh}>
           {refreshing ? "Wird aktualisiert …" : "Aktualisieren"}</button>
       </div>
       {results.isFinal ? <div className="game-view">
@@ -755,9 +718,9 @@ function AsyncAdminResultsPage() {
           <p className="ranking-intro">Zusammen gerätselt. Gemeinsam gefeiert.</p>
           {leaders.length === 0 ? <p>Noch keine Teilnehmenden.</p> : <>
             <Podium players={rankingPlayers(leaders)} formatPoints={formatPoints} />
-            {leaders.length > 3 && <Leaderboard players={rankingPlayers(leaders.slice(3))} formatPoints={formatPoints} />}
+            {others.length > 0 && <Leaderboard players={rankingPlayers(others)} formatPoints={formatPoints} />}
           </>}
-          {morePlacements}
+          {moreRanks}
         </section>
         <p className="game-footnote">{total} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>
       </div> : <section className="card game-view async-leaders" aria-labelledby="async-leaders-title">
@@ -771,16 +734,17 @@ function AsyncAdminResultsPage() {
               ...player, detail: player.status === "COMPLETED" ? "fertig" : attemptStatusText(player.status),
             }))}
               final={false} formatPoints={formatPoints} />
-            {total > 3 && <ol className="async-leader-list" aria-label="Weitere Plätze">
-              {[...leaders.slice(3), ...others].map((player) =>
+            {others.length > 0 && <ol className="async-leader-list" aria-label="Weitere Plätze">
+              {others.map((player) =>
                 <AsyncLeaderRow key={player.attemptId} player={player} rule={rule} questionCount={results.questions.length} />)}
             </ol>}
           </>}
-        {pagination}
+        {moreRanks}
       </section>}
       <p className="async-summary-line">{results.participantCount} von {results.maxParticipants} gestartet ·
         {" "}{results.completedCount} abgeschlossen · {results.partialCount} unvollständig ·
-        {" "}{results.isFinal ? "Endergebnis" : "weitere Antworten möglich"}</p>
+        {" "}{results.isFinal ? "Endergebnis" : "weitere Antworten möglich"} ·
+        {" "}Aktualisiert: {new Date(results.updatedAt).toLocaleTimeString("de-DE")}</p>
       <details className="card async-admin-section" open={open.questions} onToggle={toggle("questions")}>
         <summary><h2>Fragenauswertung</h2></summary>
         <div className="grid">
@@ -806,23 +770,29 @@ function AsyncAdminResultsPage() {
             </select></label>
         </div>
         {filter !== "ALL" && <p className="hint">Die Ränge beziehen sich immer auf alle Teilnahmen.</p>}
+        {participantDetails.error && <p className="error-banner" role="status">{participantDetails.error}
+          {" "}<button className="button secondary small" onClick={participantDetails.retry}>Erneut versuchen</button></p>}
+        {participantDetails.loading && <p className="hint" role="status">Teilnehmerdetails werden aktualisiert …</p>}
         {results.participants.length === 0 ? <p>Noch keine Teilnehmer.</p> :
-        <div className="grid">{[...results.participants]
+        <div className="grid">{results.participants.slice(0, detailLimit)
           .filter((player) => filter === "ALL" || (filter === "COMPLETED") === (player.status === "COMPLETED"))
           .sort((left, right) => sort === "NAME" ? left.displayName.localeCompare(right.displayName, "de")
             : sort === "START" ? left.startedAt - right.startedAt : left.rank - right.rank)
           .map((player) => {
-          const correctCount = player.answers.filter((answer) => answer.correct).length;
-          const wrongCount = player.answers.length - correctCount;
-          const answerByIndex = new Map(player.answers.map((answer) => [answer.questionIndex, answer]));
+          const cached = participantDetails.details.get(player.attemptId);
+          const detail = matchesAsyncDetail(cached, player) ? cached : undefined;
+          const correctCount = detail?.answers.filter((answer) => answer.correct).length ?? 0;
+          const wrongCount = (detail?.answers.length ?? 0) - correctCount;
+          const answerByIndex = new Map(detail?.answers.map((answer) => [answer.questionIndex, answer]) ?? []);
           return <details className="async-result-player" key={player.attemptId}><summary>
             <span className="async-player-identity"><Avatar avatarId={player.avatarId} />
               <strong>Rang {player.rank} · {player.displayName}</strong></span>
             <span>{rule ? `${pointsText(player.points)} Punkte` : `${player.points}/${player.questionCount} Punkte`} · {attemptStatusText(player.status)}</span>
-            <span>{correctCount} richtig · {wrongCount} falsch · {player.questionCount - player.answers.length} nicht beantwortet</span>
+            <span>{detail ? `${correctCount} richtig · ${wrongCount} falsch · ${player.questionCount - detail.answers.length} nicht beantwortet`
+              : participantDetails.loading ? "Antwortdetails werden aktualisiert …" : "Antwortdetails nicht aktuell."}</span>
             <span>Start: {formatDateTimeInZone(player.startedAt, results.timeZone)}
               {player.completedAt ? ` · Abschluss: ${formatDateTimeInZone(player.completedAt, results.timeZone)}` : ""}</span>
-          </summary><ol>{results.questions.map((question) => {
+          </summary>{detail ? <ol>{results.questions.map((question) => {
             const answer = answerByIndex.get(question.questionIndex);
             const correct = question.options.find((item) => item.correct);
             if (!answer) return <li key={question.questionIndex}><strong>{question.text}</strong><p>Nicht beantwortet
@@ -834,9 +804,10 @@ function AsyncAdminResultsPage() {
                 Gesamt <strong>{pointsText(answer.points ?? 0)}</strong>
                 {answer.elapsedMs != null && ` · Antwortzeit ${secondsText(answer.elapsedMs)}`}</p>}
               <p className="hint">{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
-          })}</ol></details>;
+          })}</ol> : <p className="hint">Die Antwortdetails sind noch nicht aktuell.</p>}</details>;
         })}</div>}
-        {results.isFinal && !open.more && pagination}
+        {detailLimit < total && <button className="button secondary" disabled={participantDetails.loading}
+          onClick={() => setDetailLimit((value) => value + ASYNC_DETAIL_PAGE_SIZE)}>Weitere Teilnehmer laden</button>}
       </details>
       <details className="card async-admin-section" open={open.info} onToggle={toggle("info")}>
         <summary><h2>Quizinformationen</h2></summary>

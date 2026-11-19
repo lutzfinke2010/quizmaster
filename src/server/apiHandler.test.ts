@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-describe("API-Handler publishGameEvent", () => {
-  let handler: (raw: unknown) => Promise<unknown>;
-  beforeAll(async () => {
-    process.env.TABLE_NAME = "table";
-    process.env.IDENTITY_POOL_ID = "eu-central-1:00000000-0000-0000-0000-000000000000";
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
-    ({ handler } = await import("../../amplify/functions/api/handler"));
-  });
+let handler: (raw: unknown) => Promise<unknown>;
+beforeAll(async () => {
+  process.env.TABLE_NAME = "table";
+  process.env.IDENTITY_POOL_ID = "eu-central-1:00000000-0000-0000-0000-000000000000";
+  vi.spyOn(console, "log").mockImplementation(() => undefined);
+  ({ handler } = await import("../../amplify/functions/api/handler"));
+});
 
+describe("API-Handler publishGameEvent", () => {
   it("lehnt Gast-Identitäten aus dem Identity Pool ab", async () => {
     await expect(handler({ fieldName: "publishGameEvent", arguments: { sessionId: "s", version: 1 },
       identity: { userArn: "arn:aws:sts::1:assumed-role/unauth/CognitoIdentityCredentials", cognitoIdentityId: "eu-central-1:abc" } }))
@@ -27,5 +27,14 @@ describe("API-Handler publishGameEvent", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await expect(handler({ fieldName: "publishGameEvent", arguments: { sessionId: "s", version: -1 },
       identity: { userArn: "arn:aws:sts::1:assumed-role/publisher/fn" } })).rejects.toThrow("Ungültige Anfrage.");
+  });
+});
+
+describe("API-Handler getAsyncStandings", () => {
+  it("verweigert den Zwischenstand ohne Quizmaster-Anmeldung", async () => {
+    const request = { fieldName: "getAsyncStandings", arguments: { publicationId: "2ba41d80-30b1-4ad0-9e3f-375cf07cf6f5" } };
+    await expect(handler({ ...request, identity: null })).rejects.toThrow("Keine Admin-Anmeldung");
+    await expect(handler({ ...request, identity: { sub: "other", claims: { "cognito:groups": [] } } }))
+      .rejects.toThrow("Keine Berechtigung");
   });
 });

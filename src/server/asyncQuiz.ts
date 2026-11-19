@@ -944,16 +944,11 @@ async function shortenRetention(
   }
 }
 
-export async function getAsyncPublicationResults(
-  client: DynamoDBDocumentClient, tableName: string, raw: unknown, principal: unknown, now: number,
+async function loadAsyncResultSnapshot(
+  client: DynamoDBDocumentClient, tableName: string, publicationId: string, ownerId: string, now: number,
 ) {
-  const ownerId = requireQuizmaster(principal);
-  const input = z.object({ publicationId: uuidSchema, cursor: z.string().regex(/^\d+$/).nullish() }).strict().parse(raw);
-  const offset = input.cursor ? Number(input.cursor) : 0;
-  if (!Number.isSafeInteger(offset)) throw new Error("Ungültiger Ergebniscursor.");
-  const pageSize = 50;
   assertTime(now);
-  const publication = await getPublication(client, tableName, input.publicationId, now);
+  const publication = await getPublication(client, tableName, publicationId, now);
   if (publication.ownerId !== ownerId) throw new Error("Veröffentlichung gehört nicht zu diesem Konto.");
   const answers = publication.snapshot.questions.map((question, questionIndex) => ({
     questionIndex, text: question.text, correctChoiceId: `a${question.answers.findIndex((answer) => answer.correct)}`,
@@ -961,14 +956,14 @@ export async function getAsyncPublicationResults(
     options: question.answers.map((answer, optionIndex) => ({ id: `a${optionIndex}`, text: answer.text, correct: answer.correct, count: 0 })),
     answeredCount: 0,
   }));
-  const attempts = (await queryAll(client, tableName, `ASYNC#${input.publicationId}`, "ATTEMPT#"))
+  const attempts = (await queryAll(client, tableName, `ASYNC#${publicationId}`, "ATTEMPT#"))
     .map((item) => attemptSchema.parse(item));
   const questionCount = publication.snapshot.questions.length;
   const aggregated = publication.statsVersion === 1;
   // Ältere Veröffentlichungen ohne Aggregate: alle Antworten einmalig laden (Rückwärtskompatibilität).
   const legacyAnswers = new Map<string, AnswerRecord[]>();
   if (!aggregated) {
-    for (const rawAnswer of await queryAll(client, tableName, `ASYNC#${input.publicationId}`, "ANSWER#")) {
+    for (const rawAnswer of await queryAll(client, tableName, `ASYNC#${publicationId}`, "ANSWER#")) {
       const match = /^ANSWER#([a-f0-9]{64})#/.exec(String(rawAnswer.sk));
       if (!match) throw new Error("Ungültiger gespeicherter Antwortdatensatz.");
       const list = legacyAnswers.get(match[1]) ?? [];
@@ -1027,6 +1022,35 @@ export async function getAsyncPublicationResults(
     }
   }
   const summary = await summaries(client, tableName, publication, "", resultTime, attempts);
+  return { publication, players, answers, aggregated, legacyAnswers, isCorrect, summary, resultTime };
+}
+
+export async function getAsyncStandings(
+  client: DynamoDBDocumentClient, tableName: string, raw: unknown, principal: unknown, now: number,
+) {
+  const ownerId = requireQuizmaster(principal);
+  const input = z.object({ publicationId: uuidSchema }).strict().parse(raw);
+  const { publication, players, answers, summary, resultTime } =
+    await loadAsyncResultSnapshot(client, tableName, input.publicationId, ownerId, now);
+  const { token: _token, joinCode: _joinCode, ...visibleSummary } = summary;
+  return {
+    ...visibleSummary, ...scoringInfo(publication), updatedAt: resultTime,
+    isFinal: statusOf(publication, resultTime) !== "ACTIVE",
+    questions: answers, participants: players.map(({ identityHash: _identity, ...visible }) => visible),
+    totalParticipants: players.length,
+  };
+}
+
+export async function getAsyncPublicationResults(
+  client: DynamoDBDocumentClient, tableName: string, raw: unknown, principal: unknown, now: number,
+) {
+  const ownerId = requireQuizmaster(principal);
+  const input = z.object({ publicationId: uuidSchema, cursor: z.string().regex(/^\d+$/).nullish() }).strict().parse(raw);
+  const offset = input.cursor ? Number(input.cursor) : 0;
+  if (!Number.isSafeInteger(offset)) throw new Error("Ungültiger Ergebniscursor.");
+  const pageSize = 50;
+  const { publication, players, answers, aggregated, legacyAnswers, isCorrect, summary, resultTime } =
+    await loadAsyncResultSnapshot(client, tableName, input.publicationId, ownerId, now);
   const participantPage = await mapWithConcurrency(players.slice(offset, offset + pageSize), 10, async (player) => {
     const list = aggregated
       ? await listAttemptAnswers(client, tableName, publication.publicationId, player.identityHash)

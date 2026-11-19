@@ -7,7 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
  */
 async function mockAsync(page: Page, options: {
   questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean;
-  status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number; names?: string[];
+  status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number; names?: string[]; title?: string;
 } = {}) {
   const questions = options.questions ?? [
     { text: "Welcher Planet ist für seine auffälligen Ringe bekannt und mit bloßem Auge am Nachthimmel zu sehen?", answers: ["Mars", "Saturn", "Venus", "Merkur"] },
@@ -40,9 +40,50 @@ async function mockAsync(page: Page, options: {
           points: null, serverTime: Date.now(),
           answers: attempt.answers, results: [] };
       }
+      function resultSnapshot(publicationId) {
+        const status = sessionStorage.getItem("async-status") || ${JSON.stringify(options.status ?? "ACTIVE")};
+        const isFinal = status !== "ACTIVE";
+        const names = JSON.parse(sessionStorage.getItem("async-names") || ${JSON.stringify(JSON.stringify(options.names ?? ["Anna", "Ben", "Cem", "Dana", "Emil", "Fritz", "Gül", "Hanna"]))});
+        const points = JSON.parse(sessionStorage.getItem("async-points") || ${JSON.stringify(JSON.stringify(options.scores ?? [2900, 2900, 2400, 2100, 1800, 1200, 1000, 0]))});
+        const counts = JSON.parse(sessionStorage.getItem("async-answered") || "null");
+        const participants = points.map((score, i) => {
+          const answeredCount = counts?.[i] ?? (i === 7 ? 1 : QUESTIONS.length);
+          const complete = answeredCount >= QUESTIONS.length;
+          return { attemptId: "a" + i, displayName: names[i] ?? "Spieler " + String(i + 1).padStart(3, "0"),
+            avatarId: "avatar-001", startedAt: expiresAt - 7 * 86400000 - 3600000 + i, completedAt: complete ? expiresAt - 7 * 86400000 : null,
+            answeredCount, questionCount: QUESTIONS.length,
+            status: complete ? "COMPLETED" : isFinal ? "EXPIRED_PARTIAL" : "IN_PROGRESS", points: score, rank: 0,
+            answers: Array.from({ length: answeredCount }, (_, questionIndex) => ({
+              questionIndex, choiceId: "c1", acceptedAt: expiresAt - 7 * 86400000, correct: true,
+              points: 1400, basePoints: 1000, bonusPoints: 400, elapsedMs: 6000,
+            })) };
+        });
+        participants.sort((left, right) => right.points - left.points || left.displayName.localeCompare(right.displayName) ||
+          left.attemptId.localeCompare(right.attemptId));
+        let rank = 0;
+        participants.forEach((player, index) => {
+          if (index === 0 || player.points !== participants[index - 1].points) rank = index + 1;
+          player.rank = rank;
+        });
+        const completedCount = participants.filter((player) => player.status === "COMPLETED").length;
+        return { publicationId, quizId: "quiz1", title: ${JSON.stringify(options.title ?? "Feierabend-Quiz")}, status, isFinal, createdAt: expiresAt - 8 * 86400000,
+          expiresAt, retentionAt: Number(sessionStorage.getItem("async-retention") || base.retentionAt),
+          endedAt: isFinal ? Date.now() : null, timeZone: "Europe/Berlin", updatedAt: Date.now(),
+          participantCount: participants.length, maxParticipants: 250, completedCount, partialCount: participants.length - completedCount,
+          totalParticipants: participants.length, ...scoring, participants,
+          questions: QUESTIONS.map((item, questionIndex) => {
+            const answeredCount = participants.filter((player) => player.answeredCount > questionIndex).length;
+            return { questionIndex, text: item.text, correctChoiceId: "c1", explanation: "", answeredCount,
+              options: item.answers.map((text, i) => ({ id: "c" + i, text, count: i === 1 ? answeredCount : 0, correct: i === 1 })) };
+          }) };
+      }
+      let standingsInFlight = 0;
       export async function configureCloud() { return true; }
       export const client = {};
       const impl = {
+        listQuizzes: async () => [],
+        listSessions: async () => [],
+        listAsyncPublications: async () => [],
         asyncPublicInfo: async () => ({ ...base, serverTime: Date.now() }),
         myAsyncState: async () => { const attempt = load(); return attempt ? guest(attempt) : null; },
         extendGuestIdentityUntil: async () => undefined,
@@ -74,29 +115,37 @@ async function mockAsync(page: Page, options: {
             status: "ACTIVE", nextQuestionIndex: done ? null : attempt.answered, question: LEGACY ? question(attempt.answered, null) : null,
             serverTime: Date.now() };
         },
+        asyncStandings: async (publicationId) => {
+          sessionStorage.setItem("async-standings-requests", String(Number(sessionStorage.getItem("async-standings-requests") || "0") + 1));
+          standingsInFlight++;
+          sessionStorage.setItem("async-max-concurrent", String(Math.max(standingsInFlight, Number(sessionStorage.getItem("async-max-concurrent") || "0"))));
+          try {
+            const delay = Number(sessionStorage.getItem("async-standings-delay") || "0");
+            if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+            const failures = Number(sessionStorage.getItem("async-standings-fail") || "0");
+            if (failures > 0) {
+              sessionStorage.setItem("async-standings-fail", String(failures - 1));
+              throw new Error("Netzwerkfehler.");
+            }
+            const snapshot = resultSnapshot(publicationId);
+            return { ...snapshot, participants: snapshot.participants.map(({ answers, ...player }) => player) };
+          } finally { standingsInFlight--; }
+        },
         asyncPublicationResults: async (publicationId, cursor) => {
-          const status = sessionStorage.getItem("async-status") || ${JSON.stringify(options.status ?? "ACTIVE")};
-          const isFinal = status !== "ACTIVE";
-          const names = ${JSON.stringify(options.names ?? ["Anna", "Ben", "Cem", "Dana", "Emil", "Fritz", "Gül", "Hanna"])};
-          const points = ${JSON.stringify(options.scores ?? [2900, 2900, 2400, 2100, 1800, 1200, 1000, 0])};
-          let rank = 0;
-          const participants = points.map((score, i) => {
-            if (i === 0 || points[i] !== points[i - 1]) rank = i + 1;
-            return { attemptId: "a" + i, displayName: names[i], avatarId: "avatar-00" + (i + 1), startedAt: Date.now() - 3600000, completedAt: i === 7 ? null : Date.now(),
-              answeredCount: i === 7 ? 1 : QUESTIONS.length, questionCount: QUESTIONS.length,
-              status: i === 7 ? isFinal ? "EXPIRED" : "IN_PROGRESS" : "COMPLETED", points: score, rank,
-              answers: [{ questionIndex: 0, choiceId: "c1", acceptedAt: Date.now(), correct: true, points: 1400, basePoints: 1000, bonusPoints: 400, elapsedMs: 6000 }] };
-          });
+          sessionStorage.setItem("async-detail-requests", String(Number(sessionStorage.getItem("async-detail-requests") || "0") + 1));
+          const snapshot = resultSnapshot(publicationId);
+          const delay = Number(sessionStorage.getItem("async-detail-delay") || "0");
+          if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+          const failures = Number(sessionStorage.getItem("async-detail-fail") || "0");
+          if (failures > 0) {
+            sessionStorage.setItem("async-detail-fail", String(failures - 1));
+            throw new Error("Netzwerkfehler.");
+          }
           const start = Number(cursor || 0);
-          const end = start + ${options.pageSize ?? 8};
-          const completedCount = participants.filter((player) => player.status === "COMPLETED").length;
-          return { publicationId: "p1", title: "Feierabend-Quiz", status, isFinal, createdAt: Date.now() - 86400000,
-            expiresAt, endedAt: isFinal ? Date.now() : null, timeZone: "Europe/Berlin", updatedAt: Date.now(), participantCount: participants.length, maxParticipants: 250,
-            completedCount, partialCount: participants.length - completedCount, nextCursor: end < participants.length ? String(end) : null,
-            totalParticipants: participants.length, ...scoring,
-            leaders: participants.slice(0, 5).map((player) => ({ ...player, answers: [] })), participants: participants.slice(start, end),
-            questions: QUESTIONS.map((item, questionIndex) => ({ questionIndex, text: item.text, answeredCount: participants.length,
-              options: item.answers.map((text, i) => ({ id: "c" + i, text, count: i === 1 ? 6 : 1, correct: i === 1 })) })) };
+          const end = start + ${options.pageSize ?? 50};
+          return { ...snapshot, nextCursor: end < snapshot.participants.length ? String(end) : null,
+            leaders: snapshot.participants.slice(0, 5).map((player) => ({ ...player, answers: [] })),
+            participants: snapshot.participants.slice(start, end) };
         },
       };
       export const cloud = new Proxy(impl, { get: (target, key) => key in target ? target[key] : async () => null });
@@ -302,18 +351,17 @@ for (const count of [0, 1, 2]) {
   });
 }
 
-test("Zwischenstand lädt übrige Plätze unterhalb des Podests ohne Duplikate nach", async ({ page }) => {
-  await mockAsync(page, { pageSize: 2 });
+test("Zwischenstand zeigt und erweitert die weiteren Plätze unterhalb des Podests ohne Duplikate", async ({ page }) => {
+  const scores = Array.from({ length: 65 }, (_, index) => 5000 - index);
+  const names = scores.map((_, index) => `Spieler ${String(index + 1).padStart(3, "0")}`);
+  await mockAsync(page, { scores, names });
   await page.goto("/admin/async/p1");
   const rows = page.locator(".async-leader-name");
-  await expect(rows).toHaveText(["Dana", "Emil"]);
-  for (const count of [2, 3, 5]) {
-    await page.getByRole("button", { name: "Weitere Teilnehmer laden" }).click();
-    await expect(rows).toHaveCount(count);
-  }
-  await expect(rows).toHaveText(["Dana", "Emil", "Fritz", "Gül", "Hanna"]);
+  await expect(rows).toHaveCount(47);
+  await page.getByRole("button", { name: "Weitere Plätze anzeigen" }).click();
+  await expect(rows).toHaveText(names.slice(3));
   await expect(page.locator(".podium-player")).toHaveCount(3);
-  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Weitere Plätze anzeigen" })).toHaveCount(0);
 });
 
 test("Zwischenstand behält ältere Punktewertung auf dem Podest und darunter", async ({ page }) => {
@@ -381,22 +429,17 @@ for (const count of [0, 1]) {
   });
 }
 
-test("Abgelaufene Runde erhält geteilte Ränge und nachladbare Platzierungen", async ({ page }) => {
-  await mockAsync(page, { status: "EXPIRED", pageSize: 5 });
+test("Abgelaufene Runde zeigt geteilte Ränge und alle weiteren Platzierungen", async ({ page }) => {
+  await mockAsync(page, { status: "EXPIRED" });
   await page.goto("/admin/async/p1");
   await expect(page.locator(".phase-badge")).toHaveText("Abgelaufen");
   await expect(page.locator(".pedestal")).toHaveText(["Platz 1", "Platz 1", "Platz 3"]);
   const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
   expect(heights[0]).toBe(heights[1]);
-  await expect(page.locator(".ranking-phase > .leaderboard .rank-name")).toHaveText(["Dana", "Emil"]);
-  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
-  await page.getByRole("button", { name: "Weitere Teilnehmer laden" }).click();
-  await expect(page.locator(".async-more .rank-name")).toHaveText(["Fritz", "Gül", "Hanna"]);
-  await expect(page.locator(".async-more .rank-number")).toHaveText(["6", "7", "8"]);
-  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toHaveCount(0);
+  await expect(page.locator(".ranking-phase > .leaderboard .rank-name")).toHaveText(["Dana", "Emil", "Fritz", "Gül", "Hanna"]);
+  await expect(page.locator(".ranking-phase > .leaderboard .rank-number")).toHaveText(["4", "5", "6", "7", "8"]);
   await page.getByRole("button", { name: "Aktualisieren" }).click();
-  await expect(page.locator(".async-more")).toHaveAttribute("open", "");
-  await expect(page.getByRole("button", { name: "Weitere Teilnehmer laden" })).toBeVisible();
+  await expect(page.locator(".ranking-phase > .leaderboard .rank-name")).toHaveCount(5);
   await expect(page.locator(".podium-player")).toHaveCount(3);
 });
 
@@ -417,7 +460,416 @@ test("Aktualisieren wechselt vom vorläufigen Podest zum Endstand und behält of
   await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Zwischenstand" })).toHaveCount(0);
   await expect(page.locator(".podium-player")).toHaveCount(3);
-  await page.getByText("Weitere Platzierungen anzeigen (3)").click();
-  await expect(page.locator(".async-more .rank-name")).toHaveText(["Fritz", "Gül", "Hanna"]);
+  await expect(page.locator(".ranking-phase > .leaderboard .rank-name")).toHaveText(["Dana", "Emil", "Fritz", "Gül", "Hanna"]);
   await expect(page.locator(".async-question-stat").first()).toBeVisible();
+});
+
+test("Zwischenstand und offene Details aktualisieren sich nach zehn Sekunden auch ohne neue Teilnehmende", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  expect(await page.evaluate(() => sessionStorage.getItem("async-detail-requests"))).toBeNull();
+  await page.getByText("Fragenauswertung", { exact: true }).click();
+  await page.getByText("Teilnehmerdetails", { exact: true }).click();
+  const hanna = page.locator(".async-result-player").filter({ hasText: "Hanna" });
+  await expect(hanna).toContainText("1 richtig");
+  await hanna.locator("summary").click();
+  const firstDetails = Number(await page.evaluate(() => sessionStorage.getItem("async-detail-requests")));
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-points", JSON.stringify([2900, 2900, 2400, 2100, 1800, 1200, 1000, 3300]));
+    sessionStorage.setItem("async-answered", JSON.stringify([3, 3, 3, 3, 3, 3, 3, 2]));
+  });
+  await page.clock.runFor(9_000);
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  await page.clock.runFor(1_000);
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Anna", "Hanna", "Ben"]);
+  await expect(page.locator(".async-question-stat").nth(1)).toContainText("8 Antworten");
+  await expect(hanna).toContainText("2 richtig");
+  await expect(hanna).toHaveAttribute("open", "");
+  await expect(page.locator(".async-admin-section").filter({ hasText: "Fragenauswertung" })).toHaveAttribute("open", "");
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("async-detail-requests")))).toBeGreaterThan(firstDetails);
+  await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
+  await expect(hanna).toHaveAttribute("open", "");
+});
+
+test("Fehler beim Abgleich zeigen den letzten Stand und werden beim nächsten Versuch behoben", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-standings-fail", "1");
+    sessionStorage.setItem("async-points", JSON.stringify([2900, 2900, 2400, 2100, 1800, 1200, 1000, 3300]));
+  });
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("alert")).toContainText("Aktualisierung fehlgeschlagen: Netzwerkfehler");
+  await expect(page.locator(".async-summary-line")).toContainText("Aktualisiert:");
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Anna", "Hanna", "Ben"]);
+  expect(await page.evaluate(() => sessionStorage.getItem("async-detail-requests"))).toBeNull();
+});
+
+test("Ein gespeicherter Stand verschwindet nach Ablauf der Aufbewahrungsfrist auch bei Verbindungsfehlern", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await page.addInitScript(() => sessionStorage.setItem("async-retention", String(Date.now() + 15_000)));
+  await mockAsync(page, { status: "ENDED" });
+  await page.goto("/admin/async/p1");
+  await expect(page.getByRole("heading", { name: "Endstand" })).toBeVisible();
+  await page.getByText("Teilnehmerdetails", { exact: true }).click();
+  await expect(page.locator(".async-result-player").filter({ has: page.getByText("Rang 1 · Anna", { exact: true }) })).toContainText("3 richtig");
+  await page.evaluate(() => sessionStorage.setItem("async-standings-fail", "10"));
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("alert")).toContainText("Aktualisierung fehlgeschlagen");
+  await page.clock.runFor(5_000);
+  await expect(page.getByRole("alert")).toContainText("Aufbewahrungsfrist dieser Runde ist abgelaufen");
+  await expect(page.getByRole("heading", { name: "Endstand" })).toHaveCount(0);
+  await expect(page.locator(".async-result-player")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Erneut versuchen" })).toHaveCount(0);
+});
+
+test("Die Aufbewahrungsfrist beendet auch die laufende Vollbildpräsentation", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await page.addInitScript(() => sessionStorage.setItem("async-retention", String(Date.now() + 15_000)));
+  await mockAsync(page, { status: "ENDED" });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await expect(stage.locator(".podium-player")).toHaveCount(3);
+  await page.evaluate(() => sessionStorage.setItem("async-standings-fail", "10"));
+  await page.clock.runFor(15_000);
+  await expect(page.getByRole("alert")).toContainText("Aufbewahrungsfrist dieser Runde ist abgelaufen");
+  await expect(stage).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+});
+
+test("Hintergrund-Tabs pausieren den Abgleich und holen ihn bei Rückkehr nach", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await page.addInitScript(() => Object.defineProperty(document, "visibilityState", {
+    configurable: true, get: () => sessionStorage.getItem("mock-visibility") || "visible",
+  }));
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveCount(3);
+  const initial = Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")));
+  await page.evaluate(() => {
+    sessionStorage.setItem("mock-visibility", "hidden");
+    sessionStorage.setItem("async-points", JSON.stringify([2900, 2900, 2400, 2100, 1800, 1200, 1000, 3300]));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.runFor(30_000);
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")))).toBe(initial);
+  await page.evaluate(() => {
+    sessionStorage.setItem("mock-visibility", "visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Anna", "Hanna", "Ben"]);
+  await page.getByRole("link", { name: "Zur Übersicht" }).click();
+  await expect(page.getByRole("heading", { name: "Deine Quizze" })).toBeVisible();
+  const beforeLeaving = Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")));
+  await page.clock.runFor(20_000);
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")))).toBe(beforeLeaving);
+});
+
+test("Langsame Abfragen werden nicht parallel erneut gestartet", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player")).toHaveCount(3);
+  const initial = Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")));
+  await page.evaluate(() => sessionStorage.setItem("async-standings-delay", "15000"));
+  await page.clock.runFor(10_000);
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("async-standings-requests")))).toBe(initial + 1);
+  await page.clock.runFor(10_000);
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")))).toBe(initial + 1);
+  expect(Number(await page.evaluate(() => sessionStorage.getItem("async-max-concurrent")))).toBe(1);
+  await page.clock.runFor(5_000);
+  await expect(page.getByRole("button", { name: "Aktualisieren" })).toBeEnabled();
+});
+
+test("Bei Verbindungsrückkehr wird eine noch laufende fehlgeschlagene Abfrage sofort wiederholt", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player")).toHaveCount(3);
+  const initial = Number(await page.evaluate(() => sessionStorage.getItem("async-standings-requests")));
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-standings-delay", "15000");
+    sessionStorage.setItem("async-standings-fail", "1");
+  });
+  await page.clock.runFor(10_000);
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("async-standings-requests")))).toBe(initial + 1);
+  await page.clock.runFor(2_000);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("offline"));
+    sessionStorage.setItem("async-standings-delay", "0");
+    window.dispatchEvent(new Event("online"));
+  });
+  await page.clock.runFor(13_000);
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("async-standings-requests")))).toBe(initial + 2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("Veraltete Teilnehmerantworten werden bei parallelen Änderungen nicht als aktuell angezeigt", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-player")).toHaveCount(3);
+  await page.evaluate(() => sessionStorage.setItem("async-detail-delay", "15000"));
+  await page.getByText("Teilnehmerdetails", { exact: true }).click();
+  const hanna = page.locator(".async-result-player").filter({ hasText: "Hanna" });
+  await hanna.locator("summary").click();
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-points", JSON.stringify([2900, 2900, 2400, 2100, 1800, 1200, 1000, 3300]));
+    sessionStorage.setItem("async-answered", JSON.stringify([3, 3, 3, 3, 3, 3, 3, 2]));
+  });
+  await page.clock.runFor(10_000);
+  await expect(page.locator(".async-leaders .podium-player > strong")).toHaveText(["Anna", "Hanna", "Ben"]);
+  await expect(hanna).toContainText("Antwortdetails werden aktualisiert");
+  await expect(hanna.locator("ol")).toHaveCount(0);
+  await page.clock.runFor(20_000);
+  await expect(hanna).toContainText("2 richtig");
+  await expect(hanna.locator("ol li")).toHaveCount(3);
+  await expect(hanna).toHaveAttribute("open", "");
+});
+
+test("Fehler beim Laden von Teilnehmerdetails sind sichtbar und können erneut versucht werden", async ({ page }) => {
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.evaluate(() => sessionStorage.setItem("async-detail-fail", "1"));
+  await page.getByText("Teilnehmerdetails", { exact: true }).click();
+  const details = page.locator(".async-admin-section").filter({ hasText: "Teilnehmerdetails" });
+  await expect(details.getByRole("status").filter({ hasText: "Teilnehmerdetails konnten nicht aktualisiert werden" })).toBeVisible();
+  await details.getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(details.locator(".async-result-player").filter({ hasText: "Hanna" })).toContainText("1 richtig");
+});
+
+test("Ein Wechsel der Quizrunde setzt Rangliste, Filter und Teilnehmerdetails zurück", async ({ page }) => {
+  const scores = Array.from({ length: 60 }, (_, index) => 5000 - index);
+  await mockAsync(page, { scores });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Weitere Plätze anzeigen" }).click();
+  await expect(page.locator(".async-leader-list > li")).toHaveCount(57);
+  const details = page.locator(".async-admin-section").filter({ hasText: "Teilnehmerdetails" });
+  await details.getByText("Teilnehmerdetails", { exact: true }).click();
+  await details.getByLabel("Anzeigen").selectOption("PARTIAL");
+  await expect(details.locator(".async-result-player")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("async-detail-requests")))).toBe(1);
+  await page.evaluate(() => {
+    window.history.pushState(null, "", "/admin/async/p2");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.locator(".async-leader-list > li")).toHaveCount(47);
+  await expect(details).not.toHaveAttribute("open", "");
+  await details.getByText("Teilnehmerdetails", { exact: true }).click();
+  await expect(details.getByLabel("Anzeigen")).toHaveValue("ALL");
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("async-detail-requests")))).toBe(2);
+});
+
+for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
+  test(`Vollbild zeigt lesbares Podest und weitere Plätze ohne Überlauf bei ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    const scores = Array.from({ length: 35 }, (_, index) => 50_000 - index);
+    const names = scores.map((_, index) => `${"LangerSpielname".repeat(5)} ${String(index + 1).padStart(3, "0")}`);
+    const title = "W".repeat(120);
+    await page.setViewportSize(viewport);
+    await mockAsync(page, { scores, names, title });
+    await page.goto("/admin/async/p1");
+    await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+    const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+    await expect(stage).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList.contains("async-presentation"))).toBe(true);
+    await expect(stage.locator(".podium-player > strong")).toHaveText([names[1], names[0], names[2]]);
+    await expect(stage.locator(".async-presentation-list li").first()).toBeVisible();
+    await expect(stage.getByText("Fragenauswertung", { exact: true })).toHaveCount(0);
+    await expect(stage.getByText("Teilnehmerdetails", { exact: true })).toHaveCount(0);
+    await expect.poll(() => stage.locator(".async-presentation-list-area").evaluate((area) => area.scrollHeight <= area.clientHeight + 1)).toBe(true);
+    const layout = await stage.evaluate((element) => {
+      const name = element.querySelector<HTMLElement>(".async-presentation-name")!;
+      const points = element.querySelector<HTMLElement>(".async-presentation-points")!;
+      const row = name.closest("li")!.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(name);
+      const nameFits = [...range.getClientRects()].every((rect) =>
+        rect.left >= row.left && rect.right <= row.right && rect.top >= row.top && rect.bottom <= row.bottom);
+      const title = element.querySelector<HTMLElement>(".async-presentation-title")!;
+      const titleBounds = title.getBoundingClientRect();
+      range.selectNodeContents(title);
+      const titleFits = [...range.getClientRects()].every((rect) =>
+        rect.left >= titleBounds.left - 1 && rect.right <= titleBounds.right + 1);
+      return { width: element.clientWidth, scrollWidth: element.scrollWidth, height: element.clientHeight,
+        scrollHeight: element.scrollHeight, nameFont: parseFloat(getComputedStyle(name).fontSize),
+        pointsFont: parseFloat(getComputedStyle(points).fontSize), nameFits, titleFits };
+    });
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.width);
+    expect(layout.scrollHeight).toBeLessThanOrEqual(layout.height);
+    expect(layout.nameFont).toBeGreaterThanOrEqual(20);
+    expect(layout.pointsFont).toBeGreaterThanOrEqual(20);
+    expect(layout.nameFits, JSON.stringify(layout)).toBe(true);
+    expect(layout.titleFits, JSON.stringify(layout)).toBe(true);
+    await page.evaluate(() => document.exitFullscreen());
+    await expect(stage).toBeHidden();
+    await expect(page.getByRole("button", { name: "Vollbild anzeigen" })).toBeFocused();
+  });
+}
+
+test("Vollbild blättert alle weiteren Plätze durch, bleibt beim Pausieren aktuell und kehrt zurück", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  const scores = Array.from({ length: 30 }, (_, index) => 5000 - index);
+  const names = scores.map((_, index) => `Spieler ${String(index + 1).padStart(3, "0")}`);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockAsync(page, { scores, names });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  const indicator = stage.locator(".async-presentation-controls > span");
+  await expect(indicator).toContainText(/Seite 1 · Einträge 4–\d+ von 30/);
+  const seen: string[] = [];
+  for (let index = 0; index < names.length - 3 && seen.length < names.length - 3; index++) {
+    await expect(indicator).toContainText(`Seite ${index + 1} ·`);
+    seen.push(...await stage.locator(".async-presentation-name").allTextContents());
+    if (seen.length < names.length - 3) await page.clock.runFor(8_000);
+  }
+  expect(seen).toEqual(names.slice(3));
+  const lastPage = await indicator.innerText();
+  await stage.getByRole("button", { name: "Seitenwechsel pausieren" }).click();
+  await page.evaluate((next) => sessionStorage.setItem("async-points", JSON.stringify(next)),
+    scores.map((score, index) => index === scores.length - 1 ? 6000 : score));
+  await page.clock.runFor(24_000);
+  await expect(indicator).toHaveText(lastPage);
+  await expect(stage.locator(".podium-player > strong")).toHaveText([names[0], names.at(-1)!, names[1]]);
+  await stage.getByRole("button", { name: "Seitenwechsel fortsetzen" }).click();
+  await page.clock.runFor(8_000);
+  await expect(indicator).toContainText("Seite 1 · Einträge 4–");
+  await stage.getByRole("button", { name: "Vollbild beenden" }).click();
+  await expect(stage).toBeHidden();
+  await expect(page.getByText("Teilnehmerdetails", { exact: true })).toBeVisible();
+});
+
+test("Seitenrotation überspringt bei unterschiedlich hohen Namen keine Einträge", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  const scores = Array.from({ length: 42 }, (_, index) => 5000 - index);
+  const names = scores.map((_, index) => index === 11 || index === 24 ?
+    `${"W".repeat(75)}${String(index).padStart(3, "0")}` : `Spieler ${String(index + 1).padStart(3, "0")}`);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockAsync(page, { scores, names });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  const indicator = stage.locator(".async-presentation-controls > span");
+  await expect(indicator).toContainText("Seite 1 · Einträge 4–");
+  const seen: string[] = [];
+  for (let index = 0; index < names.length - 3 && seen.length < names.length - 3; index++) {
+    await expect(indicator).toContainText(`Seite ${index + 1} ·`);
+    await expect.poll(() => stage.locator(".async-presentation-list-area").evaluate((area) => area.scrollHeight <= area.clientHeight + 1)).toBe(true);
+    seen.push(...await stage.locator(".async-presentation-name").allTextContents());
+    if (seen.length < names.length - 3) await page.clock.runFor(8_000);
+  }
+  expect(seen).toEqual(names.slice(3));
+});
+
+test("Vollbild erreicht alle 250 Teilnehmenden ohne Duplikate oder Detailabfragen", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  const scores = Array.from({ length: 250 }, (_, index) => 5000 - index);
+  const names = scores.map((_, index) => `Spieler ${String(index + 1).padStart(3, "0")}`);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockAsync(page, { scores, names });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  const indicator = stage.locator(".async-presentation-controls > span");
+  await expect(indicator).toContainText("Seite 1 · Einträge 4–");
+  const seen: string[] = [];
+  for (let index = 0; index < names.length - 3 && seen.length < names.length - 3; index++) {
+    await expect(indicator).toContainText(`Seite ${index + 1} ·`);
+    seen.push(...await stage.locator(".async-presentation-name").allTextContents());
+    if (seen.length < names.length - 3) await page.clock.runFor(8_000);
+  }
+  expect(seen).toEqual(names.slice(3));
+  expect(await page.evaluate(() => sessionStorage.getItem("async-detail-requests"))).toBeNull();
+});
+
+test("Neue Teilnehmende setzen die laufende Bildschirmseite nicht zurück", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  const scores = Array.from({ length: 30 }, (_, index) => 5000 - index);
+  const names = scores.map((_, index) => `Spieler ${String(index + 1).padStart(3, "0")}`);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockAsync(page, { scores, names });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  const indicator = stage.locator(".async-presentation-controls > span");
+  await expect(indicator).toContainText("Seite 1 ·");
+  await page.clock.runFor(8_000);
+  await expect(indicator).toContainText("Seite 2 ·");
+  await page.evaluate(({ nextScores, nextNames }) => {
+    sessionStorage.setItem("async-points", JSON.stringify(nextScores));
+    sessionStorage.setItem("async-names", JSON.stringify(nextNames));
+  }, { nextScores: [...scores, 0], nextNames: [...names, "Neuer Spieler"] });
+  await page.clock.runFor(2_000);
+  await expect(indicator).toContainText("Seite 2 ·");
+  await expect(indicator).toContainText("von 31");
+  await page.clock.runFor(6_000);
+  await expect(indicator).toContainText("Seite 3 ·");
+});
+
+test("Vollbild kennzeichnet einen alten Stand und aktualisiert nach einem Verbindungsfehler", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-standings-fail", "1");
+    sessionStorage.setItem("async-points", JSON.stringify([2900, 2900, 2400, 2100, 1800, 1200, 1000, 3300]));
+  });
+  await page.clock.runFor(10_000);
+  await expect(stage.getByRole("alert")).toContainText("Aktualisierung fehlgeschlagen");
+  await expect(stage.locator(".podium-player > strong")).toHaveText(["Ben", "Anna", "Cem"]);
+  await page.clock.runFor(10_000);
+  await expect(stage.getByRole("alert")).toHaveCount(0);
+  await expect(stage.locator(".podium-player > strong")).toHaveText(["Anna", "Hanna", "Ben"]);
+});
+
+test("Die Präsentation bleibt bei vergrößerter Schrift und schmalem Bildschirm erreichbar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockAsync(page, { names: Array.from({ length: 8 }, (_, index) => `${"LangerSpielname".repeat(4)} ${index}`) });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  await expect(stage.getByRole("button", { name: "Vollbild beenden" })).toBeVisible();
+  await expect.poll(() => stage.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await stage.locator(".async-presentation-name").first().evaluate((element) =>
+    parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(40);
+});
+
+test("Ohne Fullscreen-Unterstützung bleibt die Präsentation bedienbar und Escape kehrt zurück", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(Document.prototype, "fullscreenEnabled", { get: () => false }));
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await expect(stage.getByRole("status")).toContainText("Vollbild wird von diesem Browser nicht unterstützt");
+  await expect(stage.locator(".podium-player")).toHaveCount(3);
+  await page.keyboard.press("Escape");
+  await expect(stage).toBeHidden();
+  await expect(page.getByRole("button", { name: "Vollbild anzeigen" })).toBeFocused();
+});
+
+test("Eine abgelehnte Fullscreen-Anfrage erhält die bildschirmfüllende Präsentation", async ({ page }) => {
+  await page.addInitScript(() => {
+    Element.prototype.requestFullscreen = async () => { throw new Error("Fullscreen denied"); };
+  });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await expect(stage.getByRole("status")).toContainText("Vollbild konnte nicht gestartet werden");
+  await expect(stage.locator(".podium-player")).toHaveCount(3);
+  await stage.getByRole("button", { name: "Zur Adminansicht" }).click();
+  await expect(stage).toBeHidden();
 });

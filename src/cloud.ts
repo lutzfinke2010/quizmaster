@@ -110,6 +110,7 @@ const asyncParticipantResult = z.object({
   answeredCount: z.number(), questionCount: z.number(), status: z.string(), points: z.number(), rank: z.number(),
   answers: z.array(asyncPlayerAnswer),
 });
+const asyncStandingParticipant = asyncParticipantResult.omit({ answers: true });
 const asyncQuestionResult = z.object({
   questionIndex: z.number(), text: z.string(), correctChoiceId: z.string(), explanation: z.string(),
   options: z.array(z.object({ id: z.string(), text: z.string(), correct: z.boolean(), count: z.number() })),
@@ -125,6 +126,9 @@ const asyncResults = z.object({
   leaders: z.array(asyncParticipantResult).nullish(), totalParticipants: z.number().nullish(),
   ...asyncScoringInfo,
 });
+const asyncStandings = asyncResults.omit({ participants: true, nextCursor: true, leaders: true }).extend({
+  participants: z.array(asyncStandingParticipant), totalParticipants: z.number(),
+});
 const asyncPublishReceipt = z.object({
   publicationId: z.string(), token: z.string(), joinCode: z.string(), expiresAt: z.number(), timeZone: z.string(),
   retentionDays: z.number(), maxParticipants: z.number(),
@@ -135,11 +139,13 @@ export type AsyncGuestState = z.infer<typeof asyncGuestState>;
 export type AsyncPublicationSummary = z.infer<typeof asyncPublicationSummary>;
 export type AsyncPublicationResults = z.infer<typeof asyncResults>;
 export type AsyncParticipantResult = z.infer<typeof asyncParticipantResult>;
+export type AsyncStandings = z.infer<typeof asyncStandings>;
+export type AsyncStandingParticipant = z.infer<typeof asyncStandingParticipant>;
 export type AsyncQuestion = z.infer<typeof asyncQuestion>;
 export type AsyncAnswerReceipt = z.infer<typeof asyncAnswerReceipt>;
 const asyncScoreSelection = "points basePoints bonusPoints elapsedMs";
-const asyncParticipantSelection = `attemptId displayName avatarId startedAt completedAt answeredCount
-  questionCount status points rank answers { questionIndex choiceId acceptedAt correct ${asyncScoreSelection} }`;
+const asyncStandingParticipantSelection = "attemptId displayName avatarId startedAt completedAt answeredCount questionCount status points rank";
+const asyncParticipantSelection = `${asyncStandingParticipantSelection} answers { questionIndex choiceId acceptedAt correct ${asyncScoreSelection} }`;
 const asyncQuestionSelection = "question { questionIndex text startedAt answers { id text } }";
 const asyncGuestStateSelection = `title description questionCount expiresAt
   timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
@@ -278,6 +284,13 @@ export const cloud = {
         options { id text correct count } } participants { ${asyncParticipantSelection} } nextCursor
       leaders { ${asyncParticipantSelection} } totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
     "getAsyncPublicationResults", { publicationId, cursor }, "userPool", asyncResults),
+  asyncStandings: (publicationId: string) => operation(
+    `query AsyncStandings($publicationId: ID!) { getAsyncStandings(publicationId: $publicationId) {
+      publicationId quizId title createdAt expiresAt timeZone status retentionAt endedAt participantCount maxParticipants completedCount
+      partialCount isFinal updatedAt questions { questionIndex text correctChoiceId explanation answeredCount
+        options { id text correct count } } participants { ${asyncStandingParticipantSelection} }
+      totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
+    "getAsyncStandings", { publicationId }, "userPool", asyncStandings),
   startAsyncQuiz: (token: string) => operation(
     `mutation StartAsync($token: String!) { startAsyncQuiz(token: $token) { ${asyncGuestStateSelection} } }`,
     "startAsyncQuiz", { token }, "identityPool", asyncGuestState),
