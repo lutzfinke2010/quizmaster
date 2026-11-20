@@ -12,6 +12,7 @@ import { QuizGeneratorForm } from "./QuizGenerator";
 import { AdminGate } from "./AdminAuth";
 import { ErrorBanner, Layout, LoadingNotice, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
+import { QuizCover } from "./components/QuizCover";
 import { AnswerTiles, Avatar, GameView, Leaderboard, Podium, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
@@ -164,7 +165,7 @@ function Overview() {
   const endedPublications = asyncPublications.filter((publication) => !isActivePublication(publication))
     .sort((left, right) => (right.endedAt ?? right.expiresAt) - (left.endedAt ?? left.expiresAt));
   const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return <Layout><div className="section-heading workspace-heading"><div><span className="eyebrow">BASISLAGER · QUIZMASTER</span><h1>Deine Quizze</h1>
+  return <Layout><div className="section-heading workspace-heading"><div><span className="eyebrow">DEIN QUIZMASTER-BEREICH</span><h1>Deine Quizze</h1>
     <p>Bereite Fragen vor, starte ein Live-Spiel oder teile eine Runde zum Mitmachen.</p></div>
     <div className="actions"><Link className="button primary" to="/admin/quizzes/new"><Plus size={18} aria-hidden="true" /> Neues Quiz</Link>
       <Link className="button secondary" to="/admin/quizzes/generate"><Bot size={18} aria-hidden="true" /> Quiz mit KI erstellen</Link>
@@ -174,8 +175,8 @@ function Overview() {
       <li><strong>Live-Quiz</strong> – alle spielen gleichzeitig</li>
       <li><strong>Quiz zum Mitmachen</strong> – jeder spielt in seinem Tempo</li>
     </ul>
-    <div className="grid">
-      {quizzes.map((record) => <article className="card" key={record.quizId}><span className="badge">{record.questionCount} Fragen</span>
+    <div className="grid quiz-library">
+      {quizzes.map((record) => <article className="card library-card" key={record.quizId}><QuizCover questionCount={record.questionCount} />
         <h2>{record.title}</h2><p>{record.description || "Ohne Beschreibung"}</p><div className="actions">
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}`}>Bearbeiten</Link>
           <button className="button small primary" disabled={busy} onClick={() => void run(async () => {

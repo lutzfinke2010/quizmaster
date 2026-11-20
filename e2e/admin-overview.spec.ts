@@ -86,6 +86,24 @@ async function toggleText(archive: ReturnType<Page["locator"]>) {
 const sessionArchive = (page: Page) => page.locator("details.archive-section").filter({ hasText: "Beendete Sitzungen" });
 const publicationArchive = (page: Page) => page.locator("details.archive-section").filter({ hasText: "Beendete Quizrunden" });
 
+for (const width of [320, 1440]) {
+  test(`Quizbibliothek zeigt vollständige Titel und Fragenzahlen bei ${width}px`, async ({ page }) => {
+    const titles = [LONG_TITLE, "Wissensrunde".repeat(10), "Tierquiz"];
+    await mockCloud(page, { ...scenario(), quizzes: titles.map((title, i) => ({
+      quizId: `q${i}`, title, version: 1, questionCount: i + 1,
+    })) });
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/admin");
+    const cards = page.locator("article.library-card");
+    await expect(cards.locator("h2")).toHaveText(titles);
+    await expect(cards.locator(".quiz-cover .badge")).toHaveText(["1 Frage", "2 Fragen", "3 Fragen"]);
+    await cards.first().getByText("Live-Spielregeln", { exact: true }).click();
+    await expect(cards.first().getByRole("checkbox")).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await shot(page, `quizbibliothek-${width}.png`);
+  });
+}
+
 test("Cloud-Quiz wird nur nach Bestätigung gelöscht; Fehler bleiben sichtbar", async ({ page }) => {
   await mockCloud(page, { sessions: [], publications: [], quizzes: [{ quizId: "q1", title: LONG_TITLE, version: 7, questionCount: 3 }] });
   await page.goto("/admin");

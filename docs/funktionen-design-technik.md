@@ -128,18 +128,18 @@ Das RateLama-Logo, das Lama-Icon, Tieravatare und Gamification-Grafiken liegen l
 
 ### Farbpalette
 
-Die App verwendet ein helles Farbschema mit dunkler, gut lesbarer Schrift, Petrol als Primärfarbe und zurückhaltenden Pastellakzenten. Die wichtigsten CSS-Tokens stehen in [`src/styles.css`](../src/styles.css) und [`src/components/game.css`](../src/components/game.css).
+Die App verwendet warme helle Flächen mit dunkler Schrift, Grün als Primärfarbe und Pastellakzenten. Die wichtigsten CSS-Tokens stehen in [`src/styles.css`](../src/styles.css) und [`src/components/game.css`](../src/components/game.css).
 
 | Einsatz | Farbe | Wert |
 | --- | --- | --- |
-| Seitenhintergrund | warmes Off-White | `#f7f7ef` |
-| Schrift und dunkle Konturen | dunkles Grün | `#203c38` |
-| Sekundärtext | gedämpftes Graugrün | `#556563` |
-| Primäraktionen und Hervorhebungen | Petrol | `#21574c` |
-| Positive Akzente und Podium | helles Lime | `#d8ef91` |
-| Spielflächen | warmes Weiß | `#fffef9` |
-| Spielerische Akzente | Pfirsich / Flieder | `#f8d7c4` / `#e3def5` |
-| Tastaturfokus | Blau | `#245cbe` |
+| Seitenhintergrund | Creme | `#fff8ec` |
+| Schrift | dunkles Grün | `#113d36` |
+| Sekundärtext | gedämpftes Graugrün | `#505f54` |
+| Primäraktionen | kräftiges Grün | `#006d4f` |
+| Fortschritt | Blattgrün | `#45871a` |
+| Spielflächen | warmes Weiß | `#fffefa` |
+| Kartenakzente | Mint / Aqua / Rosé | `#edf8da` / `#ccf2ef` / `#ffdde4` |
+| Tastaturfokus | Violett | `#5543b6` |
 
 Es gibt keinen in der Anwendung umschaltbaren Dark Mode. Farben werden nicht allein zur Kennzeichnung von Auswahl, Fehlern oder richtigen Antworten verwendet: Symbole und erklärender Text ergänzen sie.
 

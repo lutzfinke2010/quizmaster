@@ -208,6 +208,8 @@ for (const width of [320, 390, 768, 1440]) {
     await localMode(page);
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Kleine Fragen.");
+    await expect(page.locator(".lama-scene .scene-guide")).toBeVisible();
+    await expectGameImagesLoaded(page);
     await screenshot(page, "home.png");
     await expectNoHorizontalOverflow(page);
     await page.locator(".quiz-preview summary").focus();
@@ -403,7 +405,7 @@ test("Zentrale Texte und Auswahlmarkierungen erfüllen mindestens 4,5:1 Kontrast
   await localMode(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expectReadableText(page, ".button, .eyebrow, .expedition-stamp, .expedition-card figcaption, .hero-copy p, .badge, .sample-selected, .sample-confirmation, .trust-chips li, .trust-link, .privacy-section h2, .privacy-section h3, .privacy-section p, .privacy-section li, .privacy-more summary, .footer-privacy summary, .footer-privacy li");
+  await expectReadableText(page, ".button, .eyebrow, .hero-highlight, .steps h3, .steps p, .hero-copy p, .badge, .sample-selected, .sample-confirmation, .trust-chips li, .trust-link, .privacy-section h2, .privacy-section h3, .privacy-section p, .privacy-section li, .privacy-more summary, .footer-privacy summary, .footer-privacy li");
   await page.goto("/admin/quizzes/new");
   await page.getByRole("radio", { name: "Antwort 2 bei Frage 1 ist richtig" }).check();
   await expectReadableText(page, ".is-correct .correct-choice, .selection-summary, .field-error, .outline-link small, .hint");

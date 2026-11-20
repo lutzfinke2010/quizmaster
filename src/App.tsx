@@ -8,6 +8,7 @@ import type { Quiz } from "./domain/quiz";
 import { CloudApp } from "./CloudApp";
 import { Layout as SharedLayout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
+import { QuizCover } from "./components/QuizCover";
 import { ImpressumPage, PrivacyPolicyPage } from "./components/LegalPages";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 
@@ -71,7 +72,7 @@ function Overview({ storageEnabled, onStorageEnabledChange }: {
   }
 
   return <Layout>
-    <div className="section-heading">
+    <div className="section-heading workspace-heading">
       <div><span className="eyebrow">DEINE IDEEN, DEINE BÜHNE</span><h1>Quiz-Entwürfe <span className="heading-count">{drafts.length}</span></h1>
         <p>Erstelle Fragen und bringe deine nächste Runde in Form.</p></div>
       <Link className="button primary" to="/admin/quizzes/new"><Plus size={19} /> Neues Quiz</Link>
@@ -108,9 +109,9 @@ function Overview({ storageEnabled, onStorageEnabledChange }: {
       <Sparkles size={36} aria-hidden="true" /><h2>Hier ist noch Platz für Ideen.</h2>
       <p>Starte mit einem eigenen Quiz oder entdecke unsere zehn Beispielfragen.</p>
       <button className="button secondary" onClick={addExample}>Beispielquiz verwenden</button>
-    </div> : storageEnabled && loaded && drafts.length > 0 ? <div className="grid">
-      {drafts.map((draft) => <article className="card" key={draft.id}>
-        <span className="badge">{draft.quiz.questions.length} Fragen</span>
+    </div> : storageEnabled && loaded && drafts.length > 0 ? <div className="grid quiz-library">
+      {drafts.map((draft) => <article className="card library-card" key={draft.id}>
+        <QuizCover questionCount={draft.quiz.questions.length} />
         <h2>{draft.quiz.title}</h2><p>{draft.quiz.description || "Ohne Beschreibung"}</p>
         <div className="card-actions">
           <Link className="button small secondary" to={`/admin/quizzes/${draft.id}`}>Bearbeiten</Link>

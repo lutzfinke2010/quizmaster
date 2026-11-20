@@ -1,13 +1,13 @@
-import { ArrowRight, Check, CheckCircle2, Compass, Flag, Mountain, PartyPopper, PencilLine, Users } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, Compass, PartyPopper, PencilLine, Users } from "lucide-react";
 import { Link } from "react-router-dom";
-import { GameIllustration } from "./GameAssets";
+import { GameIcon, GameIllustration } from "./GameAssets";
 import { PrivacySection, TrustChips } from "./Privacy";
 
 export function HomeContent({ localMode = false }: { localMode?: boolean }) {
   return <>
     <section className="hero">
       <div className="hero-copy">
-        <span className="eyebrow expedition-label"><Compass size={16} aria-hidden="true" /> DIE QUIZ-EXPEDITION</span>
+        <span className="eyebrow expedition-label"><Compass size={16} aria-hidden="true" /> Willkommen bei RateLama</span>
         <h1>Kleine Fragen.<br /><span className="hero-highlight">Große Momente.</span></h1>
         <p>{localMode ? "Pack deine besten Fragen ein. Hier bereitest du auf deinem Gerät die nächste Quizrunde für dein Team vor." :
           "Das Teamquiz mit Lama: Spielt live zusammen oder rätselt im eigenen Tempo. Ein Quiz-Code reicht zum Mitmachen."}</p>
@@ -20,17 +20,15 @@ export function HomeContent({ localMode = false }: { localMode?: boolean }) {
           </Link>
         </div>
       </div>
-      <figure className="expedition-card">
-        <div className="expedition-landscape">
-          <span className="expedition-stamp"><Mountain size={15} aria-hidden="true" /> RATELAMA · FELDNOTIZ 01</span>
-          <GameIllustration name="lobby-welcome" className="expedition-guide" />
-        </div>
-        <figcaption><Flag size={19} aria-hidden="true" /><strong>Station 01 · Basislager</strong><span aria-hidden="true">01 / 03</span></figcaption>
-      </figure>
+      <div className="lama-scene" aria-hidden="true">
+        <GameIllustration name="lobby-welcome" className="scene-guide" />
+        <span className="scene-sticker scene-star"><GameIcon name="points" size={40} /></span>
+        <span className="scene-sticker scene-trophy"><GameIcon name="trophy" size={48} /></span>
+      </div>
     </section>
     <TrustChips localMode={localMode} />
     <section className="how-it-works" aria-labelledby="how-heading">
-      <div className="how-heading"><span className="eyebrow">DEINE ROUTE</span><h2 id="how-heading">In drei Schritten mittendrin.</h2></div>
+      <div className="how-heading"><span className="eyebrow">SO FUNKTIONIERT’S</span><h2 id="how-heading">In drei Schritten mittendrin.</h2></div>
       <ol className="steps">
         <li><span className="step-icon step-peach"><PencilLine aria-hidden="true" /></span>
           <div><span className="step-number">01 / VORBEREITEN</span><h3>Deine Fragen. Dein Quiz.</h3><p>Eigene Ideen sammeln oder mit einem Beispielquiz loslegen.</p></div></li>
