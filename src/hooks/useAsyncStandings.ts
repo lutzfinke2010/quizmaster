@@ -59,7 +59,18 @@ export function useAsyncStandings(publicationId: string) {
         const next = await request.promise;
         if (active && !retentionExpired) {
           scheduleExpiry(next, request.startedAt);
-          if (!retentionExpired) { setStandings(next); setError(""); }
+          if (!retentionExpired) {
+            setStandings((previous) => {
+              const before = new Map(previous?.publicationId === next.publicationId
+                ? previous.participants.map((player) => [player.attemptId, player]) : []);
+              return { ...next, participants: next.participants.map((player) => {
+                const old = before.get(player.attemptId);
+                return { ...player, previousRank: old?.rank ?? 0, rankChange: old ? old.rank - player.rank : 0,
+                  previousPoints: old?.points ?? player.points };
+              }) };
+            });
+            setError("");
+          }
         }
       } catch (caught) {
         if (active && !expireIfNeeded()) setError(`Aktualisierung fehlgeschlagen: ${message(caught)}`);

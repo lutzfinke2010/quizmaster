@@ -265,6 +265,7 @@ textarea { resize: vertical; }
 .answer-confetti { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 10; }
 .answer-confetti span { position: absolute; top: 28%; width: 9px; height: 15px; opacity: 0; border-radius: 2px; animation: answer-confetti 1800ms ease-out both; }
 .answer-confetti span:nth-child(3n) { border-radius: 50%; width: 10px; height: 10px; }
+.final-confetti span { top: 4%; animation-duration: 2800ms; width: 11px; height: 18px; }
 @keyframes answer-confetti {
   0% { opacity: 0; transform: translate(0, 15vh) rotate(0); }
   15% { opacity: 1; }

@@ -1,8 +1,8 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, TransactGetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, QueryCommand, TransactGetCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getMyAnswer, getMyResult } from "./gameState";
+import { getAdminGameState, getMyAnswer, getMyResult } from "./gameState";
 
 const database = mockClient(DynamoDBDocumentClient);
 const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "eu-central-1" }));
@@ -30,6 +30,7 @@ describe("Persönliche freigegebene Gesamtpunkte", () => {
   it("liefert den gespeicherten Gesamtstand, nicht nur die Punkte der aktuellen Frage", async () => {
     expect(await getMyResult(db, "table", "session", "guest", 50_000)).toEqual({
       questionId: "q2", answered: true, correct: true, points: 750, totalPoints: 1650, elapsedMs: 10_000,
+      streak: 0, maxStreak: 0, streakBonusPoints: 0, badges: [],
     });
     expect(database.commandCalls(GetCommand).every((call) => call.args[0].input.ConsistentRead)).toBe(true);
   });
@@ -38,6 +39,43 @@ describe("Persönliche freigegebene Gesamtpunkte", () => {
     delete items["RESULT#q2#me"];
     expect(await getMyResult(db, "table", "session", "guest", 50_000)).toEqual({
       questionId: "q2", answered: false, correct: false, points: 0, totalPoints: 1650, elapsedMs: null,
+      streak: 0, maxStreak: 0, streakBonusPoints: 0, badges: [],
+    });
+  });
+
+  it("ranks stored totals with bonuses, subtracts the whole award for previous ranks, and preserves ties", async () => {
+    Object.assign(items.META, { ownerId: "admin", status: "LEADERBOARD", currentQuestionId: "q3",
+      questionIndex: 2, questionCount: 3, participantCount: 3, streakBonusEnabled: true });
+    items["QUESTION#q3"] = { text: "Frage", answers: [{ id: "a", text: "Ja" }, { id: "b", text: "Nein" }] };
+    items["REVEAL#q3"] = { correctChoiceId: "a", explanation: "", distribution: [{ choiceId: "a", count: 3 }] };
+    Object.assign(items["PARTICIPANT#me"], { correctAnswers: 2, correctElapsedMs: 1200 });
+    items["RESULT#q3#me"] = { correct: true, points: 775, elapsedMs: 750, streakBonusPoints: 150 };
+    for (const participantId of ["b", "c"]) {
+      items[`PARTICIPANT#${participantId}`] = { participantId, displayName: participantId, avatarId: "fox",
+        totalPoints: 1700, correctAnswers: 3, correctElapsedMs: 1000,
+        streak: 3, maxStreak: 3, lastAnsweredIndex: 2 };
+      items[`RESULT#q3#${participantId}`] = { correct: true, points: 950, elapsedMs: 100, streakBonusPoints: 100 };
+    }
+    database.on(QueryCommand).callsFake((input) => ({
+      Items: Object.entries(items).filter(([sk]) => sk.startsWith(input.ExpressionAttributeValues[":prefix"]))
+        .map(([sk, item]) => ({ sk, ...item })),
+    }));
+    const state = await getAdminGameState(db, "table", "session", { subject: "admin", groups: ["Quizmasters"] }, 50_000);
+    expect(state.leaderboard.map((player) => [player.participantId, player.rank, player.previousRank, player.previousPoints]))
+      .toEqual([["b", 1, 2, 750], ["c", 1, 2, 750], ["me", 3, 1, 875]]);
+    expect(state.leaderboard[0]).toMatchObject({ rankChange: 1, badges: ["FIRST_CORRECT", "STREAK_3"] });
+  });
+
+  it("returns stored bonus, badges and a broken streak for an unanswered question", async () => {
+    Object.assign(items["PARTICIPANT#me"], { correctAnswers: 3, streak: 3, maxStreak: 3, lastAnsweredIndex: 1 });
+    items["RESULT#q2#me"].streakBonusPoints = 100;
+    expect(await getMyResult(db, "table", "session", "guest", 50_000)).toMatchObject({
+      streak: 3, maxStreak: 3, streakBonusPoints: 100, badges: ["FIRST_CORRECT", "STREAK_3"],
+    });
+    items.META.questionIndex = 2;
+    items.META.currentQuestionId = "q3";
+    expect(await getMyResult(db, "table", "session", "guest", 50_000)).toMatchObject({
+      answered: false, streak: 0, maxStreak: 3, streakBonusPoints: 0, badges: ["FIRST_CORRECT", "STREAK_3"],
     });
   });
 

@@ -3,6 +3,8 @@ import { flushSync } from "react-dom";
 import { Maximize2 } from "lucide-react";
 import type { AsyncStandings } from "../cloud";
 import { Avatar, Podium } from "./GameView";
+import { AnimatedPoints, Finale, RankRise } from "./Gamification";
+import { motion, useReducedMotion } from "motion/react";
 
 const PAGE_INTERVAL_MS = 8_000;
 const ROW_HEIGHT_WITH_GAP = 70;
@@ -16,6 +18,7 @@ export function AsyncStandingsPresentation({ standings, statusText, formatPoints
   onRefresh: () => void;
   onPresentationChange: (open: boolean) => void;
 }) {
+  const reduced = useReducedMotion();
   const [presenting, setPresenting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [hint, setHint] = useState("");
@@ -145,16 +148,22 @@ export function AsyncStandingsPresentation({ standings, statusText, formatPoints
           {" "}<button className="button secondary small" disabled={refreshing} onClick={onRefresh}>Erneut versuchen</button>
         </div>}
         {hint && <p className="async-presentation-hint" role="status">{hint}</p>}
+        {standings.isFinal && podium.length > 0 && <Finale />}
+        {!standings.isFinal && (standings.participants[0]?.rankChange ?? 0) > 0 &&
+          (standings.participants[0]?.previousRank ?? 0) > 1 &&
+          <RankRise change={standings.participants[0].rankChange ?? 0}
+            eventId={`${standings.publicationId}:leader:${standings.updatedAt}`} celebrate />}
         {podium.length === 0 ? <p className="async-presentation-empty">Noch keine Teilnehmenden.</p> :
           <Podium players={podium} final={standings.isFinal} formatPoints={formatPoints} />}
         <div ref={listArea} className="async-presentation-list-area">
           {rows.length > 0 && <ol className="async-presentation-list" aria-label="Weitere Plätze" aria-live="off">
-            {rows.map((player) => <li key={player.attemptId}>
+            {rows.map((player) => <motion.li key={player.attemptId} layout={!reduced}
+              initial={reduced ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .3 }}>
               <span className="async-presentation-rank" aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
               <Avatar avatarId={player.avatarId} />
               <strong className="async-presentation-name">{player.displayName}</strong>
-              <span className="async-presentation-points">{formatPoints(player.points)} Punkte</span>
-            </li>)}
+              <span className="async-presentation-points"><AnimatedPoints value={player.points} format={formatPoints} /> Punkte</span>
+            </motion.li>)}
           </ol>}
         </div>
         <footer className="async-presentation-controls">

@@ -76,7 +76,8 @@ async function dispatch(raw: unknown, now: number): Promise<unknown> {
     case "getQuiz": return quizStore.getQuiz(quizmaster(event.identity), args.quizId);
     case "listSessions": return listSessions(client, tableName, quizmaster(event.identity), now);
     case "getSession": return getSession(client, tableName, args.sessionId, quizmaster(event.identity), now);
-    case "createSession": return createSession(client, tableName, { quizId: args.quizId }, quizmaster(event.identity), {
+    case "createSession": return createSession(client, tableName, { quizId: args.quizId,
+      ...(args.streakBonusEnabled != null ? { streakBonusEnabled: args.streakBonusEnabled } : {}) }, quizmaster(event.identity), {
       maxParticipants: z.coerce.number().int().min(1).max(1000).parse(process.env.MAX_PARTICIPANTS ?? "100"),
       retentionDays: z.coerce.number().int().min(1).max(365).parse(process.env.RETENTION_DAYS ?? "7"),
     }, now);

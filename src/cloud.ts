@@ -45,18 +45,24 @@ const sessionSummary = z.object({ sessionId: z.string(), title: z.string(), stat
 const participation = z.object({ sessionId: z.string(), participantId: z.string(), displayName: z.string(),
   avatarId: z.string(), joinedAt: z.number() });
 const player = z.object({ participantId: z.string(), displayName: z.string(), avatarId: z.string() });
+const gamificationFields = {
+  streak: z.number().nullish(), maxStreak: z.number().nullish(), badges: z.array(z.string()).nullish(),
+};
 const rankedPlayer = player.extend({ points: z.number(), correctAnswers: z.number(), correctElapsedMs: z.number(), rank: z.number(),
-  previousRank: z.number(), rankChange: z.number() });
+  previousRank: z.number(), rankChange: z.number(), previousPoints: z.number().nullish(), ...gamificationFields });
 const myResult = z.object({ questionId: z.string(), answered: z.boolean(), correct: z.boolean(),
-  points: z.number(), totalPoints: z.number(), elapsedMs: z.number().nullish() });
+  points: z.number(), totalPoints: z.number(), elapsedMs: z.number().nullish(),
+  streakBonusPoints: z.number().nullish(), ...gamificationFields });
 export type MyResult = z.infer<typeof myResult>;
 const asyncScoreFields = {
   points: z.number().nullish(), basePoints: z.number().nullish(), bonusPoints: z.number().nullish(),
   elapsedMs: z.number().nullish(),
+  streakBonusPoints: z.number().nullish(), streak: z.number().nullish(), maxStreak: z.number().nullish(),
 };
 const asyncScoringInfo = {
   scoringVersion: z.string().nullish(), basePoints: z.number().nullish(), maxBonusPoints: z.number().nullish(),
   bonusWindowMs: z.number().nullish(),
+  streakBonusEnabled: z.boolean().nullish(), immediateReveal: z.boolean().nullish(),
 };
 const asyncPublicInfo = z.object({
   title: z.string(), description: z.string(), questionCount: z.number(), expiresAt: z.number(),
@@ -89,11 +95,13 @@ const asyncGuestState = asyncPublicInfo.extend({
   attemptStatus: z.string(), nextQuestionIndex: z.number(), answers: z.array(asyncGuestAnswer),
   question: asyncQuestion.nullable().optional(), points: z.number().nullable().optional(),
   results: z.array(asyncOwnQuestionResult),
+  ...gamificationFields, rank: z.number().nullish(),
 });
 const asyncAnswerReceipt = z.object({
   acceptedAt: z.number(), answeredCount: z.number(), questionIndex: z.number().nullish(),
   attemptStatus: z.string().nullish(), status: z.string().nullish(), nextQuestionIndex: z.number().nullish(),
   question: asyncQuestion.nullish(), serverTime: z.number().nullish(),
+  state: asyncGuestState.nullish(),
 });
 const asyncPublicationSummary = z.object({
   publicationId: z.string(), quizId: z.string(), title: z.string(), token: z.string(), joinCode: z.string().nullish(),
@@ -109,8 +117,11 @@ const asyncParticipantResult = z.object({
   attemptId: z.string(), displayName: z.string(), avatarId: z.string(), startedAt: z.number(), completedAt: z.number().nullable().optional(),
   answeredCount: z.number(), questionCount: z.number(), status: z.string(), points: z.number(), rank: z.number(),
   answers: z.array(asyncPlayerAnswer),
+  ...gamificationFields,
 });
-const asyncStandingParticipant = asyncParticipantResult.omit({ answers: true });
+const asyncStandingParticipant = asyncParticipantResult.omit({ answers: true }).extend({
+  previousRank: z.number().optional(), rankChange: z.number().optional(), previousPoints: z.number().optional(),
+});
 const asyncQuestionResult = z.object({
   questionIndex: z.number(), text: z.string(), correctChoiceId: z.string(), explanation: z.string(),
   options: z.array(z.object({ id: z.string(), text: z.string(), correct: z.boolean(), count: z.number() })),
@@ -143,19 +154,20 @@ export type AsyncStandings = z.infer<typeof asyncStandings>;
 export type AsyncStandingParticipant = z.infer<typeof asyncStandingParticipant>;
 export type AsyncQuestion = z.infer<typeof asyncQuestion>;
 export type AsyncAnswerReceipt = z.infer<typeof asyncAnswerReceipt>;
-const asyncScoreSelection = "points basePoints bonusPoints elapsedMs";
-const asyncStandingParticipantSelection = "attemptId displayName avatarId startedAt completedAt answeredCount questionCount status points rank";
+const asyncScoreSelection = "points basePoints bonusPoints elapsedMs streakBonusPoints streak maxStreak";
+const asyncStandingParticipantSelection = "attemptId displayName avatarId startedAt completedAt answeredCount questionCount status points rank streak maxStreak badges";
 const asyncParticipantSelection = `${asyncStandingParticipantSelection} answers { questionIndex choiceId acceptedAt correct ${asyncScoreSelection} }`;
 const asyncQuestionSelection = "question { questionIndex text startedAt answers { id text } }";
 const asyncGuestStateSelection = `title description questionCount expiresAt
   timeZone status retentionAt endedAt maxParticipants serverTime displayName avatarId startedAt answeredCount attemptStatus nextQuestionIndex points
-  scoringVersion basePoints maxBonusPoints bonusWindowMs
+  scoringVersion basePoints maxBonusPoints bonusWindowMs streakBonusEnabled immediateReveal streak maxStreak badges rank
   answers { questionIndex choiceId acceptedAt correct correctChoiceId explanation questionText selectedText correctText ${asyncScoreSelection} }
   results { questionIndex questionText answered selectedText correctText correct explanation acceptedAt ${asyncScoreSelection} }
   ${asyncQuestionSelection}`;
 export const gameStateSchema = z.object({
   sessionId: z.string(), status: z.string(), version: z.number(), title: z.string(), questionId: z.string().nullish(),
   joinCode: z.string().nullish(),
+  streakBonusEnabled: z.boolean().nullish(),
   questionIndex: z.number(), questionCount: z.number(), participantCount: z.number(), opensAt: z.number().nullish(),
   closesAt: z.number().nullish(), answerCount: z.number(), eligibleParticipantCount: z.number(), serverTime: z.number(),
   question: z.object({ text: z.string(), answers: z.array(z.object({ id: z.string(), text: z.string() })) }).nullish(),
@@ -174,11 +186,11 @@ export type GameEvent = z.infer<typeof gameEvent>;
 
 const quizFields = "quizId version updatedAt quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
 const participationFields = "sessionId participantId displayName avatarId joinedAt";
-const stateFields = `sessionId status version title joinCode questionId questionIndex questionCount participantCount opensAt closesAt
+const stateFields = `sessionId status version title joinCode streakBonusEnabled questionId questionIndex questionCount participantCount opensAt closesAt
   answerCount eligibleParticipantCount serverTime question { text answers { id text } }
   reveal { correctChoiceId explanation distribution { choiceId count } }
   participants { participantId displayName avatarId }
-  leaderboard { participantId displayName avatarId points correctAnswers correctElapsedMs rank previousRank rankChange }`;
+  leaderboard { participantId displayName avatarId points correctAnswers correctElapsedMs rank previousRank rankChange previousPoints streak maxStreak badges }`;
 
 type AuthMode = "userPool" | "identityPool";
 async function operation<T>(query: string, field: string, variables: Record<string, unknown>, authMode: AuthMode, schema: z.ZodType<T>): Promise<T> {
@@ -215,8 +227,8 @@ export const cloud = {
     "listSessions", {}, "userPool", z.array(sessionSummary)),
   getSession: (sessionId: string) => operation("query GetSession($sessionId: ID!) { getSession(sessionId: $sessionId) { sessionId title status joinCode presentationToken createdAt } }",
     "getSession", { sessionId }, "userPool", sessionSummary),
-  createSession: (quizId: string) => operation("mutation CreateSession($quizId: ID!) { createSession(quizId: $quizId) { sessionId joinCode presentationToken } }",
-    "createSession", { quizId }, "userPool", z.object({ sessionId: z.string(), joinCode: z.string(), presentationToken: z.string() })),
+  createSession: (quizId: string, streakBonusEnabled = false) => operation("mutation CreateSession($quizId: ID!, $streakBonusEnabled: Boolean!) { createSession(quizId: $quizId, streakBonusEnabled: $streakBonusEnabled) { sessionId joinCode presentationToken } }",
+    "createSession", { quizId, streakBonusEnabled }, "userPool", z.object({ sessionId: z.string(), joinCode: z.string(), presentationToken: z.string() })),
   questions: (sessionId: string) => operation("query Questions($sessionId: ID!) { listSessionQuestions(sessionId: $sessionId) { questionId index text } }",
     "listSessionQuestions", { sessionId }, "userPool", z.array(z.object({ questionId: z.string(), index: z.number(), text: z.string() }))),
   join: (joinCode: string) => operation(`mutation Join($joinCode: String!) { joinSession(joinCode: $joinCode) { ${participationFields} } }`,
@@ -232,7 +244,7 @@ export const cloud = {
   },
   presentation: (presentationToken: string) => operation(`query Presentation($presentationToken: String!) { getPresentationState(presentationToken: $presentationToken) { ${stateFields} } }`,
     "getPresentationState", { presentationToken }, "identityPool", gameStateSchema),
-  result: (sessionId: string) => operation("query Result($sessionId: ID!) { getMyResult(sessionId: $sessionId) { questionId answered correct points totalPoints elapsedMs } }",
+  result: (sessionId: string) => operation("query Result($sessionId: ID!) { getMyResult(sessionId: $sessionId) { questionId answered correct points totalPoints elapsedMs streakBonusPoints streak maxStreak badges } }",
     "getMyResult", { sessionId }, "identityPool", myResult),
   myAnswer: (sessionId: string) => operation("query MyAnswer($sessionId: ID!) { getMyAnswer(sessionId: $sessionId) { questionId choiceId } }",
     "getMyAnswer", { sessionId }, "identityPool", z.object({ questionId: z.string().nullish(), choiceId: z.string().nullish() })),
@@ -259,11 +271,11 @@ export const cloud = {
     }),
   asyncPublicInfo: (token: string) => operation(
     `query AsyncInfo($token: String!) { getAsyncPublicInfo(token: $token) { title description questionCount expiresAt timeZone status retentionAt endedAt maxParticipants serverTime joinCode
-      scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
+      scoringVersion basePoints maxBonusPoints bonusWindowMs streakBonusEnabled immediateReveal } }`,
     "getAsyncPublicInfo", { token }, "identityPool", asyncPublicInfo),
-  publishAsyncQuiz: (quizId: string, requestId: string, expiresAt: number, timeZone: string) => operation(
-    "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone) { publicationId token joinCode expiresAt timeZone retentionDays maxParticipants } }",
-    "publishAsyncQuiz", { quizId, requestId, expiresAt, timeZone }, "userPool", asyncPublishReceipt),
+  publishAsyncQuiz: (quizId: string, requestId: string, expiresAt: number, timeZone: string, streakBonusEnabled = false, immediateReveal = true) => operation(
+    "mutation PublishAsync($quizId: ID!, $requestId: ID!, $expiresAt: Float!, $timeZone: String!, $streakBonusEnabled: Boolean!, $immediateReveal: Boolean!) { publishAsyncQuiz(quizId: $quizId, requestId: $requestId, expiresAt: $expiresAt, timeZone: $timeZone, streakBonusEnabled: $streakBonusEnabled, immediateReveal: $immediateReveal) { publicationId token joinCode expiresAt timeZone retentionDays maxParticipants } }",
+    "publishAsyncQuiz", { quizId, requestId, expiresAt, timeZone, streakBonusEnabled, immediateReveal }, "userPool", asyncPublishReceipt),
   listAsyncPublications: () => operation(
     `query { listAsyncPublications { publicationId quizId title token joinCode createdAt expiresAt timeZone status
       retentionAt endedAt participantCount maxParticipants completedCount partialCount } }`,
@@ -282,14 +294,14 @@ export const cloud = {
       publicationId quizId title createdAt expiresAt timeZone status retentionAt endedAt participantCount maxParticipants completedCount
       partialCount isFinal updatedAt questions { questionIndex text correctChoiceId explanation answeredCount
         options { id text correct count } } participants { ${asyncParticipantSelection} } nextCursor
-      leaders { ${asyncParticipantSelection} } totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
+      leaders { ${asyncParticipantSelection} } totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs streakBonusEnabled immediateReveal } }`,
     "getAsyncPublicationResults", { publicationId, cursor }, "userPool", asyncResults),
   asyncStandings: (publicationId: string) => operation(
     `query AsyncStandings($publicationId: ID!) { getAsyncStandings(publicationId: $publicationId) {
       publicationId quizId title createdAt expiresAt timeZone status retentionAt endedAt participantCount maxParticipants completedCount
       partialCount isFinal updatedAt questions { questionIndex text correctChoiceId explanation answeredCount
         options { id text correct count } } participants { ${asyncStandingParticipantSelection} }
-      totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs } }`,
+      totalParticipants scoringVersion basePoints maxBonusPoints bonusWindowMs streakBonusEnabled immediateReveal } }`,
     "getAsyncStandings", { publicationId }, "userPool", asyncStandings),
   startAsyncQuiz: (token: string) => operation(
     `mutation StartAsync($token: String!) { startAsyncQuiz(token: $token) { ${asyncGuestStateSelection} } }`,
@@ -304,6 +316,7 @@ export const cloud = {
   submitAsyncAnswer: (token: string, questionIndex: number, choiceId: string) => operation(
     `mutation SubmitAsync($token: String!, $questionIndex: Int!, $choiceId: ID!) {
       submitAsyncAnswer(token: $token, questionIndex: $questionIndex, choiceId: $choiceId) {
-        acceptedAt answeredCount questionIndex attemptStatus status nextQuestionIndex serverTime ${asyncQuestionSelection} } }`,
+        acceptedAt answeredCount questionIndex attemptStatus status nextQuestionIndex serverTime ${asyncQuestionSelection}
+        state { ${asyncGuestStateSelection} } } }`,
     "submitAsyncAnswer", { token, questionIndex, choiceId }, "identityPool", asyncAnswerReceipt),
 };

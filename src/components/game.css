@@ -8,6 +8,61 @@
   --game-on-primary: #fffef9;
 }
 .game-layout .header { padding-block: 16px; }
+.live-start-options { width: 100%; font-size: .85rem; }
+.live-start-options summary { cursor: pointer; padding-block: 8px; }
+.gamification-option { min-width: 0; }
+.gamification-option .hint { display: block; margin: 6px 0 12px; line-height: 1.5; }
+.achievements { width: min(100%, 460px); margin: 20px auto; padding: 14px; border: 1px solid var(--game-border); border-radius: 16px; background: var(--game-soft); text-align: left; }
+.streak-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--teal); }
+.streak-heading > span { margin-left: auto; font-size: .75rem; }
+.achievements progress { width: 100%; height: 8px; margin-top: 10px; accent-color: var(--teal); }
+.achievements.is-on-fire { background: var(--game-peach); border-color: #ad6544; }
+.streak-next { margin: 6px 0 0; font-size: .75rem; color: var(--ink); }
+.achievement-badges { display: flex; flex-wrap: wrap; list-style: none; gap: 8px; padding: 0; margin: 12px 0 0; }
+.achievement-badges li { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 12px; background: var(--game-surface); border: 1px solid var(--game-border); color: var(--teal); font-size: .75rem; font-weight: 650; }
+.score-award { position: relative; }
+.score-award > p { margin: 8px 0; font-size: .85rem; }
+.score-award .streak-bonus { display: flex; justify-content: center; align-items: center; gap: 5px; color: var(--teal); font-weight: 700; }
+.points-pop { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding: 6px 16px; border-radius: 18px; background: var(--lime); color: var(--teal); font-size: 1.5rem; font-weight: 850; white-space: nowrap; animation: points-pop 1.6s ease-out both; pointer-events: none; }
+.milestone-pop, .badge-pop { display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--game-peach); color: var(--ink); border-radius: 14px; padding: 8px; margin: 8px auto; max-width: 100%; font-weight: 700; animation: achievement-enter .45s ease-out both; }
+.badge-pop { background: var(--game-lilac); animation-delay: .45s; font-size: .85rem; }
+.rank-rise { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; width: fit-content; max-width: 100%; margin: 10px auto; padding: 12px 16px; border: 1px solid var(--teal); border-radius: 16px; background: var(--lime); color: var(--teal); }
+.rank-rise-animated { animation: rank-rise .65s cubic-bezier(.2,.8,.2,1) both; }
+.rank-gained { position: relative; color: var(--teal); animation: answer-lock .45s ease-out; }
+.rank-gained::after { content: "↑"; position: absolute; right: -6px; top: -9px; color: var(--teal); font-size: .75rem; font-weight: 850; }
+.finale-banner { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; margin: 16px 0; background: var(--game-lilac); border: 1px solid var(--game-border); border-radius: 18px; color: var(--teal); font-size: clamp(1rem, 2vw, 1.4rem); text-align: center; animation: achievement-enter .55s ease-out both; }
+.finale-banner > svg { flex: none; }
+.podium-player { position: relative; }
+.podium-crown { position: absolute; top: -6px; left: calc(50% + 18px); color: var(--teal); background: var(--lime); border-radius: 8px; padding: 3px; animation: achievement-enter .6s .25s ease-out both; }
+.podium-final .podium-rank-1 .avatar { filter: drop-shadow(0 0 12px #b8d858); }
+.podium-streak { display: flex; align-items: center; gap: 4px; color: var(--teal); font-size: .75rem; }
+.game-view .timer-urgent { border-color: #a34a34; background: var(--game-peach); }
+.countdown-phase .timer-digit, .timer-urgent .timer-digit { display: inline-block; animation: countdown-pop .35s ease-out; }
+.game-view .answer-tile.is-selected .answer-letter { animation: answer-lock .35s ease-out; }
+.game-view .answer-tile { animation: answer-enter .3s ease-out both; }
+.game-view .answer-tile:nth-child(2) { animation-delay: .04s; }
+.game-view .answer-tile:nth-child(3) { animation-delay: .08s; }
+.game-view .answer-tile:nth-child(n+4) { animation-delay: .12s; }
+.player-tag { animation: achievement-enter .35s ease-out both; }
+.vote-track span { transition: width .7s ease-out; animation: vote-grow .7s ease-out both; transform-origin: left; }
+.answer-progress progress::-webkit-progress-value { transition: width .35s ease-out; }
+.answer-feedback:has(strong) > svg { animation: answer-lock .3s ease-out; }
+@keyframes points-pop {
+  0% { opacity: 0; transform: translate(-50%, 12px) scale(.8); }
+  20% { opacity: 1; transform: translate(-50%, -8px) scale(1.1); }
+  65% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -42px) scale(1); }
+}
+@keyframes achievement-enter { from { opacity: 0; transform: translateY(12px) scale(.95); } to { opacity: 1; transform: none; } }
+@keyframes rank-rise { from { opacity: 0; transform: translateY(24px) scale(.85); } to { opacity: 1; transform: none; } }
+@keyframes countdown-pop { from { transform: scale(1.3); } to { transform: scale(1); } }
+@keyframes answer-lock { 50% { transform: scale(1.18) rotate(-6deg); } }
+@keyframes answer-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes vote-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .points-pop { display: none; }
+  .game-view *, .gamification-option *, .finale-banner { animation: none !important; transition: none !important; }
+}
 .game-layout .container { padding-top: 24px; }
 .game-layout .brand-caption { display: none; }
 .live-label { font-size: .75rem; color: var(--teal); font-weight: 600; }
@@ -161,6 +216,11 @@
 .game-layout-admin .answer-tile { font-size: 1.1rem; }
 .game-presentation .game-phase { padding: 24px 48px; }
 .game-presentation .ranking-phase { max-width: 1100px; margin-inline: auto; }
+.game-presentation .game-phase:has(.ranking-phase) { padding-block: 12px; }
+.game-presentation .rank-rise { padding: 6px 10px; margin: 4px auto; font-size: .85rem; }
+.game-presentation .finale-banner { padding: 6px 12px; margin: 8px 0; font-size: 1rem; }
+.game-presentation .ranking-phase:has(.finale-banner) .podium .avatar { width: 64px; height: 64px; }
+.game-presentation .ranking-phase:has(.finale-banner) .leaderboard li { padding-block: 4px; }
 .game-presentation .ranking-phase h1 { margin: 10px 0 16px; font-size: clamp(2rem, 3vw, 3rem); }
 .game-presentation .ranking-intro { margin-bottom: 12px; }
 .game-presentation .podium { margin: 6px 0 8px; }

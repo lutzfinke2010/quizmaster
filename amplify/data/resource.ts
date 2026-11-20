@@ -2,6 +2,16 @@ import { a, defineData, type ClientSchema } from "@aws-amplify/backend";
 import { gameApi } from "../functions/api/resource";
 import { subscriptionAuth } from "../functions/events/resource";
 
+const gamificationFields = () => ({
+  streak: a.integer(), maxStreak: a.integer(), badges: a.string().array(),
+});
+const roundOptions = () => ({
+  streakBonusEnabled: a.boolean(), immediateReveal: a.boolean(),
+});
+const streakScoreFields = () => ({
+  streakBonusPoints: a.integer(), streak: a.integer(), maxStreak: a.integer(),
+});
+
 const schema = a.schema({
   Answer: a.customType({ text: a.string().required(), correct: a.boolean().required() }),
   Question: a.customType({
@@ -36,11 +46,14 @@ const schema = a.schema({
   }),
   Player: a.customType({ participantId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required() }),
   RankedPlayer: a.customType({
+    ...gamificationFields(),
     participantId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(),
     points: a.integer().required(), correctAnswers: a.integer().required(), correctElapsedMs: a.float().required(), rank: a.integer().required(),
     previousRank: a.integer().required(), rankChange: a.integer().required(),
+    previousPoints: a.integer(),
   }),
   GameState: a.customType({
+    streakBonusEnabled: a.boolean(),
     sessionId: a.id().required(), status: a.string().required(), version: a.integer().required(), title: a.string().required(),
     joinCode: a.string(),
     questionId: a.id(), questionIndex: a.integer().required(), questionCount: a.integer().required(), participantCount: a.integer().required(),
@@ -53,6 +66,7 @@ const schema = a.schema({
   QuestionStart: a.customType({ timerId: a.id().required(), opensAt: a.float().required(), closesAt: a.float().required(), version: a.integer().required() }),
   Version: a.customType({ version: a.integer().required() }),
   MyResult: a.customType({
+    ...gamificationFields(), streakBonusPoints: a.integer(),
     questionId: a.id().required(), answered: a.boolean().required(), correct: a.boolean().required(),
     points: a.integer().required(), totalPoints: a.integer().required(), elapsedMs: a.float(),
   }),
@@ -61,6 +75,7 @@ const schema = a.schema({
     sessionId: a.id().required(), version: a.integer().required(), participantCount: a.integer(), answerCount: a.integer(),
   }),
   AsyncPublicInfo: a.customType({
+    ...roundOptions(),
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
@@ -81,18 +96,21 @@ const schema = a.schema({
     startedAt: a.float(),
   }),
   AsyncGuestAnswer: a.customType({
+    ...streakScoreFields(),
     questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
     correct: a.boolean(), correctChoiceId: a.id(), explanation: a.string(),
     questionText: a.string(), selectedText: a.string(), correctText: a.string(),
     points: a.integer(), basePoints: a.integer(), bonusPoints: a.integer(), elapsedMs: a.float(),
   }),
   AsyncOwnQuestionResult: a.customType({
+    ...streakScoreFields(),
     questionIndex: a.integer().required(), questionText: a.string().required(), answered: a.boolean().required(),
     selectedText: a.string(), correctText: a.string(), correct: a.boolean(), explanation: a.string(),
     acceptedAt: a.float(),
     points: a.integer(), basePoints: a.integer(), bonusPoints: a.integer(), elapsedMs: a.float(),
   }),
   AsyncGuestState: a.customType({
+    ...roundOptions(), ...gamificationFields(), rank: a.integer(),
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
     expiresAt: a.float().required(), timeZone: a.string().required(), status: a.string().required(),
     retentionAt: a.float().required(), endedAt: a.float(), maxParticipants: a.integer().required(),
@@ -106,6 +124,7 @@ const schema = a.schema({
     bonusWindowMs: a.integer().required(),
   }),
   AsyncAnswerReceipt: a.customType({
+    state: a.ref("AsyncGuestState"),
     acceptedAt: a.float().required(), answeredCount: a.integer().required(), questionIndex: a.integer().required(),
     attemptStatus: a.string().required(), status: a.string().required(), nextQuestionIndex: a.integer().required(),
     question: a.ref("AsyncQuestion"), serverTime: a.float().required(),
@@ -118,17 +137,20 @@ const schema = a.schema({
     completedCount: a.integer().required(), partialCount: a.integer().required(),
   }),
   AsyncPlayerAnswer: a.customType({
+    ...streakScoreFields(),
     questionIndex: a.integer().required(), choiceId: a.id().required(), acceptedAt: a.float().required(),
     correct: a.boolean().required(),
     points: a.integer().required(), basePoints: a.integer().required(), bonusPoints: a.integer().required(), elapsedMs: a.float(),
   }),
   AsyncParticipantResult: a.customType({
+    ...gamificationFields(),
     attemptId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
     completedAt: a.float(), answeredCount: a.integer().required(), questionCount: a.integer().required(),
     status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
     answers: a.ref("AsyncPlayerAnswer").array().required(),
   }),
   AsyncStandingParticipant: a.customType({
+    ...gamificationFields(),
     attemptId: a.id().required(), displayName: a.string().required(), avatarId: a.string().required(), startedAt: a.float().required(),
     completedAt: a.float(), answeredCount: a.integer().required(), questionCount: a.integer().required(),
     status: a.string().required(), points: a.integer().required(), rank: a.integer().required(),
@@ -142,6 +164,7 @@ const schema = a.schema({
     answeredCount: a.integer().required(),
   }),
   AsyncPublicationResults: a.customType({
+    ...roundOptions(),
     publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(),
     createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
     status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
@@ -154,6 +177,7 @@ const schema = a.schema({
     bonusWindowMs: a.integer().required(),
   }),
   AsyncStandings: a.customType({
+    ...roundOptions(),
     publicationId: a.id().required(), quizId: a.id().required(), title: a.string().required(),
     createdAt: a.float().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
     status: a.string().required(), retentionAt: a.float().required(), endedAt: a.float(),
@@ -181,7 +205,7 @@ const schema = a.schema({
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   getSession: a.query().arguments({ sessionId: a.id().required() }).returns(a.ref("SessionSummary"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
-  createSession: a.mutation().arguments({ quizId: a.id().required() }).returns(a.ref("SessionCreated"))
+  createSession: a.mutation().arguments({ quizId: a.id().required(), streakBonusEnabled: a.boolean() }).returns(a.ref("SessionCreated"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   listSessionQuestions: a.query().arguments({ sessionId: a.id().required() }).returns(a.ref("QuestionReference").array())
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
@@ -230,6 +254,7 @@ const schema = a.schema({
     .authorization((allow) => [allow.guest(), allow.authenticated("identityPool"), allow.group("Quizmasters")]),
 
   publishAsyncQuiz: a.mutation().arguments({
+    ...roundOptions(),
     quizId: a.id().required(), requestId: a.id().required(), expiresAt: a.float().required(), timeZone: a.string().required(),
   }).returns(a.ref("AsyncPublishReceipt"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),

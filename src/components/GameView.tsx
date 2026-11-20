@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Check, CheckCircle2, Clock3, Sparkles, Trophy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import avatars from "../domain/avatars.json";
 import type { GameState, MyResult, Participation } from "../cloud";
-import { AnswerCelebration } from "./AnswerCelebration";
+import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward } from "./Gamification";
+import { STREAK_RULE_TEXT } from "../domain/gamification";
 import { answerColumns, useQuestionFocus } from "./QuestionLayout";
 import "./game.css";
 
@@ -15,7 +17,8 @@ export const phaseLabels: Record<string, string> = {
 
 const avatarById = new Map(avatars.avatars.map((avatar) => [avatar.id, avatar]));
 type RankedPlayer = GameState["leaderboard"][number];
-type RankingPlayer = Pick<RankedPlayer, "participantId" | "avatarId" | "displayName" | "points" | "rank"> & { detail?: string };
+type RankingPlayer = Pick<RankedPlayer, "participantId" | "avatarId" | "displayName" | "points" | "rank"> &
+  Partial<Pick<RankedPlayer, "streak" | "badges" | "rankChange" | "previousRank" | "previousPoints">> & { detail?: string };
 export type PersonalStanding = { questionIndex: number; player: RankedPlayer };
 const number = (value: number) => value.toLocaleString("de-DE");
 
@@ -36,10 +39,10 @@ export function Avatar({ avatarId }: { avatarId: string }) {
 
 export function Timer({ deadline, offset, now, compact = false }: { deadline: number; offset: number; now: number; compact?: boolean }) {
   const seconds = Math.max(0, Math.ceil((deadline - now - offset) / 1000));
-  if (compact) return <span className="timer-pill" role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
+  if (compact) return <span className={`timer-pill${seconds > 0 && seconds <= 3 ? " timer-urgent" : ""}`} role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
     <Clock3 size={15} aria-hidden="true" />{seconds} s</span>;
-  return <span className="timer" role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
-    {seconds}<small>Sekunden</small></span>;
+  return <span className={`timer${seconds > 0 && seconds <= 3 ? " timer-urgent" : ""}`} role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
+    <span key={seconds} className="timer-digit">{seconds}</span><small>Sekunden</small></span>;
 }
 
 export function JoinDetails({ code }: { code: string }) {
@@ -67,33 +70,50 @@ function RankChange({ player, questionIndex }: { player: RankedPlayer; questionI
     change < 0 ? `↓ ${-change} ${change === -1 ? "Platz" : "Plätze"} zurück` : "↔ Platz gehalten"}</span>;
 }
 
-export function Podium({ players, final = true, formatPoints = number }: {
-  players: RankingPlayer[]; final?: boolean; formatPoints?: (points: number) => string;
+export function Podium({ players, final = true, formatPoints = number, animateChanges = false }: {
+  players: RankingPlayer[]; final?: boolean; formatPoints?: (points: number) => string; animateChanges?: boolean;
 }) {
   const top = players.slice(0, 3);
+  const reduced = useReducedMotion();
   const podium = top.length > 1 ? [top[1], top[0], ...top.slice(2)] : top;
-  return <div className="podium" aria-label={final ? "Siegerpodest" : "Führende der Runde"}>
-    {podium.map((player) => <div className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
-      <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span>{formatPoints(player.points)} Punkte</span>
+  return <div className={`podium${final ? " podium-final" : ""}`} aria-label={final ? "Siegerpodest" : "Führende der Runde"}>
+    {podium.map((player) => <motion.div layout={reduced ? false : "position"} initial={reduced ? false : { opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .45, delay: reduced ? 0 : player.rank === 1 ? .35 : player.rank === 2 ? .15 : 0 }}
+      className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
+      {player.rank === 1 && <Trophy className="podium-crown" size={28} aria-hidden="true" />}
+      <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span><AnimatedPoints value={player.points}
+        from={animateChanges ? player.previousPoints ?? player.points : player.points} format={formatPoints} /> Punkte</span>
+      {(player.streak ?? 0) >= 3 && <small className="podium-streak"><FlameIcon />{player.streak} in Folge</small>}
       {player.detail && <small className="podium-detail">{player.detail}</small>}
       <div className="pedestal"><span className="sr-only">Platz </span>{player.rank}</div>
-    </div>)}
+    </motion.div>)}
   </div>;
 }
 
-export function Leaderboard({ players, participantId, label = "Weitere Plätze", formatPoints = number }: {
-  players: RankingPlayer[]; participantId?: string; label?: string; formatPoints?: (points: number) => string;
+function FlameIcon() { return <span aria-hidden="true">🔥</span>; }
+
+export function Leaderboard({ players, participantId, label = "Weitere Plätze", formatPoints = number, animateChanges = false }: {
+  players: RankingPlayer[]; participantId?: string; label?: string; formatPoints?: (points: number) => string; animateChanges?: boolean;
 }) {
+  const reduced = useReducedMotion();
   return <ol className="leaderboard" aria-label={label}>
-    {players.map((player) => <li key={player.participantId} className={player.participantId === participantId ? "is-you" : undefined}>
-      <span className="rank-number" aria-label={`Platz ${player.rank}`}>{player.rank}</span>
+    {players.map((player, index) => <motion.li layout={reduced ? false : "position"}
+      initial={reduced ? false : { opacity: 0, x: -12,
+        y: animateChanges && (player.previousRank ?? 0) > 0 ? Math.max(-100, Math.min(100, ((player.previousRank ?? player.rank) - player.rank) * 50)) : 0 }}
+      animate={{ opacity: 1, x: 0, y: 0 }} transition={{ duration: reduced ? 0 : .35, delay: reduced ? 0 : Math.min(index, 5) * .06 }}
+      key={player.participantId} className={player.participantId === participantId ? "is-you" : undefined}>
+      <span className={`rank-number${animateChanges && (player.rankChange ?? 0) > 0 ? " rank-gained" : ""}`}
+        aria-label={`Platz ${player.rank}${animateChanges && (player.rankChange ?? 0) > 0 ? `, ${player.rankChange} Plätze gutgemacht` : ""}`}>{player.rank}</span>
       <Avatar avatarId={player.avatarId} /><span className="rank-name">{player.displayName}{player.participantId === participantId && " (du)"}</span>
-      <strong>{formatPoints(player.points)} <span>Punkte</span></strong>
-    </li>)}
+      <strong><AnimatedPoints value={player.points} from={animateChanges ? player.previousPoints ?? player.points : player.points}
+        format={formatPoints} /> <span>Punkte</span></strong>
+    </motion.li>)}
   </ol>;
 }
 
-function Ranking({ state, participant, personal }: { state: GameState; participant?: Participation | null; personal: boolean }) {
+function Ranking({ state, participant, personal, celebrate }: {
+  state: GameState; participant?: Participation | null; personal: boolean; celebrate: boolean;
+}) {
   const final = state.status === "FINISHED";
   const ownIndex = state.leaderboard.findIndex((player) => player.participantId === participant?.participantId);
   const own = state.leaderboard[ownIndex];
@@ -103,18 +123,25 @@ function Ranking({ state, participant, personal }: { state: GameState; participa
   return <section className="ranking-phase" aria-labelledby="ranking-title">
     <span className="eyebrow">{final ? "DAS WAR EURE RUNDE" : `ZWISCHENSTAND · NACH FRAGE ${state.questionIndex + 1}`}</span>
     <h1 id="ranking-title">{final ? "Endstand" : "Zwischenstand"}</h1>
+    {final && state.leaderboard.length > 0 && <Finale winner={personal && own?.rank === 1} />}
     {personal ? own ? <div className="personal-ranking">
       <div className="result-sticker" aria-hidden="true"><Trophy size={32} /></div>
       <h2><span className="sr-only">Dein {final ? "Endstand" : "Zwischenstand"}: </span>Platz {own.rank}</h2>
-      <div className="points">{number(own.points)}</div><p>Punkte insgesamt</p>
+      <div className="points"><AnimatedPoints value={own.points} from={celebrate ? own.previousPoints ?? own.points : own.points} /></div><p>Punkte insgesamt</p>
       {final && <p>{own.correctAnswers} von {state.questionCount} Fragen richtig beantwortet</p>}
       <RankChange player={own} questionIndex={state.questionIndex} />
+      {state.questionIndex > 0 && own.previousRank > 0 && <RankRise change={own.rankChange}
+        eventId={`${state.sessionId}:${own.participantId}:rank:${state.questionIndex}`} celebrate={celebrate} />}
+      <Achievements streak={own.streak} maxStreak={own.maxStreak} badges={own.badges} />
     </div> : <p role="status">Deine Platzierung ist noch nicht verfügbar.</p> : <>
       <p className="ranking-intro">{final ? "Zusammen gerätselt. Gemeinsam gefeiert." : "Da geht noch was."}</p>
-      <Podium players={state.leaderboard} final={final} />
+      {!final && state.questionIndex > 0 && (state.leaderboard[0]?.previousRank ?? 0) > 1 && celebrate &&
+        <RankRise change={state.leaderboard[0].rankChange} eventId={`${state.sessionId}:leader:${state.questionIndex}`} celebrate />}
+      <Podium players={state.leaderboard} final={final} animateChanges={celebrate && state.questionIndex > 0} />
     </>}
     {state.leaderboard.length === 0 ? <p>Noch keine Teilnehmenden.</p> : rows.length > 0 &&
-      <Leaderboard players={rows} participantId={participant?.participantId} label={personal ? "Deine benachbarten Plätze" : "Weitere Plätze"} />}
+      <Leaderboard players={rows} participantId={participant?.participantId} animateChanges={celebrate && state.questionIndex > 0}
+        label={personal ? "Deine benachbarten Plätze" : "Weitere Plätze"} />}
     {!personal && state.leaderboard.length > 8 && <p className="hint ranking-count">
       Die ersten 8 von {state.leaderboard.length} Teilnehmenden · Deine Position siehst du auf deinem Handy.</p>}
     {!final && <p className="game-hint">Die nächste Frage startet der Quizmaster.</p>}
@@ -152,8 +179,8 @@ function QuestionAnswers({ state, compact = false, ...tiles }: {
   return <AnswerTiles answers={answers} columns={compact && state.question ? answerColumns(answers) : undefined} {...tiles} />;
 }
 
-function Reveal({ state, result, personal, selected }: {
-  state: GameState; result?: MyResult | null; personal: boolean; selected?: string | null;
+function Reveal({ state, result, personal, selected, celebrate, eventScope }: {
+  state: GameState; result?: MyResult | null; personal: boolean; selected?: string | null; celebrate: boolean; eventScope: string;
 }) {
   const reveal = state.reveal;
   const question = state.question;
@@ -165,13 +192,16 @@ function Reveal({ state, result, personal, selected }: {
     <span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount} · AUFLÖSUNG</span>
     <h1 id="reveal-title">Auflösung</h1>
     {personal && (result ? <div className="personal-result">
-      {result.answered && result.correct && <AnswerCelebration key={result.questionId} />}
       <div className={`result-sticker${result.correct ? "" : " result-sticker-peach"}`} aria-hidden="true">
         {result.correct ? <Sparkles size={34} /> : <Clock3 size={34} />}</div>
       <h2 className="result-message" role="status">{!result.answered ? "Zeit abgelaufen · Keine Antwort" :
         result.correct ? "Richtig!" : "Leider daneben"}</h2>
-      <div className="points">+ {number(result.points)}</div><p>Punkte für diese Frage</p>
-      <p className="result-total"><strong>{number(result.totalPoints)} Punkte</strong> insgesamt</p>
+      <ScoreAward key={result.questionId} points={result.points} extra={result.streakBonusPoints}
+        streak={result.streak} badges={result.badges} celebrate={celebrate}
+        eventId={`${eventScope}:points:${result.questionId}`} />
+      <p className="result-total"><strong><AnimatedPoints value={result.totalPoints}
+        from={celebrate ? result.totalPoints - result.points : result.totalPoints} /> Punkte</strong> insgesamt</p>
+      <Achievements streak={result.streak} maxStreak={result.maxStreak} badges={result.badges} />
       {result.answered && result.elapsedMs != null &&
         <p className="result-time">Geantwortet in {(result.elapsedMs / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} Sekunden</p>}
     </div> : <p role="status">Dein Ergebnis wird geladen …</p>)}
@@ -204,6 +234,9 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
   standing?: PersonalStanding | null; joinCode?: string; presentation?: boolean;
 }) {
   const phase = state.status;
+  const [initial] = useState(() => ({ phase, questionId: state.questionId }));
+  const celebrate = !["REVEAL", "LEADERBOARD", "FINISHED"].includes(initial.phase) ||
+    initial.questionId !== state.questionId;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     setNow(Date.now());
@@ -237,12 +270,13 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
         <h1>{personal ? "Du bist dabei." : "Ein Platz für dein Aha."}</h1>
         <p>Die Runde beginnt, sobald der Quizmaster startet.</p>
         {!personal && (joinCode || state.joinCode) && <JoinDetails code={(joinCode || state.joinCode)!} />}
-        <p className="lobby-count"><strong>{state.participantCount}</strong> Teilnehmende</p>
+        <p className="lobby-count"><strong><AnimatedPoints value={state.participantCount} /></strong> Teilnehmende</p>
         {state.participants.length > 0 ? <div className="players">
           {state.participants.slice(0, personal ? 6 : 12).map((player) => <div className="player-tag" key={player.participantId}>
             <Avatar avatarId={player.avatarId} /><span>{player.displayName}</span></div>)}
           {state.participantCount > (personal ? 6 : 12) && <span className="more-players">+ {state.participantCount - (personal ? 6 : 12)} weitere</span>}
         </div> : !personal && <p>Noch niemand dabei. Teile den Spielcode!</p>}
+        <p className="game-hint">{state.streakBonusEnabled ? STREAK_RULE_TEXT : "Sammle richtige Antworten, Serien und Abzeichen. Streak-Bonuspunkte sind in dieser Runde aus."}</p>
       </section>}
       {phase === "COUNTDOWN" && <section className="countdown-phase">
         <span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
@@ -292,8 +326,9 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
           <p>{state.title} · {state.participantCount} Teilnehmende</p>
         </details>
       </section>}
-      {phase === "REVEAL" && <Reveal state={state} result={result} personal={personal} selected={selected} />}
-      {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal} />}
+      {phase === "REVEAL" && <Reveal state={state} result={result} personal={personal} selected={selected} celebrate={celebrate}
+        eventScope={`${state.sessionId}:${participant?.participantId ?? "presentation"}`} />}
+      {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal} celebrate={celebrate} />}
       {phase === "CANCELLED" && <section className="countdown-phase"><h1>Runde abgebrochen</h1><p>Diese Sitzung wurde vom Quizmaster beendet.</p></section>}
     </div>
     {phase !== "LOBBY" && !compactQuestion && <p className="game-footnote">{state.participantCount} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>}

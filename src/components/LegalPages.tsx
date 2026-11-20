@@ -82,7 +82,7 @@ export function PrivacyPolicyPage() {
       <ul>
         <li>eine anonyme technische Kennung (Cognito-Identität) und eine Teilnahme-Kennung,</li>
         <li>Spielname und Avatar (Pseudonym; andere können dich im Spielkontext dennoch erkennen),</li>
-        <li>deine Antworten, Antwortzeiten, Punkte und Platzierung,</li>
+        <li>deine Antworten, Antwortzeiten, Punkte, Platzierung und richtige Antwortserien; daraus abgeleitete Spielabzeichen,</li>
         <li>technische Beitrittsdaten wie Zeitpunkt und Sitzung.</li>
       </ul>
       <p>Spielname, Avatar, Punkte und Platzierung sind für die anderen Teilnehmenden, den Quizmaster und eine Präsentationsansicht sichtbar.

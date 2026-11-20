@@ -8,7 +8,7 @@ const cloudFacts: Fact[] = [
   { label: "Ohne Klarnamen", text: "Zum Mitspielen brauchst du kein Konto, keinen Namen und keine E-Mail-Adresse. Spielname und Avatar werden automatisch vergeben." },
   { label: "Für die Runde gespeichert", text: "Eine technische Teilnahme-Kennung, Spielname und Avatar werden vergeben. Quizantworten und Ergebnisse sind nur für den Quizmaster und den jeweiligen Gast sichtbar." },
   { label: "Live-Aufbewahrung", text: `Live-Sitzungsdaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht. Die technische Löschung kann zeitversetzt erfolgen.` },
-  { label: "Quiz zum Mitmachen", text: `Ergebnisse bleiben bis ${legal.asyncResultsRetentionDays} Tage nach Rundenende gespeichert. Vor Ende sehen Gäste keine Lösungen oder Punkte; danach nur ihr eigenes Ergebnis.` },
+  { label: "Quiz zum Mitmachen", text: `Ergebnisse bleiben bis ${legal.asyncResultsRetentionDays} Tage nach Rundenende gespeichert. Je nach Rundenregel sehen Gäste ihre eigenen Lösungen, Punkte, Serien und Abzeichen sofort nach einer Antwort oder erst nach Rundenende. Unbeantwortete Fragen werden während der Runde nicht aufgelöst.` },
   { label: "Sichtbar im Live-Quiz", text: "Spielname, Avatar, Punkte und Platzierung sind für andere Teilnehmende, Quizmaster und Präsentationsansicht sichtbar." },
   { label: "Selbst löschen", text: "Im Spiel kannst du deine Teilnahme selbst löschen, sobald keine Frage läuft. Antworten und Ergebnisse werden dabei entfernt." },
   { label: "Technik", text: "Für Cloud-Funktionen wird eine technische Gast-Kennung benötigt. Sie verfällt standardmäßig nach 24 Stunden; bei einem gestarteten Quiz zum Mitmachen bleibt sie bis zum Ende der Ergebnis-Aufbewahrung erhalten, damit du fortsetzen kannst." },
@@ -60,7 +60,7 @@ export function PrivacySection({ localMode = false }: { localMode?: boolean }) {
     { icon: Trash2, title: "Liegt in deiner Hand", text: "Entwürfe einzeln oder alle in der Übersicht löschen; Ausschalten löscht nichts." },
   ] : [
     { icon: UserRoundX, title: "Brauchst du nicht", text: "Konto, Klarnamen, E-Mail-Adresse oder Passwort. Spielname und Avatar würfeln wir dir zu." },
-    { icon: Database, title: "Speichern wir für die Runde", text: "Technische Kennung, Spielname, Avatar, deine Antworten, Antwortzeiten und Punkte." },
+    { icon: Database, title: "Speichern wir für die Runde", text: "Technische Kennung, Spielname, Avatar, deine Antworten, Antwortzeiten und Punkte sowie Serien. Daraus entstehen deine Abzeichen." },
     { icon: Hourglass, title: "Bleibt nicht für immer", text: `Spieldaten werden spätestens ${legal.sessionRetentionDays} Tage nach Erstellung der Sitzung gelöscht – technisch manchmal etwas zeitversetzt.` },
   ];
   return <section id="datenschutz" className="privacy-section" aria-labelledby="privacy-heading" tabIndex={-1}>

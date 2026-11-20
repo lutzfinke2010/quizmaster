@@ -7,8 +7,9 @@ import { requireQuizmaster } from "./adminPrincipal";
 import { QuizStore } from "./quizStore";
 import { withTransactionConflictRetry } from "./transactionRetry";
 import { JOIN_CODE_FREE_CONDITION, joinCodeKey, reserveJoinCode } from "./joinCode";
+import { GAMIFICATION_VERSION } from "../domain/gamification";
 
-const requestSchema = z.object({ quizId: z.string().uuid() }).strict();
+const requestSchema = z.object({ quizId: z.string().uuid(), streakBonusEnabled: z.boolean().optional() }).strict();
 const settingsSchema = z.object({
   maxParticipants: z.number().int().min(1).max(1000).default(100),
   retentionDays: z.number().int().min(1).max(365).default(7),
@@ -53,6 +54,7 @@ export async function createSession(
         Item: { ...metaKey, ownerId, quizId: request.quizId, title: quiz.title, description: quiz.description,
           status: "PREPARING", version: 0, questionIndex: -1, questionCount: quiz.questions.length,
           participantCount: 0, maxParticipants: settings.maxParticipants, joinCode: candidate, createdAt: now,
+          gamificationVersion: GAMIFICATION_VERSION, streakBonusEnabled: request.streakBonusEnabled ?? false,
           presentationTokenHash, expiresAt, ttl },
         ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
       } },

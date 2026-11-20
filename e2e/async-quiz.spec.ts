@@ -8,6 +8,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function mockAsync(page: Page, options: {
   questions?: Array<{ text: string; answers: string[] }>; legacy?: boolean;
   status?: "ACTIVE" | "ENDED" | "EXPIRED"; scores?: number[]; pageSize?: number; names?: string[]; title?: string;
+  immediateReveal?: boolean; streakBonusEnabled?: boolean;
 } = {}) {
   const questions = options.questions ?? [
     { text: "Welcher Planet ist für seine auffälligen Ringe bekannt und mit bloßem Auge am Nachthimmel zu sehen?", answers: ["Mars", "Saturn", "Venus", "Merkur"] },
@@ -22,6 +23,8 @@ async function mockAsync(page: Page, options: {
     body: `
       const QUESTIONS = ${JSON.stringify(questions)};
       const LEGACY = ${options.legacy ? "true" : "false"};
+      const IMMEDIATE = ${options.immediateReveal ? "true" : "false"};
+      const STREAK_BONUS = ${options.streakBonusEnabled ? "true" : "false"};
       const scoring = LEGACY ? { scoringVersion: "LEGACY_CORRECT", basePoints: 1, maxBonusPoints: 0, bonusWindowMs: 0 }
         : { scoringVersion: "ASYNC_SPEED_V1", basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30000 };
       const expiresAt = Date.now() + 7 * 86400000;
@@ -30,15 +33,26 @@ async function mockAsync(page: Page, options: {
       const question = (index, startedAt) => index < QUESTIONS.length ? { questionIndex: index, text: QUESTIONS[index].text, startedAt,
         answers: QUESTIONS[index].answers.map((text, i) => ({ id: "c" + i, text })) } : null;
       const base = { title: "Feierabend-Quiz", description: "Drei kurze Fragen.", questionCount: QUESTIONS.length, expiresAt,
-        timeZone: "Europe/Berlin", status: "ACTIVE", retentionAt: expiresAt + 30 * 86400000, endedAt: null, maxParticipants: 250, ...scoring };
+        timeZone: "Europe/Berlin", status: "ACTIVE", retentionAt: expiresAt + 30 * 86400000, endedAt: null, maxParticipants: 250,
+        immediateReveal: IMMEDIATE, streakBonusEnabled: STREAK_BONUS, ...scoring };
       function guest(attempt) {
         return { ...base, displayName: "Flinker Fuchs", avatarId: "avatar-001", startedAt: attempt.startedAt, completedAt: null,
           attemptStatus: attempt.answered >= QUESTIONS.length ? "COMPLETED" : "IN_PROGRESS", answeredCount: attempt.answered,
           nextQuestionIndex: attempt.answered < QUESTIONS.length ? attempt.answered : null,
           question: LEGACY ? question(attempt.answered, null)
             : attempt.openedIndex === attempt.answered ? question(attempt.answered, attempt.questionStart) : null,
-          points: null, serverTime: Date.now(),
-          answers: attempt.answers, results: [] };
+          points: IMMEDIATE ? attempt.answers.reduce((sum, answer) => sum + answer.points, 0) : null, serverTime: Date.now(),
+          rank: IMMEDIATE && attempt.answered > 0 ? attempt.answered >= 2 ? 1 : 3 : null,
+          streak: IMMEDIATE ? attempt.answers.at(-1)?.streak || 0 : null,
+          maxStreak: IMMEDIATE ? Math.max(0, ...attempt.answers.map((answer) => answer.streak || 0)) : null,
+          badges: IMMEDIATE ? [
+            ...(attempt.answers.some((answer) => answer.correct) ? ["FIRST_CORRECT"] : []),
+            ...(attempt.answers.some((answer) => answer.streak >= 3) ? ["STREAK_3"] : []),
+            ...(attempt.answered === QUESTIONS.length && attempt.answers.every((answer) => answer.correct) ? ["PERFECT"] : [])
+          ] : [],
+          answers: attempt.answers, results: IMMEDIATE ? attempt.answers.map((answer) => ({
+            ...answer, answered: true, questionText: QUESTIONS[answer.questionIndex].text
+          })) : [] };
       }
       function resultSnapshot(publicationId) {
         const status = sessionStorage.getItem("async-status") || ${JSON.stringify(options.status ?? "ACTIVE")};
@@ -81,6 +95,17 @@ async function mockAsync(page: Page, options: {
       export async function configureCloud() { return true; }
       export const client = {};
       const impl = {
+        getQuiz: async (quizId) => ({ quizId, version: 1, updatedAt: Date.now(), quiz: {
+          title: "Feierabend-Quiz", description: "", questions: QUESTIONS.map((item) => ({
+            text: item.text, durationSeconds: 20, explanation: "",
+            answers: item.answers.map((text, index) => ({ text, correct: index === 1 })),
+          })),
+        } }),
+        publishAsyncQuiz: async (quizId, requestId, endsAt, timeZone, streakBonusEnabled, immediateReveal) => {
+          sessionStorage.setItem("published-options", JSON.stringify({ streakBonusEnabled, immediateReveal }));
+          return { publicationId: "p1", token: "quiz-token", joinCode: "123456",
+            expiresAt: endsAt, timeZone, retentionDays: 30, maxParticipants: 250 };
+        },
         listQuizzes: async () => [],
         listSessions: async () => [],
         listAsyncPublications: async () => [],
@@ -106,14 +131,26 @@ async function mockAsync(page: Page, options: {
             throw new Error("Quizfortschritt hat sich geändert.");
           }
           const acceptedAt = Date.now();
-          attempt.answers.push({ questionIndex, choiceId, acceptedAt });
+          const correct = choiceId === (questionIndex === 2 ? "c0" : "c1");
+          const streak = correct ? (attempt.answers.at(-1)?.streak || 0) + 1 : 0;
+          const extra = STREAK_BONUS && streak >= 3 ? streak === 3 ? 100 : streak === 4 ? 150 : 200 : 0;
+          attempt.answers.push({ questionIndex, choiceId, acceptedAt, ...(IMMEDIATE ? {
+            correct, streak, points: correct ? 1500 + extra : 0, basePoints: correct ? 1000 : 0,
+            bonusPoints: correct ? 500 : 0, streakBonusPoints: extra,
+            correctText: QUESTIONS[questionIndex].answers[questionIndex === 2 ? 0 : 1],
+            selectedText: QUESTIONS[questionIndex].answers[Number(choiceId.slice(1))], explanation: "Die bestätigte Lösung."
+          } : {}) });
           attempt.answered += 1;
           save(attempt);
           sessionStorage.setItem("submits", String(Number(sessionStorage.getItem("submits") || "0") + 1));
           const done = attempt.answered >= QUESTIONS.length;
+          if (sessionStorage.getItem("lose-confirmation")) {
+            sessionStorage.removeItem("lose-confirmation");
+            throw new Error("Bestätigung verloren.");
+          }
           return { acceptedAt, answeredCount: attempt.answered, questionIndex, attemptStatus: done ? "COMPLETED" : "IN_PROGRESS",
             status: "ACTIVE", nextQuestionIndex: done ? null : attempt.answered, question: LEGACY ? question(attempt.answered, null) : null,
-            serverTime: Date.now() };
+            serverTime: Date.now(), state: IMMEDIATE ? guest(attempt) : null };
         },
         asyncStandings: async (publicationId) => {
           sessionStorage.setItem("async-standings-requests", String(Number(sessionStorage.getItem("async-standings-requests") || "0") + 1));
@@ -327,6 +364,10 @@ for (const width of [320, 1440]) {
     ] });
     await page.goto("/admin/async/p1");
     await expect(page.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1", "Platz 3"]);
+    await expect.poll(() => page.locator(".pedestal").evaluateAll((items) => {
+      const bottoms = items.map((item) => item.getBoundingClientRect().bottom);
+      return Math.max(...bottoms) - Math.min(...bottoms);
+    })).toBeLessThan(.005);
     const steps = await page.locator(".pedestal").evaluateAll((items) => items.map((item) => ({
       height: item.getBoundingClientRect().height, bottom: item.getBoundingClientRect().bottom,
     })));
@@ -409,6 +450,8 @@ test("Drei Teilnehmende stehen in der Podestreihenfolge 2–1–3", async ({ pag
   await mockAsync(page, { status: "ENDED", scores: [4401, 1319, 0] });
   await page.goto("/admin/async/p1");
   await expect(page.locator(".pedestal")).toHaveText(["Platz 2", "Platz 1", "Platz 3"]);
+  await expect.poll(() => page.locator(".podium-player").evaluateAll((elements) =>
+    elements.every((element) => getComputedStyle(element).transform === "none"))).toBe(true);
   const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
   expect(heights).toEqual([85, 125, 62]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
@@ -872,4 +915,70 @@ test("Eine abgelehnte Fullscreen-Anfrage erhält die bildschirmfüllende Präsen
   await expect(stage.locator(".podium-player")).toHaveCount(3);
   await stage.getByRole("button", { name: "Zur Adminansicht" }).click();
   await expect(stage).toBeHidden();
+});
+
+test("Gamification: sofortige Auflösung, Rangaufstieg, Streak-Bonus und letzte Antwort bleiben getrennt vom Weiter-Schritt", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockAsync(page, { immediateReveal: true, streakBonusEnabled: true });
+  await page.goto("/q/quiz-token");
+  await page.getByRole("button", { name: "Quiz starten", exact: true }).click();
+  await page.getByRole("button", { name: /B.*Saturn/ }).click();
+  await expect(page.getByRole("heading", { name: "Richtig!", exact: true })).toBeVisible();
+  await expect(page.locator(".score-award .animated-points")).toHaveAttribute("aria-label", "1.500");
+  await expect(page.locator(".answer-confetti")).toHaveCount(1);
+  await expect(page.locator(".async-pause")).toContainText("Saturn");
+  await expect(page.locator(".answer-grid")).toHaveCount(0);
+  await page.getByRole("button", { name: /Weiter zu Frage 2/ }).click();
+  await page.getByRole("button", { name: /B.*Acht/ }).click();
+  await expect(page.locator(".rank-rise")).toContainText("2 Plätze gutgemacht");
+  await page.getByRole("button", { name: /Weiter zu Frage 3/ }).click();
+  await page.getByRole("button", { name: /A.*Grün/ }).click();
+  await expect(page.locator(".streak-bonus")).toContainText("+100");
+  await expect(page.locator(".achievement-badges")).toContainText("Dreier-Serie");
+  await expect(page.locator(".result-total .animated-points")).toHaveAttribute("aria-label", "4.600");
+  await expect(page.getByRole("button", { name: "Zum persönlichen Abschluss" })).toBeVisible();
+  await expect(page.locator(".question-phase")).toHaveCount(0);
+  await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
+  await expect(page.locator(".finale-banner")).toContainText("Geschafft");
+  await expect(page.locator(".async-own-results li")).toHaveCount(3);
+  await expect(page.locator(".achievement-badges")).toContainText("Perfekte Runde");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test("Gamification: verlorene Bestätigung stellt die Sofortauflösung wieder her, Reduced Motion zeigt echte Punkte ohne Partikel", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockAsync(page, { immediateReveal: true, streakBonusEnabled: true });
+  await page.goto("/q/quiz-token");
+  await page.getByRole("button", { name: "Quiz starten", exact: true }).click();
+  await page.evaluate(() => sessionStorage.setItem("lose-confirmation", "1"));
+  await page.getByRole("button", { name: /B.*Saturn/ }).click();
+  await expect(page.getByRole("heading", { name: "Richtig!", exact: true })).toBeVisible();
+  await expect(page.locator(".score-award .animated-points")).toHaveText("1.500");
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".score-award .animated-points")).toHaveText("1.500");
+  await expect(page.locator(".points-pop")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("submits"))).toBe("1");
+});
+
+test("Gamification: Veröffentlichungsoptionen haben unabhängige Defaults und werden an den Server übergeben", async ({ page }) => {
+  await mockAsync(page);
+  await page.goto("/admin/quizzes/quiz1/publish");
+  const bonus = page.getByRole("checkbox", { name: "Streak-Bonuspunkte aktivieren" });
+  const immediate = page.getByRole("checkbox", { name: "Sofortige Auflösung" });
+  await expect(bonus).not.toBeChecked();
+  await expect(immediate).toBeChecked();
+  await bonus.check();
+  await immediate.uncheck();
+  await expect(page.getByText("Lösungen, Punkte, Serien und Abzeichen bleiben bis zum Rundenende verborgen.", { exact: true })).toBeVisible();
+  const deadline = await page.evaluate(() => {
+    const date = new Date(Date.now() + 86400000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  });
+  await page.getByLabel("Mitspielen bis (Datum und Uhrzeit)").fill(deadline);
+  await page.getByRole("button", { name: "Quizrunde veröffentlichen", exact: true }).click();
+  await expect(page.getByText("Veröffentlicht", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("published-options")!)))
+    .toEqual({ streakBonusEnabled: true, immediateReveal: false });
 });

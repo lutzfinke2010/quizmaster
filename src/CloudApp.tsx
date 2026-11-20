@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
 import { ArrowRight, Check, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
@@ -25,6 +26,7 @@ import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/Questi
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { AsyncStandingsPresentation } from "./components/AsyncStandingsPresentation";
 import { ASYNC_DETAIL_PAGE_SIZE, matchesAsyncDetail, useAsyncParticipantDetails, useAsyncStandings } from "./hooks/useAsyncStandings";
+import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward, StreakBonusOption } from "./components/Gamification";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
 function toLocalInput(timestamp: number): string {
@@ -127,6 +129,7 @@ function ArchiveRow({ title, status, to, action, children }: { title: string; st
 }
 
 function Overview() {
+  const [bonusOptions, setBonusOptions] = useState<Record<string, boolean>>({});
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [asyncPublications, setAsyncPublications] = useState<AsyncPublicationSummary[]>([]);
@@ -172,8 +175,12 @@ function Overview() {
         <h2>{record.title}</h2><p>{record.description || "Ohne Beschreibung"}</p><div className="actions">
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}`}>Bearbeiten</Link>
           <button className="button small primary" disabled={busy} onClick={() => void run(async () => {
-            const session = await cloud.createSession(record.quizId); navigate(`/admin/sessions/${session.sessionId}`);
+            const session = await cloud.createSession(record.quizId, bonusOptions[record.quizId] ?? false); navigate(`/admin/sessions/${session.sessionId}`);
           })}>Live-Quiz starten</button>
+          <details className="live-start-options"><summary>Live-Spielregeln</summary>
+            <StreakBonusOption enabled={bonusOptions[record.quizId] ?? false} disabled={busy}
+              onChange={(enabled) => setBonusOptions((current) => ({ ...current, [record.quizId]: enabled }))} />
+          </details>
           <Link className="button small secondary" to={`/admin/quizzes/${record.quizId}/publish`}>Quizrunde veröffentlichen</Link>
           <button className="button small secondary" disabled={busy} onClick={() => void run(async () => { await cloud.duplicateQuiz(record.quizId); })}>Duplizieren</button>
           <ConfirmDialog title="Quiz löschen?" confirmLabel="Quiz löschen"
@@ -251,6 +258,8 @@ function EditorPage() {
 }
 
 function PublishAsyncPage() {
+  const [streakBonusEnabled, setStreakBonusEnabled] = useState(false);
+  const [immediateReveal, setImmediateReveal] = useState(true);
   const { quizId = "" } = useParams();
   const [record, setRecord] = useState<QuizRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -259,7 +268,7 @@ function PublishAsyncPage() {
   const [localDate, setLocalDate] = useState("");
   const [selectedInstant, setSelectedInstant] = useState("");
   const [publication, setPublication] = useState<Awaited<ReturnType<typeof cloud.publishAsyncQuiz>> | null>(null);
-  const requestId = useRef<{ expiresAt: number; timeZone: string; id: string } | null>(null);
+  const requestId = useRef<{ expiresAt: number; timeZone: string; id: string; streakBonusEnabled: boolean; immediateReveal: boolean } | null>(null);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const instants = useMemo(() => localDate ? possibleInstants(localDate, timeZone) : [], [localDate, timeZone]);
   const [bounds] = useState(() => ({ min: toLocalInput(Date.now()), max: toLocalInput(Date.now() + ASYNC_MAX_DURATION_MS) }));
@@ -281,12 +290,13 @@ function PublishAsyncPage() {
     if (expiresAt > Date.now() + ASYNC_MAX_DURATION_MS) {
       setError(`Das Ende darf höchstens ${ASYNC_MAX_DURATION_DAYS} Tage in der Zukunft liegen.`); return;
     }
-    if (!requestId.current || requestId.current.expiresAt !== expiresAt || requestId.current.timeZone !== timeZone) {
-      requestId.current = { expiresAt, timeZone, id: crypto.randomUUID() };
+    if (!requestId.current || requestId.current.expiresAt !== expiresAt || requestId.current.timeZone !== timeZone ||
+        requestId.current.streakBonusEnabled !== streakBonusEnabled || requestId.current.immediateReveal !== immediateReveal) {
+      requestId.current = { expiresAt, timeZone, id: crypto.randomUUID(), streakBonusEnabled, immediateReveal };
     }
     setBusy(true); setError("");
     try {
-      const result = await cloud.publishAsyncQuiz(record.quizId, requestId.current.id, expiresAt, timeZone);
+      const result = await cloud.publishAsyncQuiz(record.quizId, requestId.current.id, expiresAt, timeZone, streakBonusEnabled, immediateReveal);
       setPublication(result);
       requestId.current = null;
     } catch (caught) { setError(message(caught)); } finally { setBusy(false); }
@@ -328,8 +338,15 @@ function PublishAsyncPage() {
         </label>)}
       </fieldset>}
       <p>Die Teilnehmerzahl ist begrenzt. Bis zu diesem Zeitpunkt müssen alle Antworten abgegeben sein.
-        Danach sind keine neuen Starts oder Antworten möglich.
-        Richtige Antworten und Punkte werden Gästen erst nach Ende der Runde angezeigt.</p>
+        Danach sind keine neuen Starts oder Antworten möglich.</p>
+      <fieldset><legend>Spielregeln</legend>
+        <StreakBonusOption enabled={streakBonusEnabled} onChange={setStreakBonusEnabled} disabled={busy} />
+        <label className="radio-option"><input type="checkbox" checked={immediateReveal} disabled={busy}
+          onChange={(event) => setImmediateReveal(event.target.checked)} />Sofortige Auflösung</label>
+        <p className="hint">{immediateReveal
+          ? "Nach jeder Antwort sehen Gäste Lösung, Punkte und Serie. Lösungen können dadurch schon während der Runde weitergegeben werden."
+          : "Lösungen, Punkte, Serien und Abzeichen bleiben bis zum Rundenende verborgen."}</p>
+      </fieldset>
       <p>Ergebnisse werden {legal.asyncResultsRetentionDays} Tage nach dem tatsächlichen Rundenende aufbewahrt.</p>
       <button className="button primary" disabled={busy || !selectedInstant || instants.length === 0}>
         {busy ? "Wird veröffentlicht …" : "Quizrunde veröffentlichen"}
@@ -367,6 +384,10 @@ function AsyncProgress({ answered, total }: { answered: number; total: number })
 function AsyncQuizPage() {
   useNoIndex();
   const { token = "" } = useParams();
+  return <AsyncQuizPlayer key={token} token={token} />;
+}
+
+function AsyncQuizPlayer({ token }: { token: string }) {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof cloud.asyncPublicInfo>> | null>(null);
   const [state, setState] = useState<AsyncGuestState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -376,6 +397,8 @@ function AsyncQuizPage() {
   const [choice, setChoice] = useState<{ questionIndex: number; id: string } | null>(null);
   // Nach einer bestätigten Antwort pausiert das Quiz, bis die Person die nächste Frage selbst öffnet.
   const [pausedAfter, setPausedAfter] = useState<{ answeredCount: number; answer: string } | null>(null);
+  const [reviewedFinal, setReviewedFinal] = useState(false);
+  const [rankBeforeAnswer, setRankBeforeAnswer] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [clock, setClock] = useState(Date.now());
   // Server time decides; the offset corrects a wrong client clock for display and button state.
@@ -435,7 +458,9 @@ function AsyncQuizPage() {
   }, [token, syncClock, applyState]);
   const inProgress = Boolean(state && state.status === "ACTIVE" && canAnswer && state.attemptStatus === "IN_PROGRESS");
   // Pause: Folgefrage noch nicht geöffnet (Tempo-Wertung) oder gerade eine Antwort bestätigt (auch ohne Tempo-Wertung).
-  const paused = inProgress && (!state?.question || pausedAfter?.answeredCount === state.answeredCount);
+  const finalReview = Boolean(state?.immediateReveal && state.attemptStatus === "COMPLETED" && !reviewedFinal &&
+    pausedAfter?.answeredCount === state.answeredCount);
+  const paused = (inProgress && (!state?.question || pausedAfter?.answeredCount === state.answeredCount)) || finalReview;
   const question = inProgress && !paused ? state?.question ?? null : null;
   const headingRef = useQuestionFocus(question ? question.questionIndex : null);
   const pauseHeadingRef = useQuestionFocus(paused && state ? `pause-${state.answeredCount}` : null);
@@ -457,6 +482,7 @@ function AsyncQuizPage() {
   /** Öffnet nach der Pause die nächste Frage; erst jetzt startet der Server ihren Tempo-Bonus. */
   async function continueQuiz() {
     if (busy) return;
+    if (finalReview) { setReviewedFinal(true); setPausedAfter(null); return; }
     const request = ++requestSeq.current;
     setBusy(true); setError(""); setAnnouncement("");
     try {
@@ -471,6 +497,7 @@ function AsyncQuizPage() {
   }
   /** Übernimmt den bestätigten Fortschritt aus der Antwortbestätigung als einen zusammengehörigen Zustandswechsel. */
   function applyReceipt(receipt: AsyncAnswerReceipt, answered: number, choiceId: string) {
+    if (receipt.state) { applyState(receipt.state); roundEnded(receipt.state); return; }
     syncClock(receipt.serverTime);
     setState((current) => {
       if (!current || current.answeredCount > receipt.answeredCount) return current;
@@ -493,15 +520,18 @@ function AsyncQuizPage() {
     const choiceIndex = question.answers.findIndex((answer) => answer.id === choiceId);
     const answerLabel = `${String.fromCharCode(65 + choiceIndex)} · ${question.answers[choiceIndex]?.text ?? ""}`;
     const pauseAfter = (latest: { answeredCount: number; attemptStatus?: string | null }) => {
-      if (latest.attemptStatus === "IN_PROGRESS") setPausedAfter({ answeredCount: latest.answeredCount, answer: answerLabel });
+      if (latest.attemptStatus === "IN_PROGRESS" || (info?.immediateReveal && latest.attemptStatus === "COMPLETED")) {
+        setPausedAfter({ answeredCount: latest.answeredCount, answer: answerLabel });
+      }
     };
     const request = ++requestSeq.current;
     setChoice({ questionIndex: answered, id: choiceId });
+    setRankBeforeAnswer(state?.rank ?? null);
     setBusy(true); setError(""); setAnnouncement("");
     try {
       const receipt = await cloud.submitAsyncAnswer(token, answered, choiceId);
       if (request !== requestSeq.current) return;
-      if (receipt.attemptStatus && receipt.status === "ACTIVE") {
+      if (receipt.attemptStatus && (receipt.state || (receipt.status === "ACTIVE" && !info?.immediateReveal))) {
         applyReceipt(receipt, answered, choiceId);
         pauseAfter(receipt);
         if (receipt.attemptStatus === "COMPLETED") setAnnouncement("Antwort gespeichert. Quiz abgeschlossen.");
@@ -543,6 +573,7 @@ function AsyncQuizPage() {
   if (!loading && info && state && paused) {
     const justAnswered = pausedAfter?.answeredCount === state.answeredCount ? pausedAfter : null;
     const nextQuestion = state.answeredCount + 1;
+    const answerResult = state.immediateReveal ? state.answers.find((answer) => answer.questionIndex === state.answeredCount - 1) : null;
     return <Layout gameMode="player">
       <div className="game-view game-personal">
         <div className="game-phase" key={`pause-${state.answeredCount}`}>
@@ -554,16 +585,32 @@ function AsyncQuizPage() {
             {deadlineWarning}
             <div className="result-sticker" aria-hidden="true">{justAnswered ? <Check size={34} /> : <Sparkles size={32} />}</div>
             <h1 id="async-pause-title" ref={pauseHeadingRef} tabIndex={-1}>
-              {justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
+              {answerResult ? answerResult.correct ? "Richtig!" : "Leider daneben" :
+                justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
             {justAnswered && <p className="async-pause-answer">Deine Antwort: <strong>{justAnswered.answer}</strong></p>}
+            {answerResult && <div className="personal-result">
+              <ScoreAward key={answerResult.questionIndex} points={answerResult.points ?? 0}
+                extra={answerResult.streakBonusPoints} streak={answerResult.streak} badges={state.badges}
+                celebrate={Boolean(justAnswered)} eventId={`${token}:${state.startedAt}:points:${answerResult.questionIndex}`} />
+              <p className="result-total"><strong><AnimatedPoints value={state.points ?? 0}
+                from={justAnswered ? (state.points ?? 0) - (answerResult.points ?? 0) : state.points ?? 0} /> Punkte</strong> insgesamt</p>
+              {state.rank != null && <p>Aktuell Platz <strong>{state.rank}</strong></p>}
+              {rankBeforeAnswer != null && state.rank != null && <RankRise change={rankBeforeAnswer - state.rank}
+                eventId={`${token}:${state.startedAt}:rank:${answerResult.questionIndex}`} celebrate={Boolean(justAnswered)} />}
+              <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
+              {answerResult.correctText && <p className="correct-answer">Richtige Antwort: <strong>{answerResult.correctText}</strong></p>}
+              {answerResult.explanation && <p className="question-explanation">{answerResult.explanation}</p>}
+              {rule && <p className="async-score-line">Grundpunkte {pointsText(answerResult.basePoints ?? 0)} · Tempo-Bonus {pointsText(answerResult.bonusPoints ?? 0)}
+                {" · "}Streak-Bonus {pointsText(answerResult.streakBonusPoints ?? 0)}</p>}
+            </div>}
             <AsyncProgress answered={state.answeredCount} total={state.questionCount} />
             <ErrorBanner error={error} />
             <button type="button" className="button primary async-continue" disabled={busy} onClick={() => void continueQuiz()}>
-              {busy ? "Frage wird geöffnet …" : <>Weiter zu Frage {nextQuestion}<ArrowRight size={18} aria-hidden="true" /></>}
+              {busy ? "Frage wird geöffnet …" : <>{finalReview ? "Zum persönlichen Abschluss" : `Weiter zu Frage ${nextQuestion}`}<ArrowRight size={18} aria-hidden="true" /></>}
             </button>
             <p className="async-pause-hint">Du kannst hier eine Pause machen und bis {formatDateTimeWithZone(state.expiresAt, state.timeZone)} weiterspielen
               – auf diesem Gerät über diesen Link oder den Quiz-Code.{rule && " Der Tempo-Bonus startet erst, wenn du die nächste Frage öffnest."}
-              {" "}Ob du richtig liegst, siehst du nach Ende der Runde.</p>
+              {" "}{state.immediateReveal ? "Dein Ergebnis siehst du direkt nach jeder Antwort." : "Ob du richtig liegst, siehst du nach Ende der Runde."}</p>
             {status}
           </section>
         </div>
@@ -599,7 +646,8 @@ function AsyncQuizPage() {
             <details className="question-help">
               <summary>Hinweise und Fortschritt</summary>
               <AsyncProgress answered={state.answeredCount} total={state.questionCount} />
-              <p>Deine Antwort zählt sofort und lässt sich danach nicht mehr ändern. Ob du richtig liegst, siehst du nach Ende der Runde.</p>
+              <p>Deine Antwort zählt sofort und lässt sich danach nicht mehr ändern. {state.immediateReveal
+                ? "Lösung und Punkte siehst du direkt nach der Antwort." : "Ob du richtig liegst, siehst du nach Ende der Runde."}</p>
               <p>Nach jeder Antwort kannst du eine Pause machen und später auf diesem Gerät weiterspielen.</p>
               {rule && <p>{speedIntro(rule)} Der Tempo-Bonus sinkt in den ersten {Math.round(rule.bonusWindowMs / 1000)} Sekunden
                 je Frage auf null; die Zeit misst der Server ab dem Öffnen der Frage, einschließlich Übertragung.</p>}
@@ -622,13 +670,15 @@ function AsyncQuizPage() {
       {state ? <section className="card async-player-card">
         <div className="async-player-identity"><Avatar avatarId={state.avatarId} /><strong>{state.displayName}</strong></div>
         <h2>{state.attemptStatus === "COMPLETED" ? "Quiz abgeschlossen" : "Quiz beendet"}</h2>
+        {state.attemptStatus === "COMPLETED" && <Finale winner={state.status !== "ACTIVE" && state.rank === 1} />}
         <p>{state.answeredCount} von {state.questionCount} Fragen beantwortet.
           {state.attemptStatus === "EXPIRED_PARTIAL" && " Nicht beantwortete Fragen zählen als 0 Punkte."}</p>
-        {state.status === "ACTIVE" && <p>Deine Antworten sind gespeichert. Auflösung und Ergebnis siehst du nach Ende der Runde
+        {state.status === "ACTIVE" && !state.immediateReveal && <p>Deine Antworten sind gespeichert. Auflösung und Ergebnis siehst du nach Ende der Runde
           ({formatDateTimeWithZone(state.expiresAt, state.timeZone)}) über diesen Link oder denselben Quiz-Code.</p>}
-        {state.status !== "ACTIVE" && <><p className="async-own-total">Dein Ergebnis: <strong>{rule
-          ? `${pointsText(state.points ?? 0)} Punkte`
-          : `${state.points ?? 0} von ${state.questionCount} Punkten`}</strong></p>
+        {(state.status !== "ACTIVE" || state.immediateReveal) && <><p className="async-own-total">Dein Ergebnis: <strong>
+          <AnimatedPoints value={state.points ?? 0} />{rule ? " Punkte" : ` von ${state.questionCount} Punkten`}</strong></p>
+          {state.rank != null && <p>{state.status === "ACTIVE" ? "Vorläufig" : "Endstand"}: Platz <strong>{state.rank}</strong></p>}
+          <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
           {rule && <p className="hint">Wertung: {pointsText(rule.basePoints)} Grundpunkte je richtiger Antwort plus bis zu
             {" "}{pointsText(rule.maxBonusPoints)} Punkte Tempo-Bonus.</p>}
           <ol className="async-own-results">{state.results.map((result) => <li key={result.questionIndex}>
@@ -638,6 +688,7 @@ function AsyncQuizPage() {
             {result.correctText && <p>Richtige Antwort: {result.correctText}.</p>}
             {rule && result.answered && <p className="async-score-line">
               Grundpunkte {pointsText(result.basePoints ?? 0)} · Tempo-Bonus {pointsText(result.bonusPoints ?? 0)} ·
+              Streak-Bonus {pointsText(result.streakBonusPoints ?? 0)} ·
               Gesamt <strong>{pointsText(result.points ?? 0)}</strong>
               {result.elapsedMs != null && ` · Antwortzeit ${secondsText(result.elapsedMs)}`}</p>}
             {result.explanation && <p>{result.explanation}</p>}
@@ -646,6 +697,8 @@ function AsyncQuizPage() {
       </section> : info.status === "ACTIVE" && canAnswer ? <section className="card async-player-card">
         <h2>Du spielst in deinem Tempo</h2><p>Deine Antworten werden gespeichert. Du kannst bis {formatDateTimeWithZone(info.expiresAt, info.timeZone)} mitspielen.</p>
         {rule && <p className="async-speed-intro"><Zap size={17} aria-hidden="true" /> {speedIntro(rule)}</p>}
+        <p>{info.immediateReveal ? "Lösung, Punkte und Serie siehst du sofort nach jeder Antwort." : "Die Auflösung folgt nach Ende der Runde."}
+          {" "}{info.streakBonusEnabled ? "Streak-Bonuspunkte sind aktiv." : "Streak-Bonuspunkte sind aus; sammle trotzdem Serien und Abzeichen."}</p>
         <button className="button primary" disabled={busy} onClick={() => void start()}>
           {busy ? "Quiz wird geöffnet …" : "Quiz starten"}
         </button>
@@ -658,13 +711,16 @@ function AsyncQuizPage() {
 const attemptStatusText = (status: string) => status === "COMPLETED" ? "abgeschlossen" : status === "IN_PROGRESS" ? "läuft" : "Frist abgelaufen";
 
 function AsyncLeaderRow({ player, rule, questionCount }: { player: AsyncStandingParticipant; rule: AsyncScoringRule | null; questionCount: number }) {
-  return <li className="async-leader">
-    <span className="async-leader-rank" aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
+  const reduced = useReducedMotion();
+  return <motion.li layout={reduced ? false : "position"} className="async-leader">
+    <span className={`async-leader-rank${(player.rankChange ?? 0) > 0 ? " rank-gained" : ""}`}
+      aria-label={`Rang ${player.rank}`}>{player.rank}.</span>
     <Avatar avatarId={player.avatarId} />
     <span className="async-leader-name">{player.displayName}</span>
-    <strong className="async-leader-points">{rule ? `${pointsText(player.points)} P.` : `${player.points}/${questionCount}`}</strong>
+    <strong className="async-leader-points"><AnimatedPoints value={player.points}
+      from={player.previousPoints ?? player.points} />{rule ? " P." : `/${questionCount}`}</strong>
     <span className="async-leader-status">{attemptStatusText(player.status)}</span>
-  </li>;
+  </motion.li>;
 }
 
 function AsyncAdminResultsPage() {
@@ -715,6 +771,7 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
         <section className="game-phase ranking-phase" aria-labelledby="async-ranking-title">
           <span className="eyebrow">DAS WAR EURE RUNDE</span>
           <h1 id="async-ranking-title">Endstand</h1>
+          {leaders.length > 0 && <Finale />}
           <p className="ranking-intro">Zusammen gerätselt. Gemeinsam gefeiert.</p>
           {leaders.length === 0 ? <p>Noch keine Teilnehmenden.</p> : <>
             <Podium players={rankingPlayers(leaders)} formatPoints={formatPoints} />
@@ -728,6 +785,8 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
           <h2 id="async-leaders-title">Zwischenstand</h2>
           <span className="badge">Vorläufig</span>
         </div>
+        {(leaders[0]?.rankChange ?? 0) > 0 && (leaders[0]?.previousRank ?? 0) > 1 &&
+          <RankRise change={leaders[0].rankChange ?? 0} eventId={`${publicationId}:leader:${results.updatedAt}`} celebrate />}
         {leaders.length === 0 ? <p className="hint">Noch keine Teilnahmen. Sobald jemand startet, erscheint hier die Rangliste.</p> :
           <>
             <Podium players={rankingPlayers(leaders).map((player) => ({
@@ -801,6 +860,7 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
             return <li key={question.questionIndex}><strong>{question.text}</strong><p>Antwort: {option?.text ?? "Unbekannt"}
               {answer.correct ? " · richtig" : ` · falsch (richtig: ${correct?.text ?? "unbekannt"})`}</p>
               {rule && <p className="async-score-line">Grundpunkte {pointsText(answer.basePoints ?? 0)} · Tempo-Bonus {pointsText(answer.bonusPoints ?? 0)} ·
+                Streak-Bonus {pointsText(answer.streakBonusPoints ?? 0)} ·
                 Gesamt <strong>{pointsText(answer.points ?? 0)}</strong>
                 {answer.elapsedMs != null && ` · Antwortzeit ${secondsText(answer.elapsedMs)}`}</p>}
               <p className="hint">{formatDateTimeInZone(answer.acceptedAt, results.timeZone)}</p></li>;
@@ -882,7 +942,7 @@ function AdminSession() {
     </div><ErrorBanner error={error || liveError} />
     {!state ? <p>Spielstand wird geladen …</p> : <>
       <div className="admin-session-grid">
-      <GameView state={state} offset={offset} joinCode={session?.joinCode} />
+      <GameView key={state.sessionId} state={state} offset={offset} joinCode={session?.joinCode} />
       <aside className="session-controls" aria-label="Sitzung steuern">
         <span className="eyebrow">QUIZMASTER</span><h2>Du gibst den Takt vor.</h2>
         <p>{phaseLabels[state.status]} · Frage {Math.max(0, state.questionIndex + 1)} von {state.questionCount}</p>
@@ -1045,7 +1105,7 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
     {(restoreError || resultError || error || liveError) && <button className="button secondary" onClick={() => {
       setError(""); setRestoreAttempt((attempt) => attempt + 1); refresh();
     }}>{restoreError ? "Gespeicherte Antwort erneut prüfen" : "Spielstand erneut prüfen"}</button>}
-    {state ? <GameView state={state} offset={offset} participant={participant} personal standing={standing}
+    {state ? <GameView key={`${state.sessionId}:${participant?.participantId ?? "loading"}`} state={state} offset={offset} participant={participant} personal standing={standing}
       selected={selection && selection.questionId === state.questionId ? selection.choiceId : null}
       pendingChoice={pending?.questionId === state.questionId ? pending?.choiceId : null}
       answerBusy={busy || restoringAnswer || Boolean(restoreError) || restoredQuestion !== state.questionId} answerRestoreFailed={Boolean(restoreError)}
@@ -1064,7 +1124,7 @@ function PresentationSession({ token }: { token: string }) {
   const live = useLiveState("", "presentation", token);
   return <Layout gameMode="presentation"><ErrorBanner error={live.error} />
     {live.error && <button className="button secondary" onClick={live.refresh}>Verbindung erneut prüfen</button>}
-    {live.state ? <GameView state={live.state} offset={live.offset} presentation /> : <p>Präsentation wird geladen …</p>}
+    {live.state ? <GameView key={live.state.sessionId} state={live.state} offset={live.offset} presentation /> : <p>Präsentation wird geladen …</p>}
   </Layout>;
 }
 

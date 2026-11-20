@@ -185,6 +185,10 @@ function setupDatabase() {
         points: Number(current.points ?? 0) + Number(update.ExpressionAttributeValues?.[":points"] ?? 0),
         answeredCount: Number(current.answeredCount) + 1,
         status: update.ExpressionAttributeValues?.[":completed"] ?? "IN_PROGRESS",
+        ...(update.ExpressionAttributeValues?.[":streak"] !== undefined ? {
+          streak: update.ExpressionAttributeValues[":streak"], maxStreak: update.ExpressionAttributeValues[":maxStreak"],
+          correctAnswers: Number(current.correctAnswers ?? 0) + Number(update.ExpressionAttributeValues[":correct"] ?? 0),
+        } : {}),
         ...(update.ExpressionAttributeValues?.[":now"] ? { completedAt: update.ExpressionAttributeValues[":now"] } : {}),
       });
     }
@@ -200,6 +204,73 @@ describe("Quiz per Link", () => {
     setupDatabase();
   });
   afterEach(() => { vi.restoreAllMocks(); });
+
+  function gamifiedQuiz(immediateReveal: boolean, enabled = true) {
+    const publication = records.get(keyOf(pk, "META"))!;
+    Object.assign(publication, {
+      gamificationVersion: "STREAK_V1", streakBonusEnabled: enabled, immediateReveal,
+      scoringVersion: "ASYNC_SPEED_V1", statsVersion: 1, completedCount: 0,
+      scoring: { basePoints: 1000, maxBonusPoints: 500, bonusWindowMs: 30_000 },
+      snapshot: { title: "Serienquiz", description: "", questions: Array.from({ length: 6 }, (_, index) => ({
+        text: `Frage ${index + 1}`, answers: [{ text: "Richtig", correct: true }, { text: "Falsch", correct: false }],
+        durationSeconds: 20, explanation: `Lösung ${index + 1}`,
+      })) },
+    });
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    return now;
+  }
+
+  it("returns immediate own results without leaking future solutions and stores exact streak bonuses idempotently", async () => {
+    const now = gamifiedQuiz(true);
+    for (let index = 0; index < 5; index++) {
+      await startAsyncQuiz(db, "table", token, identityId, now);
+      const request = { token, questionIndex: index, choiceId: "a0" };
+      const receipt = await submitAsyncAnswer(db, "table", request, identityId, now);
+      expect(receipt.state?.results).toHaveLength(index + 1);
+      expect(receipt.state?.results.map((result) => result.questionIndex)).toEqual(Array.from({ length: index + 1 }, (_, i) => i));
+      expect(receipt.state?.question).toBeNull();
+      expect(receipt.state?.answers[index]).toMatchObject({
+        correct: true, correctText: "Richtig", explanation: `Lösung ${index + 1}`,
+        streak: index + 1, streakBonusPoints: [0, 0, 100, 150, 200][index],
+        points: 1500 + [0, 0, 100, 150, 200][index],
+      });
+      expect(await submitAsyncAnswer(db, "table", request, identityId, now)).toEqual(receipt);
+    }
+    const state = await getMyAsyncState(db, "table", token, identityId, now);
+    expect(state).toMatchObject({ points: 7950, rank: 1, streak: 5, maxStreak: 5,
+      badges: ["FIRST_CORRECT", "STREAK_3", "STREAK_5"] });
+    await startAsyncQuiz(db, "table", token, identityId, now);
+    const last = await submitAsyncAnswer(db, "table", { token, questionIndex: 5, choiceId: "a1" }, identityId, now);
+    expect(last.state).toMatchObject({ points: 7950, streak: 0, maxStreak: 5, attemptStatus: "COMPLETED" });
+    expect(last.state?.badges).not.toContain("PERFECT");
+    expect(last.state?.results).toHaveLength(6);
+  });
+
+  it("keeps bonus points and streaks hidden when immediate results are disabled", async () => {
+    const now = gamifiedQuiz(false);
+    for (let index = 0; index < 3; index++) {
+      await startAsyncQuiz(db, "table", token, identityId, now);
+      const receipt = await submitAsyncAnswer(db, "table", { token, questionIndex: index, choiceId: "a0" }, identityId, now);
+      expect(receipt.state).toBeNull();
+    }
+    const state = await getMyAsyncState(db, "table", token, identityId, now);
+    expect(state).toMatchObject({ points: null, rank: null, streak: null, maxStreak: null, badges: [], results: [] });
+    expect(state?.answers.every((answer) => answer.points === null && answer.correct === null && answer.streak === null)).toBe(true);
+    const saved = [...records.values()].find((item) => item.sk === `ANSWER#${createHash("sha256").update(identityId).digest("hex")}#002`);
+    expect(saved).toMatchObject({ points: 1600, streakBonusPoints: 100, streak: 3 });
+  });
+
+  it("earns a perfect completion badge without bonus points when bonuses are disabled", async () => {
+    const now = gamifiedQuiz(true, false);
+    for (let index = 0; index < 6; index++) {
+      await startAsyncQuiz(db, "table", token, identityId, now);
+      await submitAsyncAnswer(db, "table", { token, questionIndex: index, choiceId: "a0" }, identityId, now);
+    }
+    expect(await getMyAsyncState(db, "table", token, identityId, now)).toMatchObject({
+      points: 9000, streak: 6, maxStreak: 6, badges: ["FIRST_CORRECT", "STREAK_3", "STREAK_5", "PERFECT"],
+    });
+  });
 
   it("öffnet eine Bot-Vorschau ohne Versuch oder Teilnehmerstatistik zu erzeugen", async () => {
     const info = await getAsyncPublicInfo(db, "table", token, Date.now());
@@ -228,6 +299,7 @@ describe("Quiz per Link", () => {
     expect(created.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const publication = records.get(keyOf(`ASYNC#${created.publicationId}`, "META"));
     expect(publication?.maxParticipants).toBe(250);
+    expect(publication).toMatchObject({ gamificationVersion: "STREAK_V1", streakBonusEnabled: false, immediateReveal: false });
     expect(publication?.snapshot).toEqual(records.get(keyOf("OWNER#admin", `QUIZ#${quizId}`))?.quiz);
     records.set(keyOf("OWNER#admin", `QUIZ#${quizId}`), {
       ...records.get(keyOf("OWNER#admin", `QUIZ#${quizId}`)), quiz: { title: "Geändert", questions: [] },
@@ -241,6 +313,10 @@ describe("Quiz per Link", () => {
     expect(await publishAsyncQuiz(db, "table", request, principal, 30, Date.now())).toEqual(created);
     expect(records.get(keyOf(`ASYNC#${created.publicationId}`, "META"))?.maxParticipants).toBe(250);
     await expect(publishAsyncQuiz(db, "table", { ...request, expiresAt: request.expiresAt + 1 },
+      principal, 30, Date.now())).rejects.toThrow("bereits für eine andere Veröffentlichung verwendet");
+    await expect(publishAsyncQuiz(db, "table", { ...request, immediateReveal: true },
+      principal, 30, Date.now())).rejects.toThrow("bereits für eine andere Veröffentlichung verwendet");
+    await expect(publishAsyncQuiz(db, "table", { ...request, streakBonusEnabled: true },
       principal, 30, Date.now())).rejects.toThrow("bereits für eine andere Veröffentlichung verwendet");
   });
 

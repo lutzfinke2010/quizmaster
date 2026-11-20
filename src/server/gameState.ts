@@ -5,6 +5,7 @@ import { rankScores } from "../domain/scoring";
 import { getMyParticipation, type Participation } from "./participation";
 import { withTransactionConflictRetry } from "./transactionRetry";
 import { requireQuizmaster } from "./adminPrincipal";
+import { earnedBadges } from "../domain/gamification";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const metaSchema = z.object({
@@ -14,6 +15,7 @@ const metaSchema = z.object({
   opensAt: z.number().nullish(), closesAt: z.number().nullish(), answerCount: z.number().int().nullish(),
   eligibleParticipantCount: z.number().int().nullish(),
   joinCode: z.string().regex(/^\d{6}$/).optional(),
+  streakBonusEnabled: z.boolean().optional(),
 });
 const questionSchema = z.object({
   text: z.string(), answers: z.array(z.object({ id, text: z.string() })).min(2).max(8),
@@ -25,6 +27,8 @@ const revealSchema = z.object({
 const participantSchema = z.object({
   participantId: id, displayName: z.string(), avatarId: z.string(),
   totalPoints: z.number().int().min(0), correctAnswers: z.number().int().min(0), correctElapsedMs: z.number().int().min(0),
+  streak: z.number().int().nonnegative().optional(), maxStreak: z.number().int().nonnegative().optional(),
+  lastAnsweredIndex: z.number().int().optional(),
 });
 const rankingResultSchema = z.object({
   sk: z.string(), correct: z.boolean(), points: z.number().int().min(0), elapsedMs: z.number().int().min(0),
@@ -142,6 +146,11 @@ async function renderGameState(
           const previous = previousScores.find((item) => item.participantId === score.participantId);
           if (!previous) throw new Error("Vorheriger Rang nicht gefunden.");
           return { ...score, displayName: person.displayName, avatarId: person.avatarId,
+            streak: person.lastAnsweredIndex === meta.questionIndex ? person.streak ?? 0 : 0,
+            maxStreak: person.maxStreak ?? 0,
+            badges: earnedBadges(person.correctAnswers, person.maxStreak ?? 0,
+              meta.status === "FINISHED" && person.correctAnswers === meta.questionCount),
+            previousPoints: previous.points,
             previousRank: previous.rank, rankChange: previous.rank - score.rank };
         }).slice(0, meta.status === "REVEAL" ? 5 : undefined) : [];
     if (authorization.kind === "presentation" && meta.status === "LOBBY" && !meta.joinCode) {
@@ -149,6 +158,7 @@ async function renderGameState(
     }
     return {
       sessionId, status: meta.status, version: meta.version, title: meta.title,
+      streakBonusEnabled: meta.streakBonusEnabled ?? false,
       joinCode: authorization.kind === "presentation" && meta.status === "LOBBY" ? meta.joinCode : null,
       questionIndex: meta.questionIndex, questionCount: meta.questionCount,
       questionId: meta.currentQuestionId ?? null,
@@ -209,6 +219,7 @@ export async function getMyResult(
   }));
   const result = response.Item ? z.object({
     correct: z.boolean(), points: z.number().int().min(0), elapsedMs: z.number().int().min(0),
+    streakBonusPoints: z.number().int().nonnegative().optional(),
   }).parse(response.Item) : null;
   if (!result) {
     const answer = await client.send(new GetCommand({
@@ -222,13 +233,21 @@ export async function getMyResult(
     TableName: tableName, Key: { pk: `SESSION#${sessionId}`, sk: `PARTICIPANT#${participation.participantId}` },
     ConsistentRead: true,
   }));
-  const { totalPoints } = z.object({ totalPoints: z.number().int().min(0) }).parse(person.Item);
+  const own = z.object({ totalPoints: z.number().int().min(0),
+    correctAnswers: z.number().int().nonnegative().optional(), streak: z.number().int().nonnegative().optional(),
+    maxStreak: z.number().int().nonnegative().optional(), lastAnsweredIndex: z.number().int().optional(),
+  }).parse(person.Item);
   const latest = await authorizedSnapshot(client, tableName, sessionId, authorization, now);
   if (latest.version !== meta.version || latest.currentQuestionId !== meta.currentQuestionId || latest.status !== meta.status) {
     throw new Error("Der Spielstand wurde gleichzeitig geändert. Bitte erneut versuchen.");
   }
   return { questionId: meta.currentQuestionId, answered: result !== null,
-    correct: result?.correct ?? false, points: result?.points ?? 0, totalPoints, elapsedMs: result?.elapsedMs ?? null };
+    correct: result?.correct ?? false, points: result?.points ?? 0, totalPoints: own.totalPoints, elapsedMs: result?.elapsedMs ?? null,
+    streakBonusPoints: result?.streakBonusPoints ?? 0,
+    streak: own.lastAnsweredIndex === meta.questionIndex ? own.streak ?? 0 : 0,
+    maxStreak: own.maxStreak ?? 0,
+    badges: earnedBadges(own.correctAnswers ?? 0, own.maxStreak ?? 0,
+      meta.status === "FINISHED" && own.correctAnswers === meta.questionCount) };
 }
 
 export async function getMyAnswer(

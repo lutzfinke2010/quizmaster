@@ -7,6 +7,7 @@ import { scoreAnswer } from "../domain/scoring";
 import { isConditionalFailure, withTransactionConflictRetry } from "./transactionRetry";
 import { TimerObsoleteError } from "./timerObsolete";
 import { mapWithConcurrency } from "./batchGet";
+import { advanceStreak, streakBonus } from "../domain/gamification";
 
 /** Parallele Ergebnis-Transaktionen; hält ~1000 Teilnehmende deutlich unter dem Lambda-Timeout. */
 const RESULT_WRITE_CONCURRENCY = 25;
@@ -20,6 +21,9 @@ const metaSchema = z.object({
   opensAt: z.number().int(),
   closesAt: z.number().int(),
   expiresAt: z.number().int(),
+  gamificationVersion: z.string().optional(),
+  streakBonusEnabled: z.boolean().optional(),
+  questionIndex: z.number().int().optional(),
 });
 const questionSchema = z.object({
   answerIds: z.array(id).min(2).max(8),
@@ -30,6 +34,8 @@ const questionSchema = z.object({
 const answerSchema = z.object({ sk: z.string(), choiceId: id, receivedAt: z.number().int() });
 const resultSchema = z.object({
   correct: z.boolean(), points: z.number().int(), elapsedMs: z.number().int(),
+  questionIndex: z.number().int().optional(), streak: z.number().int().optional(),
+  maxStreak: z.number().int().optional(), streakBonusPoints: z.number().int().optional(),
 });
 
 export type FinalizeRequest = z.infer<typeof requestSchema>;
@@ -108,6 +114,9 @@ export async function finalizeQuestion(
   if (snapshot.meta.status === "REVEAL" || snapshot.meta.status === "LEADERBOARD" ||
       snapshot.meta.status === "FINISHED") return;
   if (snapshot.meta.status !== "SCORING") throw new Error("Die Frage kann nicht ausgewertet werden.");
+  if (snapshot.meta.gamificationVersion && snapshot.meta.questionIndex === undefined) {
+    throw new Error("Fragenindex für die Serienwertung fehlt.");
+  }
 
   const prefix = `ANSWER#${request.questionId}#`;
   const answers: Array<z.infer<typeof answerSchema>> = [];
@@ -124,6 +133,28 @@ export async function finalizeQuestion(
   } while (cursor);
 
   const distribution = snapshot.question.answerIds.map((choiceId) => ({ choiceId, count: 0 }));
+  const histories = new Map<string, Array<z.infer<typeof resultSchema>>>();
+  if (snapshot.meta.gamificationVersion) {
+    let historyCursor: Record<string, unknown> | undefined;
+    do {
+      const page = await client.send(new QueryCommand({
+        TableName: tableName, ConsistentRead: true,
+        KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues: { ":pk": pk, ":prefix": "RESULT#" },
+        ExclusiveStartKey: historyCursor,
+      }));
+      for (const item of page.Items ?? []) {
+        const result = resultSchema.parse(item);
+        if (result.questionIndex === undefined) throw new Error("Fragenindex im gespeicherten Serienergebnis fehlt.");
+        if (result.questionIndex >= (snapshot.meta.questionIndex ?? 0)) continue;
+        const participantId = id.parse(String(item.sk).split("#").at(-1));
+        const history = histories.get(participantId) ?? [];
+        history.push(result);
+        histories.set(participantId, history);
+      }
+      historyCursor = page.LastEvaluatedKey;
+    } while (historyCursor);
+  }
   const scored = answers.map((answer) => {
     const participantId = id.parse(answer.sk.slice(prefix.length));
     const choice = distribution.find((entry) => entry.choiceId === answer.choiceId);
@@ -139,10 +170,25 @@ export async function finalizeQuestion(
   // ausgeschlossen, und der REVEAL-Übergang unten ist weiterhin an SCORING/Frage/Timer gebunden.
   await mapWithConcurrency(scored, RESULT_WRITE_CONCURRENCY, async ({ participantId, answer }) => {
     const correct = answer.choiceId === snapshot.question.correctChoiceId;
-    const { points, elapsedMs } = scoreAnswer(
+    const { points: answerPoints, elapsedMs } = scoreAnswer(
       correct, answer.receivedAt, snapshot.meta.opensAt, snapshot.meta.closesAt - snapshot.meta.opensAt,
     );
-    const result = { correct, points, elapsedMs };
+    let streak = 0;
+    let maxStreak = 0;
+    let lastIndex = -1;
+    for (const previous of (histories.get(participantId) ?? []).sort((a, b) => (a.questionIndex ?? 0) - (b.questionIndex ?? 0))) {
+      if (previous.questionIndex !== lastIndex + 1) streak = 0;
+      ({ streak, maxStreak } = advanceStreak(streak, maxStreak, previous.correct));
+      lastIndex = previous.questionIndex ?? -1;
+    }
+    if (lastIndex !== (snapshot.meta.questionIndex ?? 0) - 1) streak = 0;
+    ({ streak, maxStreak } = advanceStreak(streak, maxStreak, correct));
+    const streakBonusPoints = streakBonus(streak, snapshot.meta.streakBonusEnabled === true);
+    const points = answerPoints + streakBonusPoints;
+    const tracked = Boolean(snapshot.meta.gamificationVersion);
+    const result = { correct, points, elapsedMs, ...(tracked ? {
+      questionIndex: snapshot.meta.questionIndex, streak, maxStreak, streakBonusPoints,
+    } : {}) };
     const resultKey = { pk, sk: `RESULT#${request.questionId}#${participantId}` };
     try {
       await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
@@ -152,10 +198,12 @@ export async function finalizeQuestion(
         } },
         { Update: {
           TableName: tableName, Key: { pk, sk: `PARTICIPANT#${participantId}` },
-          UpdateExpression: "ADD totalPoints :points, correctAnswers :correct, correctElapsedMs :elapsed",
+          UpdateExpression: (tracked ? "SET streak = :streak, maxStreak = :maxStreak, lastAnsweredIndex = :index " : "") +
+            "ADD totalPoints :points, correctAnswers :correct, correctElapsedMs :elapsed",
           ConditionExpression: "attribute_exists(pk)",
           ExpressionAttributeValues: {
             ":points": points, ":correct": correct ? 1 : 0, ":elapsed": correct ? elapsedMs : 0,
+            ...(tracked ? { ":streak": streak, ":maxStreak": maxStreak, ":index": snapshot.meta.questionIndex } : {}),
           },
         } },
       ] })));
@@ -164,7 +212,8 @@ export async function finalizeQuestion(
       const existing = await client.send(new GetCommand({ TableName: tableName, Key: resultKey, ConsistentRead: true }));
       if (!existing.Item) throw error;
       const previous = resultSchema.parse(existing.Item);
-      if (previous.correct !== result.correct || previous.points !== result.points || previous.elapsedMs !== result.elapsedMs) {
+      if (previous.correct !== result.correct || previous.points !== result.points || previous.elapsedMs !== result.elapsedMs ||
+          (tracked && (previous.streak !== streak || previous.streakBonusPoints !== streakBonusPoints))) {
         throw new Error("Widersprüchliches Frageergebnis.");
       }
     }

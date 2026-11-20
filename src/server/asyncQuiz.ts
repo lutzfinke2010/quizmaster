@@ -16,6 +16,7 @@ import {
 } from "./joinCode";
 import { ASYNC_MAX_DURATION_MS, ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_PARTICIPANTS } from "../domain/limits";
 import { ASYNC_LEGACY_SCORING, ASYNC_SPEED_V1, scoreAsyncSpeedAnswer, type AsyncScoringRule } from "../domain/scoring";
+import { advanceStreak, earnedBadges, GAMIFICATION_VERSION, streakBonus } from "../domain/gamification";
 
 const uuidSchema = z.string().uuid();
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -65,6 +66,9 @@ const publicationSchema = z.object({
     maxBonusPoints: z.number().int().nonnegative().max(1_000_000),
     bonusWindowMs: z.number().int().positive().max(86_400_000),
   }).optional(),
+  gamificationVersion: z.string().optional(),
+  streakBonusEnabled: z.boolean().optional(),
+  immediateReveal: z.boolean().optional(),
 });
 type Publication = z.infer<typeof publicationSchema> & { optionCounts?: Map<string, number> };
 const statPattern = /^stat_(\d{3})_(a[0-7])$/;
@@ -79,6 +83,9 @@ const answerRecordSchema = z.object({
   basePoints: z.number().int().nonnegative().optional(),
   bonusPoints: z.number().int().nonnegative().optional(),
   points: z.number().int().nonnegative().optional(),
+  streakBonusPoints: z.number().int().nonnegative().optional(),
+  streak: z.number().int().nonnegative().optional(),
+  maxStreak: z.number().int().nonnegative().optional(),
 });
 type AnswerRecord = z.infer<typeof answerRecordSchema>;
 const attemptSchema = z.object({
@@ -90,6 +97,9 @@ const attemptSchema = z.object({
   status: z.enum(["IN_PROGRESS", "COMPLETED"]),
   completedAt: z.number().int().positive().optional(),
   points: z.number().int().nonnegative().optional(),
+  streak: z.number().int().nonnegative().optional(),
+  maxStreak: z.number().int().nonnegative().optional(),
+  correctAnswers: z.number().int().nonnegative().optional(),
   // Nur ASYNC_SPEED_V1: Index und serverseitiger Start der zuletzt geöffneten Frage dieses Versuchs.
   currentQuestionIndex: z.number().int().nonnegative().optional(),
   currentQuestionStartedAt: z.number().int().positive().optional(),
@@ -110,7 +120,8 @@ function isSpeedScoring(publication: Publication): boolean {
 function scoringInfo(publication: Publication) {
   const rule = scoringRuleOf(publication);
   return { scoringVersion: rule.version, basePoints: rule.basePoints, maxBonusPoints: rule.maxBonusPoints,
-    bonusWindowMs: rule.bonusWindowMs };
+    bonusWindowMs: rule.bonusWindowMs, streakBonusEnabled: publication.streakBonusEnabled ?? false,
+    immediateReveal: publication.immediateReveal ?? false };
 }
 
 /** Gespeicherter Fragebeginn der aktuellen Frage – nur gültig, wenn er genau zu dieser Frage gehört. */
@@ -251,6 +262,8 @@ export async function publishAsyncQuiz(
     requestId: uuidSchema,
     expiresAt: z.number().int().positive(),
     timeZone: zoneSchema,
+    streakBonusEnabled: z.boolean().optional(),
+    immediateReveal: z.boolean().optional(),
   }).strict().parse(raw);
   z.number().int().min(1).max(365).parse(retentionDays);
   const maxParticipants = ASYNC_MAX_PARTICIPANTS;
@@ -259,6 +272,8 @@ export async function publishAsyncQuiz(
   const requestKey = { pk: ownerPk, sk: `ASYNC_REQUEST#${input.requestId}` };
   const requestHash = hash(JSON.stringify({
     quizId: input.quizId, expiresAt: input.expiresAt, timeZone: input.timeZone,
+    ...(input.streakBonusEnabled !== undefined ? { streakBonusEnabled: input.streakBonusEnabled } : {}),
+    ...(input.immediateReveal !== undefined ? { immediateReveal: input.immediateReveal } : {}),
   }));
   /** Idempotenter Retry (z. B. nach verlorenem Response): gleiche Runde, gleicher Code, keine zweite Veröffentlichung. */
   const replay = async (): Promise<PublishReceipt | undefined> => {
@@ -303,6 +318,8 @@ export async function publishAsyncQuiz(
       status: "ACTIVE", tokenHash, joinCode, createdAt, expiresAt: input.expiresAt, timeZone: input.timeZone,
       retentionAt, retentionDays, maxParticipants, startedCount: 0, statsVersion: 1, completedCount: 0,
       scoringVersion: ASYNC_SPEED_V1.version,
+      gamificationVersion: GAMIFICATION_VERSION,
+      streakBonusEnabled: input.streakBonusEnabled ?? false, immediateReveal: input.immediateReveal ?? false,
       scoring: { basePoints: ASYNC_SPEED_V1.basePoints, maxBonusPoints: ASYNC_SPEED_V1.maxBonusPoints,
         bonusWindowMs: ASYNC_SPEED_V1.bonusWindowMs },
     };
@@ -469,10 +486,12 @@ function correctChoiceIdOf(publication: Publication, questionIndex: number): str
 function answerScore(publication: Publication, answer: AnswerRecord) {
   const correct = answer.choiceId === correctChoiceIdOf(publication, answer.questionIndex);
   if (!isSpeedScoring(publication)) {
-    return { correct, points: correct ? 1 : 0, basePoints: correct ? 1 : 0, bonusPoints: 0, elapsedMs: null };
+    return { correct, points: correct ? 1 : 0, basePoints: correct ? 1 : 0, bonusPoints: 0,
+      streakBonusPoints: 0, streak: 0, maxStreak: 0, elapsedMs: null };
   }
   return { correct, points: answer.points ?? 0, basePoints: answer.basePoints ?? 0, bonusPoints: answer.bonusPoints ?? 0,
-    elapsedMs: answer.elapsedMs ?? null };
+    elapsedMs: answer.elapsedMs ?? null, streakBonusPoints: answer.streakBonusPoints ?? 0,
+    streak: answer.streak ?? 0, maxStreak: answer.maxStreak ?? 0 };
 }
 
 function guestState(publication: Publication, attempt: Attempt, answers: AnswerRecord[], now: number) {
@@ -480,15 +499,22 @@ function guestState(publication: Publication, attempt: Attempt, answers: AnswerR
   const complete = attempt.answeredCount === publication.snapshot.questions.length;
   const nextIndex = complete ? -1 : attempt.answeredCount;
   const question = roundStatus === "ACTIVE" && nextIndex >= 0 ? releasedQuestion(publication, attempt, nextIndex) : null;
-  const resultAvailable = roundStatus !== "ACTIVE";
+  const resultAvailable = roundStatus !== "ACTIVE" || publication.immediateReveal === true;
   const answerByQuestion = new Map(answers.map((answer) => [answer.questionIndex, answer]));
-  const hidden = { points: null, basePoints: null, bonusPoints: null, elapsedMs: null };
+  const hidden = { points: null, basePoints: null, bonusPoints: null, elapsedMs: null,
+    streakBonusPoints: null, streak: null, maxStreak: null };
   return {
     ...metadata(publication, now),
     displayName: attempt.displayName,
     avatarId: attempt.avatarId,
     startedAt: attempt.startedAt,
     answeredCount: attempt.answeredCount,
+    streak: resultAvailable ? !complete && roundStatus !== "ACTIVE" ? 0 : attempt.streak ?? 0 : null,
+    maxStreak: resultAvailable ? attempt.maxStreak ?? 0 : null,
+    badges: resultAvailable ? earnedBadges(
+      answers.filter((answer) => answer.choiceId === correctChoiceIdOf(publication, answer.questionIndex)).length,
+      attempt.maxStreak ?? 0, complete && answers.every((answer) => answer.choiceId === correctChoiceIdOf(publication, answer.questionIndex)),
+    ) : [],
     attemptStatus: complete ? "COMPLETED" : roundStatus === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
     nextQuestionIndex: nextIndex,
     answers: answers.map((answer) => {
@@ -505,19 +531,20 @@ function guestState(publication: Publication, attempt: Attempt, answers: AnswerR
         questionText: resultAvailable ? question.text : null,
         selectedText: resultAvailable ? selectedChoice.text : null,
         correctText: resultAvailable ? correctChoice.text : null,
-        // Vor Quizende würde schon der Punktwert die Richtigkeit verraten.
+        // Ohne Sofortauflösung würde schon der Punktwert die Richtigkeit verraten.
         ...(resultAvailable ? score : hidden),
       };
     }),
     question,
     points: resultAvailable ? answers.reduce((sum, answer) => sum + answerScore(publication, answer).points, 0) : null,
-    results: resultAvailable ? publication.snapshot.questions.map((resultQuestion, questionIndex) => {
+    results: resultAvailable ? publication.snapshot.questions.flatMap((resultQuestion, questionIndex) => {
       const answer = answerByQuestion.get(questionIndex);
+      if (roundStatus === "ACTIVE" && !answer) return [];
       const correctIndex = resultQuestion.answers.findIndex((choice) => choice.correct);
       const selectedIndex = answer ? Number(answer.choiceId.slice(1)) : -1;
       const score = answer ? answerScore(publication, answer)
         : { points: 0, basePoints: 0, bonusPoints: 0, elapsedMs: null };
-      return {
+      return [{
         questionIndex,
         questionText: resultQuestion.text,
         answered: Boolean(answer),
@@ -527,7 +554,8 @@ function guestState(publication: Publication, attempt: Attempt, answers: AnswerR
         explanation: resultQuestion.explanation,
         acceptedAt: answer?.acceptedAt ?? null,
         points: score.points, basePoints: score.basePoints, bonusPoints: score.bonusPoints, elapsedMs: score.elapsedMs,
-      };
+        streakBonusPoints: answer?.streakBonusPoints ?? 0, streak: answer?.streak ?? 0,
+      }];
     }) : [],
   };
 }
@@ -626,7 +654,7 @@ export async function startAsyncQuiz(
   }
   attempt = await ensureQuestionStart(client, tableName, publication, attempt);
   const answers = await listAttemptAnswers(client, tableName, publication.publicationId, identity);
-  return guestState(publication, attempt, answers, Date.now());
+  return visibleGuestState(client, tableName, publication, attempt, answers, Date.now());
 }
 
 export async function getMyAsyncState(
@@ -640,7 +668,21 @@ export async function getMyAsyncState(
   const answers = await listAttemptAnswers(client, tableName, publication.publicationId, identity);
   const serverTime = Date.now();
   if (publication.retentionAt <= serverTime) throw new Error("Die Aufbewahrungsfrist dieser Runde ist abgelaufen.");
-  return guestState(publication, attempt, answers, serverTime);
+  return visibleGuestState(client, tableName, publication, attempt, answers, serverTime);
+}
+
+async function visibleGuestState(
+  client: DynamoDBDocumentClient, tableName: string, publication: Publication, attempt: Attempt,
+  answers: AnswerRecord[], now: number,
+) {
+  const state = guestState(publication, attempt, answers, now);
+  let rank: number | null = null;
+  if (state.points !== null && answers.length > 0) {
+    const snapshot = await loadAsyncResultSnapshot(client, tableName, publication.publicationId, publication.ownerId, now);
+    rank = snapshot.players.find((player) => player.identityHash === attempt.identityHash)?.rank ?? null;
+    if (rank === null) throw new Error("Eigene Platzierung nicht gefunden.");
+  }
+  return { ...state, rank };
 }
 
 /**
@@ -680,6 +722,11 @@ export async function submitAsyncAnswer(
   }).strict().parse(raw);
   assertTime(now);
   const publication = await resolveToken(client, tableName, input.token, now);
+  const receiptWithResult = async (receipt: ReturnType<typeof answerReceipt>) => ({
+    ...receipt,
+    state: publication.immediateReveal === true || statusOf(publication, Date.now()) !== "ACTIVE"
+      ? await getMyAsyncState(client, tableName, input.token, identityId, Date.now()) : null,
+  });
   const identity = identityHash(identityId);
   const attemptKey = { pk: `ASYNC#${publication.publicationId}`, sk: `ATTEMPT#${identity}` };
   const attemptResult = await client.send(new GetCommand({ TableName: tableName, Key: attemptKey, ConsistentRead: true }));
@@ -695,7 +742,7 @@ export async function submitAsyncAnswer(
     const saved = answerRecordSchema.parse(prior.Item);
     if (saved.choiceId !== input.choiceId) throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
     // Idempotenter Retry: gespeicherter Annahmezeitpunkt und gespeicherte Punkte bleiben unverändert.
-    return answerReceipt(publication, attempt, input.questionIndex, saved.acceptedAt);
+    return receiptWithResult(answerReceipt(publication, attempt, input.questionIndex, saved.acceptedAt));
   }
   if (statusOf(publication, now) !== "ACTIVE") throw new Error("Die Quizfrist ist abgelaufen. Es werden keine neuen Antworten angenommen.");
   if (input.questionIndex !== attempt.answeredCount) throw new Error("Der Quizfortschritt hat sich geändert. Bitte lade den bestätigten Stand neu.");
@@ -710,22 +757,30 @@ export async function submitAsyncAnswer(
   const correct = input.choiceId === `a${question.answers.findIndex((choice) => choice.correct)}`;
   const score = speed && questionStartedAt !== null
     ? scoreAsyncSpeedAnswer(correct, questionStartedAt, acceptedAt, scoringRuleOf(publication)) : null;
+  const progress = advanceStreak(attempt.streak ?? 0, attempt.maxStreak ?? 0, correct);
+  const extra = streakBonus(progress.streak, publication.streakBonusEnabled === true);
+  const points = (score?.points ?? (correct ? 1 : 0)) + extra;
   const answer = { ...answerKey, questionIndex: input.questionIndex, choiceId: input.choiceId, acceptedAt,
     ...(score ? { questionStartedAt, elapsedMs: score.elapsedMs, basePoints: score.basePoints,
-      bonusPoints: score.bonusPoints, points: score.points } : {}),
+      bonusPoints: score.bonusPoints, points } : {}),
+    ...(publication.gamificationVersion ? { ...progress, streakBonusPoints: extra } : {}),
     ttl: Math.ceil(publication.retentionAt / 1000) };
   // Die Folgefrage bleibt bis zum ausdrücklichen „Weiter“ geschlossen; ihr Timer startet erst dann.
   const setParts = completed ? ["#status = :completed", "completedAt = :now"] : ["#status = :progress"];
+  if (publication.gamificationVersion) setParts.push("streak = :streak", "maxStreak = :maxStreak");
   try {
     await withTransactionConflictRetry(() => client.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: tableName, Key: attemptKey,
-        UpdateExpression: `SET ${setParts.join(", ")} ADD answeredCount :one, points :points`,
+        UpdateExpression: `SET ${setParts.join(", ")} ADD answeredCount :one, points :points` +
+          (publication.gamificationVersion ? ", correctAnswers :correct" : ""),
         ConditionExpression: "#status = :progress AND answeredCount = :index" +
           (speed ? " AND currentQuestionIndex = :index AND currentQuestionStartedAt = :questionStart" : ""),
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
           ":progress": "IN_PROGRESS", ":one": 1, ":index": input.questionIndex,
-          ":points": score ? score.points : correct ? 1 : 0,
+          ":points": points,
+          ...(publication.gamificationVersion ? { ":streak": progress.streak, ":maxStreak": progress.maxStreak,
+            ":correct": correct ? 1 : 0 } : {}),
           ...(completed ? { ":completed": "COMPLETED", ":now": acceptedAt } : {}),
           ...(speed ? { ":questionStart": questionStartedAt } : {}),
         } } },
@@ -744,7 +799,7 @@ export async function submitAsyncAnswer(
     if (retry.Item) {
       const saved = answerRecordSchema.parse(retry.Item);
       if (saved.choiceId === input.choiceId) {
-        return confirmedReceipt(client, tableName, publication, attemptKey, input.questionIndex, saved.acceptedAt);
+        return receiptWithResult(await confirmedReceipt(client, tableName, publication, attemptKey, input.questionIndex, saved.acceptedAt));
       }
       throw new Error("Für diese Frage wurde bereits eine andere Antwort bestätigt.");
     }
@@ -764,7 +819,7 @@ export async function submitAsyncAnswer(
   const confirmed: Attempt = {
     ...attempt, answeredCount: input.questionIndex + 1, status: completed ? "COMPLETED" : "IN_PROGRESS",
   };
-  return answerReceipt(publication, confirmed, input.questionIndex, acceptedAt);
+  return receiptWithResult(answerReceipt(publication, confirmed, input.questionIndex, acceptedAt));
 }
 
 async function queryAll(
@@ -1001,6 +1056,10 @@ async function loadAsyncResultSnapshot(
       answeredCount, questionCount,
       status: complete ? "COMPLETED" : statusOf(publication, now) === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
       points: aggregated ? attempt.points ?? 0 : legacy.filter(isCorrect).length,
+      streak: !complete && statusOf(publication, now) !== "ACTIVE" ? 0 : attempt.streak ?? 0,
+      maxStreak: attempt.maxStreak ?? 0,
+      badges: earnedBadges(attempt.correctAnswers ?? legacy.filter(isCorrect).length, attempt.maxStreak ?? 0,
+        complete && (attempt.correctAnswers ?? legacy.filter(isCorrect).length) === questionCount),
       rank: 0,
     };
   });

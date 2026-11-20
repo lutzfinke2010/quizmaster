@@ -513,6 +513,8 @@ test("Leere Runde, begrenzte Lobby, kleine Podeste und geteilte Ränge bleiben k
   const tied = players(3).map((player, index) => ({ ...player, points: index < 2 ? 4000 : 3000, rank: index < 2 ? 1 : 3 }));
   await updateGame(page, { leaderboard: tied });
   await expect(page.locator(".pedestal")).toHaveText(["Platz 1", "Platz 1", "Platz 3"]);
+  await expect.poll(() => page.locator(".podium-player").evaluateAll((elements) =>
+    elements.every((element) => getComputedStyle(element).transform === "none"))).toBe(true);
   const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
   expect(heights[0]).toBe(heights[1]);
   await page.setViewportSize({ width: 320, height: 844 });
@@ -888,3 +890,53 @@ for (const viewport of [{ width: 360, height: 640 }, { width: 375, height: 667 }
     await screenshot(page, `live-compact-${viewport.width}.png`);
   });
 }
+
+test("Gamification: Live-Punkte und Rangaufstieg feiern echte Ereignisse, nicht erneutes Laden", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await page.evaluate(() => sessionStorage.setItem("personal-result", JSON.stringify({
+    points: 950, totalPoints: 2850, streak: 3, maxStreak: 3,
+    streakBonusPoints: 100, badges: ["FIRST_CORRECT", "STREAK_3"],
+  })));
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".score-award .animated-points")).toHaveAttribute("aria-label", "950");
+  await expect(page.locator(".streak-bonus")).toContainText("+100");
+  await expect(page.locator(".achievement-badges")).toContainText("Dreier-Serie");
+  await expect(page.locator(".answer-confetti")).toHaveCount(1);
+  await expect(page.locator(".points-pop")).toHaveCount(1);
+  await expect(page.locator(".score-award .animated-points")).toHaveText("950");
+  const started = await page.locator(".points-pop").evaluate((element) => element.getAnimations()[0]?.startTime);
+  await updateGame(page, { status: "REVEAL", questionIndex: 2 });
+  expect(await page.locator(".points-pop").evaluate((element) => element.getAnimations()[0]?.startTime)).toBe(started);
+  await updateGame(page, { status: "LEADERBOARD", questionIndex: 2, leaderboard: players(10) });
+  await expect(page.locator(".rank-rise-animated")).toContainText("1 Platz gutgemacht");
+  await page.reload();
+  await expect(page.locator(".rank-rise")).toContainText("1 Platz gutgemacht");
+  await expect(page.locator(".rank-rise-animated")).toHaveCount(0);
+  await expect(page.locator(".points-pop, .answer-confetti")).toHaveCount(0);
+  await updateGame(page, { status: "FINISHED" });
+  await expect(page.locator(".finale-banner")).toContainText("Geschafft");
+  await expect(page.locator(".final-confetti")).toHaveCount(1);
+  await expectNoHorizontalOverflow(page);
+});
+
+test("Gamification: Reduced Motion behält Punkte und Abzeichen ohne Zählerfahrt oder Konfetti", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await page.evaluate(() => sessionStorage.setItem("personal-result", JSON.stringify({
+    points: 950, totalPoints: 2850, streak: 3, maxStreak: 3,
+    streakBonusPoints: 100, badges: ["FIRST_CORRECT", "STREAK_3"],
+  })));
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".score-award .animated-points")).toHaveText("950");
+  await expect(page.locator(".score-award .animated-points")).toHaveAttribute("aria-label", "950");
+  await expect(page.locator(".answer-confetti")).toHaveCount(0);
+  await expect(page.locator(".achievement-badges")).toContainText("Dreier-Serie");
+  expect(await page.locator(".milestone-pop").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+});
