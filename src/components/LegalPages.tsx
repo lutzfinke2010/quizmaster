@@ -148,6 +148,11 @@ export function PrivacyPolicyPage() {
         Europäischen Wirtschaftsraums, etwa für Betrieb oder Support, lässt sich nicht vollständig ausschließen. Soweit dies geschieht, stützt
         sich die Übermittlung auf die von AWS bereitgestellten vertraglichen und organisatorischen Garantien. Eine Weitergabe an sonstige
         Dritte oder zu Werbezwecken findet nicht statt.</p>
+      <p>Nutzt ein angemeldeter Quizmaster die Funktion „Quiz mit KI erstellen“, werden die dort eingegebenen Angaben (Titel, Thema, Vorgaben
+        und Hinweise) zur Erzeugung von Quizfragen an OpenAI (OpenAI, L.L.C. bzw. OpenAI Ireland Ltd.) übermittelt; eine Verarbeitung in den
+        USA ist möglich. Spielende sind davon nicht betroffen, und es werden keine Teilnahme- oder Spieldaten übermittelt. Quizmaster sollen
+        in diesem Formular keine personenbezogenen Daten eingeben. Der erzeugte Vorschlag wird höchstens einen Tag gespeichert, sofern er nicht
+        als Quiz gespeichert wird.</p>
     </section>
     <section>
       <h2>8. Speicherdauer und Löschung</h2>

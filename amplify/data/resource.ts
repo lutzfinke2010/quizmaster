@@ -28,6 +28,15 @@ const schema = a.schema({
     quizId: a.id().required(), version: a.integer().required(), updatedAt: a.float().required(),
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
   }),
+  QuizGenerationRequest: a.customType({
+    title: a.string().required(), topic: a.string().required(), questionCount: a.integer().required(),
+    answerCount: a.integer().required(), difficulty: a.string().required(), audience: a.string().required(),
+    language: a.string().required(), durationSeconds: a.integer().required(), includeExplanations: a.boolean().required(),
+    tone: a.string().required(), notes: a.string().required(),
+  }),
+  QuizGenerationJob: a.customType({
+    jobId: a.id().required(), status: a.string().required(), createdAt: a.float().required(), quiz: a.ref("Quiz"), error: a.string(),
+  }),
   QuizSummaryPage: a.customType({ items: a.ref("QuizSummary").array().required(), nextCursor: a.string() }),
   SessionCreated: a.customType({ sessionId: a.id().required(), joinCode: a.string().required(), presentationToken: a.string().required() }),
   SessionSummary: a.customType({
@@ -196,6 +205,10 @@ const schema = a.schema({
   deleteQuiz: a.mutation().arguments({ quizId: a.id().required(), expectedVersion: a.integer().required() })
     .returns(a.boolean()).authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   duplicateQuiz: a.mutation().arguments({ quizId: a.id().required() }).returns(a.ref("QuizRecord"))
+    .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  startQuizGeneration: a.mutation().arguments({ request: a.ref("QuizGenerationRequest").required() })
+    .returns(a.ref("QuizGenerationJob")).authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
+  getQuizGeneration: a.query().arguments({ jobId: a.id().required() }).returns(a.ref("QuizGenerationJob"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),
   listQuizzes: a.query().arguments({ cursor: a.string() }).returns(a.ref("QuizSummaryPage"))
     .authorization((allow) => [allow.group("Quizmasters")]).handler(a.handler.function(gameApi)),

@@ -5,6 +5,7 @@ import {
 } from "aws-amplify/auth/cognito";
 import { z } from "zod";
 import { quizSchema } from "./domain/quiz";
+import type { GenerationRequest } from "./domain/quizGeneration";
 import { createExpiringIdentityStorage } from "./guestIdentityStorage";
 
 export const client = generateClient();
@@ -180,11 +181,15 @@ export type Participation = z.infer<typeof participation>;
 export type SessionSummary = z.infer<typeof sessionSummary>;
 export type QuizRecord = z.infer<typeof quizRecord>;
 export type QuizSummary = z.infer<typeof quizSummary>;
+const quizGenerationJob = z.object({ jobId: z.string(), status: z.enum(["PENDING", "SUCCEEDED", "FAILED"]), createdAt: z.number(),
+  quiz: quizSchema.nullish(), error: z.string().nullish() });
+export type QuizGenerationJob = z.infer<typeof quizGenerationJob>;
 const gameEvent = z.object({ sessionId: z.string(), version: z.number(),
   participantCount: z.number().nullish(), answerCount: z.number().nullish() });
 export type GameEvent = z.infer<typeof gameEvent>;
 
 const quizFields = "quizId version updatedAt quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
+const generationFields = "jobId status createdAt error quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
 const participationFields = "sessionId participantId displayName avatarId joinedAt";
 const stateFields = `sessionId status version title joinCode streakBonusEnabled questionId questionIndex questionCount participantCount opensAt closesAt
   answerCount eligibleParticipantCount serverTime question { text answers { id text } }
@@ -218,6 +223,12 @@ export const cloud = {
   updateQuiz: (quizId: string, expectedVersion: number, quiz: z.infer<typeof quizSchema>) =>
     operation(`mutation UpdateQuiz($quizId: ID!, $expectedVersion: Int!, $quiz: QuizInput!) { updateQuiz(quizId: $quizId, expectedVersion: $expectedVersion, quiz: $quiz) { ${quizFields} } }`,
       "updateQuiz", { quizId, expectedVersion, quiz }, "userPool", quizRecord),
+  startQuizGeneration: (request: GenerationRequest) =>
+    operation(`mutation StartQuizGeneration($request: QuizGenerationRequestInput!) { startQuizGeneration(request: $request) { ${generationFields} } }`,
+      "startQuizGeneration", { request }, "userPool", quizGenerationJob),
+  getQuizGeneration: (jobId: string) =>
+    operation(`query GetQuizGeneration($jobId: ID!) { getQuizGeneration(jobId: $jobId) { ${generationFields} } }`,
+      "getQuizGeneration", { jobId }, "userPool", quizGenerationJob),
   duplicateQuiz: (quizId: string) => operation(`mutation DuplicateQuiz($quizId: ID!) { duplicateQuiz(quizId: $quizId) { ${quizFields} } }`,
     "duplicateQuiz", { quizId }, "userPool", quizRecord),
   deleteQuiz: (quizId: string, expectedVersion: number) =>
