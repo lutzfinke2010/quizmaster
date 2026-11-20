@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Zap } from "lucide-react";
 import { asyncSpeedBonus, type AsyncScoringRule } from "../domain/scoring";
+import { GameIcon } from "./GameAssets";
 
 /** Antworten bis zu dieser Länge gelten als „kurz“ und dürfen zweispaltig stehen. */
 export const SHORT_ANSWER_MAX_LENGTH = 18;
@@ -51,7 +51,7 @@ export function SpeedBonus({ startedAt, offset, rule }: { startedAt: number; off
   const bonus = asyncSpeedBonus(elapsed, rule);
   const seconds = Math.ceil((rule.bonusWindowMs - elapsed) / 1000);
   return <span className="speed-bonus" aria-live="off" title={`Tempo-Bonus noch ${seconds} Sekunden`}>
-    <Zap size={15} aria-hidden="true" />
+    <GameIcon name="speed" size={15} />
     <span>Tempo-Bonus <strong>+{points(bonus)}</strong></span>
     <span className="speed-bonus-track" aria-hidden="true">
       <span style={{ width: `${Math.max(0, Math.min(100, bonus / Math.max(1, rule.maxBonusPoints) * 100))}%` }} />

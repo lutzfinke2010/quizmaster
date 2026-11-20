@@ -7,6 +7,8 @@
   --game-track: #dce4d4;
   --game-on-primary: #fffef9;
 }
+.game-icon { display: inline-block; flex: none; object-fit: contain; vertical-align: middle; }
+.game-illustration { display: block; flex: none; width: 128px; height: 128px; aspect-ratio: 1; object-fit: contain; }
 .game-layout .header { padding-block: 16px; }
 .live-start-options { width: 100%; font-size: .85rem; }
 .live-start-options summary { cursor: pointer; padding-block: 8px; }
@@ -21,6 +23,7 @@
 .achievement-badges { display: flex; flex-wrap: wrap; list-style: none; gap: 8px; padding: 0; margin: 12px 0 0; }
 .achievement-badges li { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 12px; background: var(--game-surface); border: 1px solid var(--game-border); color: var(--teal); font-size: .75rem; font-weight: 650; }
 .score-award { position: relative; }
+.score-award .points { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .score-award > p { margin: 8px 0; font-size: .85rem; }
 .score-award .streak-bonus { display: flex; justify-content: center; align-items: center; gap: 5px; color: var(--teal); font-weight: 700; }
 .points-pop { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding: 6px 16px; border-radius: 18px; background: var(--lime); color: var(--teal); font-size: 1.5rem; font-weight: 850; white-space: nowrap; animation: points-pop 1.6s ease-out both; pointer-events: none; }
@@ -30,8 +33,9 @@
 .rank-rise-animated { animation: rank-rise .65s cubic-bezier(.2,.8,.2,1) both; }
 .rank-gained { position: relative; color: var(--teal); animation: answer-lock .45s ease-out; }
 .rank-gained::after { content: "↑"; position: absolute; right: -6px; top: -9px; color: var(--teal); font-size: .75rem; font-weight: 850; }
-.finale-banner { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; margin: 16px 0; background: var(--game-lilac); border: 1px solid var(--game-border); border-radius: 18px; color: var(--teal); font-size: clamp(1rem, 2vw, 1.4rem); text-align: center; animation: achievement-enter .55s ease-out both; }
-.finale-banner > svg { flex: none; }
+.finale-banner { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; margin: 16px 0; background: var(--game-lilac); border: 1px solid var(--game-border); border-radius: 18px; color: var(--teal); font-size: clamp(1rem, 2vw, 1.4rem); text-align: center; }
+.finale-celebrating { animation: achievement-enter .55s ease-out both; }
+.finale-banner .finale-illustration { width: 64px; height: 64px; }
 .podium-player { position: relative; }
 .podium-crown { position: absolute; top: -6px; left: calc(50% + 18px); color: var(--teal); background: var(--lime); border-radius: 8px; padding: 3px; animation: achievement-enter .6s .25s ease-out both; }
 .podium-final .podium-rank-1 .avatar { filter: drop-shadow(0 0 12px #b8d858); }
@@ -46,7 +50,7 @@
 .player-tag { animation: achievement-enter .35s ease-out both; }
 .vote-track span { transition: width .7s ease-out; animation: vote-grow .7s ease-out both; transform-origin: left; }
 .answer-progress progress::-webkit-progress-value { transition: width .35s ease-out; }
-.answer-feedback:has(strong) > svg { animation: answer-lock .3s ease-out; }
+.answer-feedback:has(strong) > .game-icon { animation: answer-lock .3s ease-out; }
 @keyframes points-pop {
   0% { opacity: 0; transform: translate(-50%, 12px) scale(.8); }
   20% { opacity: 1; transform: translate(-50%, -8px) scale(1.1); }
@@ -170,7 +174,7 @@
 .game-view .correct-answer { display: flex; align-items: center; gap: 10px; padding: 14px; margin: 22px 0; background: var(--game-soft); border: 1px solid var(--game-border); border-radius: 12px; color: var(--teal); font-size: .9rem; }
 .game-personal .reveal-question { font-size: 1.25rem; margin-top: 26px; }
 .game-personal .result-option { padding: 14px; }
-.game-view .rank-change { display: inline-block; background: var(--game-soft); color: var(--teal); font-size: .8rem; padding: 8px 12px; border-radius: 20px; margin: 12px 0; }
+.game-view .rank-change { display: inline-flex; align-items: center; gap: 5px; background: var(--game-soft); color: var(--teal); font-size: .8rem; padding: 8px 12px; border-radius: 20px; margin: 12px 0; }
 .ranking-intro { font-size: 1.15rem; margin: -12px 0 20px; }
 .game-view .podium { display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap; gap: 14px; margin: 32px 0 22px; }
 .game-view .podium > .podium-player { flex: 0 1 30%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: center; }
@@ -197,6 +201,9 @@
 .game-view .join-details p { margin: 8px 0; }
 .game-view .join-code { color: var(--teal); font-size: clamp(2.2rem, 5vw, 4.5rem); font-weight: 850; letter-spacing: .12em; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .game-view .players { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.lobby-intro { display: flex; align-items: center; gap: 12px; }
+.lobby-intro > div { flex: 1 1 auto; min-width: 0; }
+.lobby-intro .lobby-illustration { width: clamp(72px, 12vw, 128px); height: auto; }
 .game-view .player-tag { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 12px 6px 6px; background: var(--game-soft); border: 1px solid var(--line); border-radius: 30px; font-size: .85rem; font-weight: 500; animation: game-enter 200ms ease-out; }
 .game-view .player-tag span { min-width: 0; }
 .game-view .player-tag .avatar { width: 44px; height: 44px; }
@@ -219,6 +226,7 @@
 .game-presentation .game-phase:has(.ranking-phase) { padding-block: 12px; }
 .game-presentation .rank-rise { padding: 6px 10px; margin: 4px auto; font-size: .85rem; }
 .game-presentation .finale-banner { padding: 6px 12px; margin: 8px 0; font-size: 1rem; }
+.game-presentation .finale-banner .finale-illustration { width: 48px; height: 48px; }
 .game-presentation .ranking-phase:has(.finale-banner) .podium .avatar { width: 64px; height: 64px; }
 .game-presentation .ranking-phase:has(.finale-banner) .leaderboard li { padding-block: 4px; }
 .game-presentation .ranking-phase h1 { margin: 10px 0 16px; font-size: clamp(2rem, 3vw, 3rem); }
@@ -290,6 +298,12 @@
 .async-pause .question-metabar { text-align: left; }
 .async-pause .question-meta-player .avatar { width: 30px; height: 30px; flex: none; object-fit: contain; }
 .game-view .async-pause .result-sticker { width: 64px; height: 64px; margin: 18px auto 6px; }
+.moment-visual { position: relative; width: 104px; height: 104px; margin: 18px auto 8px; }
+.moment-visual .moment-illustration { width: 100%; height: 100%; }
+.game-view .moment-visual .result-sticker, .game-view .async-pause .moment-visual .result-sticker {
+  position: absolute; right: -4px; bottom: 0; width: 36px; height: 36px; margin: 0;
+  border-radius: 12px; box-shadow: 2px 2px 0 var(--ink);
+}
 .async-pause h1, .game-personal .async-pause h1 { margin: 4px 0 0; font-size: clamp(1.5rem, 5.5vw, 2rem); line-height: 1.2; }
 .async-pause h1:focus { outline: none; }
 .async-pause h1:focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
@@ -336,6 +350,7 @@
 .async-presentation { position: fixed; z-index: 1000; inset: 0; width: 100%; height: 100dvh; overflow: auto; background: var(--game-surface); }
 .async-presentation:fullscreen { width: 100vw; height: 100vh; }
 .async-presentation-board { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 100%; padding: clamp(12px, 2vh, 24px) clamp(20px, 4vw, 72px); border: 0; border-radius: 0; }
+.async-presentation-board .finale-banner .finale-illustration { width: clamp(36px, 6vh, 52px); height: clamp(36px, 6vh, 52px); }
 .async-presentation-header { display: flex; flex: none; justify-content: space-between; align-items: flex-start; gap: 12px 30px; }
 .async-presentation-header > div { min-width: 0; }
 .async-presentation-title { margin: 0; color: var(--teal); font-size: clamp(1.05rem, 1.5vw, 1.6rem); font-weight: 750; line-height: 1.2; overflow-wrap: anywhere; }

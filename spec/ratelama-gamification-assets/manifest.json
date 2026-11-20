@@ -1,0 +1,583 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "points",
+      "kind": "icon",
+      "title": "Punktefunke",
+      "description": "Vier zackiger Funke als neutrales Punktezeichen.",
+      "files": [
+        "public/assets/gamification/icons/points.svg",
+        "public/assets/gamification/icons/png/64/points.png",
+        "public/assets/gamification/icons/png/128/points.png"
+      ],
+      "use": "ScoreAward, Punktestand",
+      "dimensions": {
+        "public/assets/gamification/icons/points.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/points.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/points.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "speed",
+      "kind": "icon",
+      "title": "Tempo",
+      "description": "Abgerundeter Blitz mit Bewegungslinien.",
+      "files": [
+        "public/assets/gamification/icons/speed.svg",
+        "public/assets/gamification/icons/png/64/speed.png",
+        "public/assets/gamification/icons/png/128/speed.png"
+      ],
+      "use": "SpeedBonus",
+      "dimensions": {
+        "public/assets/gamification/icons/speed.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/speed.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/speed.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "streak-idle",
+      "kind": "icon",
+      "title": "Ruhige Serie",
+      "description": "Kleiner ruhiger Funke mit sanfter Flammenform.",
+      "files": [
+        "public/assets/gamification/icons/streak-idle.svg",
+        "public/assets/gamification/icons/png/64/streak-idle.png",
+        "public/assets/gamification/icons/png/128/streak-idle.png"
+      ],
+      "use": "Achievements unter drei",
+      "dimensions": {
+        "public/assets/gamification/icons/streak-idle.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/streak-idle.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/streak-idle.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "streak-active",
+      "kind": "icon",
+      "title": "Aktive Serie",
+      "description": "Freundliche stilisierte Flamme.",
+      "files": [
+        "public/assets/gamification/icons/streak-active.svg",
+        "public/assets/gamification/icons/png/64/streak-active.png",
+        "public/assets/gamification/icons/png/128/streak-active.png"
+      ],
+      "use": "Achievements ab drei, Bonus, Podium",
+      "dimensions": {
+        "public/assets/gamification/icons/streak-active.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/streak-active.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/streak-active.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "streak-milestone",
+      "kind": "icon",
+      "title": "Serien-Meilenstein",
+      "description": "Flamme mit wenigen Strahlen, ohne Zahl.",
+      "files": [
+        "public/assets/gamification/icons/streak-milestone.svg",
+        "public/assets/gamification/icons/png/64/streak-milestone.png",
+        "public/assets/gamification/icons/png/128/streak-milestone.png"
+      ],
+      "use": "ScoreAward Meilenstein",
+      "dimensions": {
+        "public/assets/gamification/icons/streak-milestone.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/streak-milestone.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/streak-milestone.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "rank-up",
+      "kind": "icon",
+      "title": "Rangaufstieg",
+      "description": "Pfeil aufwärts mit Stufen.",
+      "files": [
+        "public/assets/gamification/icons/rank-up.svg",
+        "public/assets/gamification/icons/png/64/rank-up.png",
+        "public/assets/gamification/icons/png/128/rank-up.png"
+      ],
+      "use": "RankRise, RankChange",
+      "dimensions": {
+        "public/assets/gamification/icons/rank-up.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/rank-up.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/rank-up.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "rank-down",
+      "kind": "icon",
+      "title": "Rang zurück",
+      "description": "Schlichter Pfeil abwärts.",
+      "files": [
+        "public/assets/gamification/icons/rank-down.svg",
+        "public/assets/gamification/icons/png/64/rank-down.png",
+        "public/assets/gamification/icons/png/128/rank-down.png"
+      ],
+      "use": "RankChange",
+      "dimensions": {
+        "public/assets/gamification/icons/rank-down.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/rank-down.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/rank-down.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "rank-steady",
+      "kind": "icon",
+      "title": "Rang gehalten",
+      "description": "Waagerechter Doppelpfeil.",
+      "files": [
+        "public/assets/gamification/icons/rank-steady.svg",
+        "public/assets/gamification/icons/png/64/rank-steady.png",
+        "public/assets/gamification/icons/png/128/rank-steady.png"
+      ],
+      "use": "RankChange",
+      "dimensions": {
+        "public/assets/gamification/icons/rank-steady.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/rank-steady.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/rank-steady.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "trophy",
+      "kind": "icon",
+      "title": "Pokal",
+      "description": "Einfacher freundlicher Pokal.",
+      "files": [
+        "public/assets/gamification/icons/trophy.svg",
+        "public/assets/gamification/icons/png/64/trophy.png",
+        "public/assets/gamification/icons/png/128/trophy.png"
+      ],
+      "use": "Ranking-Sticker, Finale",
+      "dimensions": {
+        "public/assets/gamification/icons/trophy.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/trophy.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/trophy.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "crown",
+      "kind": "icon",
+      "title": "Krone",
+      "description": "Kleine Krone mit drei runden Spitzen.",
+      "files": [
+        "public/assets/gamification/icons/crown.svg",
+        "public/assets/gamification/icons/png/64/crown.png",
+        "public/assets/gamification/icons/png/128/crown.png"
+      ],
+      "use": "Podium Rang 1",
+      "dimensions": {
+        "public/assets/gamification/icons/crown.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/crown.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/crown.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "answer-correct",
+      "kind": "icon",
+      "title": "Richtig",
+      "description": "Haken in eigener Erfolgsform mit Funken.",
+      "files": [
+        "public/assets/gamification/icons/answer-correct.svg",
+        "public/assets/gamification/icons/png/64/answer-correct.png",
+        "public/assets/gamification/icons/png/128/answer-correct.png"
+      ],
+      "use": "Reveal richtig",
+      "dimensions": {
+        "public/assets/gamification/icons/answer-correct.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/answer-correct.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/answer-correct.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "answer-incorrect",
+      "kind": "icon",
+      "title": "Daneben",
+      "description": "Weiches Kreuz in runder Form.",
+      "files": [
+        "public/assets/gamification/icons/answer-incorrect.svg",
+        "public/assets/gamification/icons/png/64/answer-incorrect.png",
+        "public/assets/gamification/icons/png/128/answer-incorrect.png"
+      ],
+      "use": "Reveal falsch",
+      "dimensions": {
+        "public/assets/gamification/icons/answer-incorrect.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/answer-incorrect.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/answer-incorrect.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "answer-saved",
+      "kind": "icon",
+      "title": "Antwort gespeichert",
+      "description": "Haken in Dokumentform ohne Richtigkeitsaussage.",
+      "files": [
+        "public/assets/gamification/icons/answer-saved.svg",
+        "public/assets/gamification/icons/png/64/answer-saved.png",
+        "public/assets/gamification/icons/png/128/answer-saved.png"
+      ],
+      "use": "AnswerTiles",
+      "dimensions": {
+        "public/assets/gamification/icons/answer-saved.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/answer-saved.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/answer-saved.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "timer",
+      "kind": "icon",
+      "title": "Timer",
+      "description": "Uhr mit Zeigern und ohne Ziffern.",
+      "files": [
+        "public/assets/gamification/icons/timer.svg",
+        "public/assets/gamification/icons/png/64/timer.png",
+        "public/assets/gamification/icons/png/128/timer.png"
+      ],
+      "use": "Timer, Countdown, ausstehende Antwort",
+      "dimensions": {
+        "public/assets/gamification/icons/timer.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/timer.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/timer.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "ready",
+      "kind": "icon",
+      "title": "Bereit",
+      "description": "Zwei unterscheidbare Bereitschaftsfunken.",
+      "files": [
+        "public/assets/gamification/icons/ready.svg",
+        "public/assets/gamification/icons/png/64/ready.png",
+        "public/assets/gamification/icons/png/128/ready.png"
+      ],
+      "use": "Countdown-Bereitschaft",
+      "dimensions": {
+        "public/assets/gamification/icons/ready.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/ready.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/ready.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "badge-generic",
+      "kind": "icon",
+      "title": "Allgemeines Abzeichen",
+      "description": "Neutrales Auszeichnungsband ohne Leistungszahl.",
+      "files": [
+        "public/assets/gamification/icons/badge-generic.svg",
+        "public/assets/gamification/icons/png/64/badge-generic.png",
+        "public/assets/gamification/icons/png/128/badge-generic.png"
+      ],
+      "use": "Fallback unbekannte Abzeichen-ID",
+      "dimensions": {
+        "public/assets/gamification/icons/badge-generic.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/icons/png/64/badge-generic.png": {
+          "px": 64
+        },
+        "public/assets/gamification/icons/png/128/badge-generic.png": {
+          "px": 128
+        }
+      }
+    },
+    {
+      "id": "first-correct",
+      "kind": "badge",
+      "title": "Erstes Aha!",
+      "description": "Abzeichen mit Glühbirne und Aha-Funken.",
+      "files": [
+        "public/assets/gamification/badges/first-correct.svg",
+        "public/assets/gamification/badges/png/256/first-correct.png",
+        "public/assets/gamification/badges/png/512/first-correct.png"
+      ],
+      "use": "Achievements, Abzeichen-Pop-up",
+      "badgeId": "FIRST_CORRECT",
+      "dimensions": {
+        "public/assets/gamification/badges/first-correct.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/badges/png/256/first-correct.png": {
+          "px": 256
+        },
+        "public/assets/gamification/badges/png/512/first-correct.png": {
+          "px": 512
+        }
+      }
+    },
+    {
+      "id": "streak-3",
+      "kind": "badge",
+      "title": "Dreier-Serie",
+      "description": "Bandform mit drei Funken, ohne Ziffer.",
+      "files": [
+        "public/assets/gamification/badges/streak-3.svg",
+        "public/assets/gamification/badges/png/256/streak-3.png",
+        "public/assets/gamification/badges/png/512/streak-3.png"
+      ],
+      "use": "Achievements ID STREAK_3",
+      "badgeId": "STREAK_3",
+      "dimensions": {
+        "public/assets/gamification/badges/streak-3.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/badges/png/256/streak-3.png": {
+          "px": 256
+        },
+        "public/assets/gamification/badges/png/512/streak-3.png": {
+          "px": 512
+        }
+      }
+    },
+    {
+      "id": "streak-5",
+      "kind": "badge",
+      "title": "Unaufhaltsam",
+      "description": "Flammen-Abzeichen mit eigener Silhouette.",
+      "files": [
+        "public/assets/gamification/badges/streak-5.svg",
+        "public/assets/gamification/badges/png/256/streak-5.png",
+        "public/assets/gamification/badges/png/512/streak-5.png"
+      ],
+      "use": "Achievements ID STREAK_5",
+      "badgeId": "STREAK_5",
+      "dimensions": {
+        "public/assets/gamification/badges/streak-5.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/badges/png/256/streak-5.png": {
+          "px": 256
+        },
+        "public/assets/gamification/badges/png/512/streak-5.png": {
+          "px": 512
+        }
+      }
+    },
+    {
+      "id": "perfect",
+      "kind": "badge",
+      "title": "Perfekte Runde",
+      "description": "Rosette mit Haken und Stern, keine Krone.",
+      "files": [
+        "public/assets/gamification/badges/perfect.svg",
+        "public/assets/gamification/badges/png/256/perfect.png",
+        "public/assets/gamification/badges/png/512/perfect.png"
+      ],
+      "use": "Achievements ID PERFECT",
+      "badgeId": "PERFECT",
+      "dimensions": {
+        "public/assets/gamification/badges/perfect.svg": {
+          "viewBox": "0 0 64 64"
+        },
+        "public/assets/gamification/badges/png/256/perfect.png": {
+          "px": 256
+        },
+        "public/assets/gamification/badges/png/512/perfect.png": {
+          "px": 512
+        }
+      }
+    },
+    {
+      "id": "lobby-welcome",
+      "kind": "illustration",
+      "title": "Willkommen",
+      "description": "Lama lädt mit offener Geste zum gemeinsamen Quiz ein.",
+      "files": [
+        "public/assets/gamification/illustrations/512/lobby-welcome.png",
+        "public/assets/gamification/illustrations/1024/lobby-welcome.png"
+      ],
+      "use": "Lobby",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/lobby-welcome.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/lobby-welcome.png": {
+          "px": 1024
+        }
+      }
+    },
+    {
+      "id": "countdown-ready",
+      "kind": "illustration",
+      "title": "Startklar",
+      "description": "Lama aufmerksam mit Bereitschaftsfunken.",
+      "files": [
+        "public/assets/gamification/illustrations/512/countdown-ready.png",
+        "public/assets/gamification/illustrations/1024/countdown-ready.png"
+      ],
+      "use": "Countdown",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/countdown-ready.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/countdown-ready.png": {
+          "px": 1024
+        }
+      }
+    },
+    {
+      "id": "answer-celebrate",
+      "kind": "illustration",
+      "title": "Aha-Moment",
+      "description": "Lama freut sich über richtige Antwort.",
+      "files": [
+        "public/assets/gamification/illustrations/512/answer-celebrate.png",
+        "public/assets/gamification/illustrations/1024/answer-celebrate.png"
+      ],
+      "use": "Richtige Antwort",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/answer-celebrate.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/answer-celebrate.png": {
+          "px": 1024
+        }
+      }
+    },
+    {
+      "id": "answer-encourage",
+      "kind": "illustration",
+      "title": "Weiter geht’s",
+      "description": "Lama freundlich und gelassen nach falscher/verpasster Antwort.",
+      "files": [
+        "public/assets/gamification/illustrations/512/answer-encourage.png",
+        "public/assets/gamification/illustrations/1024/answer-encourage.png"
+      ],
+      "use": "Falsche oder verpasste Antwort",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/answer-encourage.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/answer-encourage.png": {
+          "px": 1024
+        }
+      }
+    },
+    {
+      "id": "finale-participant",
+      "kind": "illustration",
+      "title": "Gemeinsamer Abschluss",
+      "description": "Lama feiert den Abschluss ohne Siegerhinweis.",
+      "files": [
+        "public/assets/gamification/illustrations/512/finale-participant.png",
+        "public/assets/gamification/illustrations/1024/finale-participant.png"
+      ],
+      "use": "Persönlicher Abschluss, gemeinsames Finale",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/finale-participant.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/finale-participant.png": {
+          "px": 1024
+        }
+      }
+    },
+    {
+      "id": "finale-winner",
+      "kind": "illustration",
+      "title": "Sieger",
+      "description": "Lama mit kleiner Krone und Pokal ohne Zahl.",
+      "files": [
+        "public/assets/gamification/illustrations/512/finale-winner.png",
+        "public/assets/gamification/illustrations/1024/finale-winner.png"
+      ],
+      "use": "Nur bestätigter endgültiger Rang 1",
+      "dimensions": {
+        "public/assets/gamification/illustrations/512/finale-winner.png": {
+          "px": 512
+        },
+        "public/assets/gamification/illustrations/1024/finale-winner.png": {
+          "px": 1024
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { motion, useReducedMotion } from "motion/react";
 import { Link, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
-import { ArrowRight, Bot, Check, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
+import { ArrowRight, Bot, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users } from "lucide-react";
 import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncStandingParticipant, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
@@ -28,7 +28,8 @@ import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/Questi
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { AsyncStandingsPresentation } from "./components/AsyncStandingsPresentation";
 import { ASYNC_DETAIL_PAGE_SIZE, matchesAsyncDetail, useAsyncParticipantDetails, useAsyncStandings } from "./hooks/useAsyncStandings";
-import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward, StreakBonusOption } from "./components/Gamification";
+import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward, StreakBonusOption, useFinaleTransition } from "./components/Gamification";
+import { GameIcon, MomentVisual } from "./components/GameAssets";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
 function toLocalInput(timestamp: number): string {
@@ -448,6 +449,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
   // Nach einer bestätigten Antwort pausiert das Quiz, bis die Person die nächste Frage selbst öffnet.
   const [pausedAfter, setPausedAfter] = useState<{ answeredCount: number; answer: string } | null>(null);
   const [reviewedFinal, setReviewedFinal] = useState(false);
+  const [completedLocally, setCompletedLocally] = useState(false);
   const [rankBeforeAnswer, setRankBeforeAnswer] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [clock, setClock] = useState(Date.now());
@@ -570,6 +572,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
     const choiceIndex = question.answers.findIndex((answer) => answer.id === choiceId);
     const answerLabel = `${String.fromCharCode(65 + choiceIndex)} · ${question.answers[choiceIndex]?.text ?? ""}`;
     const pauseAfter = (latest: { answeredCount: number; attemptStatus?: string | null }) => {
+      if (latest.attemptStatus === "COMPLETED") setCompletedLocally(true);
       if (latest.attemptStatus === "IN_PROGRESS" || (info?.immediateReveal && latest.attemptStatus === "COMPLETED")) {
         setPausedAfter({ answeredCount: latest.answeredCount, answer: answerLabel });
       }
@@ -620,10 +623,16 @@ function AsyncQuizPlayer({ token }: { token: string }) {
   const status = <p className="sr-only" role="status" aria-live="polite">{announcement}</p>;
   const nearDeadline = state ? state.expiresAt - now <= 10 * 60 * 1000 : false;
   const deadlineWarning = nearDeadline && <p className="deadline-warning compact" role="status">Weniger als zehn Minuten bis zum Ende.</p>;
+  const resultAvailable = Boolean(state && (state.status !== "ACTIVE" || state.immediateReveal) &&
+    state.points != null && state.answers.length >= state.answeredCount &&
+    state.answers.every((answer) => answer.correct != null) &&
+    state.results.filter((result) => result.answered && result.correct != null).length >= state.answeredCount);
+  const lastAnswerCorrect = state?.answers.find((answer) => answer.questionIndex === state.answeredCount - 1)?.correct === true;
   if (!loading && info && state && paused) {
     const justAnswered = pausedAfter?.answeredCount === state.answeredCount ? pausedAfter : null;
     const nextQuestion = state.answeredCount + 1;
-    const answerResult = state.immediateReveal ? state.answers.find((answer) => answer.questionIndex === state.answeredCount - 1) : null;
+    const lastAnswer = state.immediateReveal ? state.answers.find((answer) => answer.questionIndex === state.answeredCount - 1) : null;
+    const answerResult = lastAnswer?.correct == null ? null : lastAnswer;
     return <Layout gameMode="player">
       <div className="game-view game-personal">
         <div className="game-phase" key={`pause-${state.answeredCount}`}>
@@ -633,7 +642,9 @@ function AsyncQuizPlayer({ token }: { token: string }) {
               <span className="question-meta-progress">Pause</span>
             </div>
             {deadlineWarning}
-            <div className="result-sticker" aria-hidden="true">{justAnswered ? <Check size={34} /> : <Sparkles size={32} />}</div>
+            {answerResult ? <MomentVisual icon={answerResult.correct ? "answer-correct" : "answer-incorrect"}
+              illustration={answerResult.correct ? "answer-celebrate" : "answer-encourage"} subdued={!answerResult.correct} /> :
+              <MomentVisual icon={justAnswered ? "answer-saved" : "ready"} />}
             <h1 id="async-pause-title" ref={pauseHeadingRef} tabIndex={-1}>
               {answerResult ? answerResult.correct ? "Richtig!" : "Leider daneben" :
                 justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
@@ -641,12 +652,14 @@ function AsyncQuizPlayer({ token }: { token: string }) {
             {answerResult && <div className="personal-result">
               <ScoreAward key={answerResult.questionIndex} points={answerResult.points ?? 0}
                 extra={answerResult.streakBonusPoints} streak={answerResult.streak} badges={state.badges}
-                celebrate={Boolean(justAnswered)} eventId={`${token}:${state.startedAt}:points:${answerResult.questionIndex}`} />
+                celebrate={Boolean(justAnswered) && answerResult.correct === true}
+                eventId={`${token}:${state.startedAt}:points:${answerResult.questionIndex}`} />
               <p className="result-total"><strong><AnimatedPoints value={state.points ?? 0}
-                from={justAnswered ? (state.points ?? 0) - (answerResult.points ?? 0) : state.points ?? 0} /> Punkte</strong> insgesamt</p>
+                from={justAnswered && answerResult.correct ? (state.points ?? 0) - (answerResult.points ?? 0) : state.points ?? 0} /> Punkte</strong> insgesamt</p>
               {state.rank != null && <p>Aktuell Platz <strong>{state.rank}</strong></p>}
               {rankBeforeAnswer != null && state.rank != null && <RankRise change={rankBeforeAnswer - state.rank}
-                eventId={`${token}:${state.startedAt}:rank:${answerResult.questionIndex}`} celebrate={Boolean(justAnswered)} />}
+                eventId={`${token}:${state.startedAt}:rank:${answerResult.questionIndex}`}
+                celebrate={Boolean(justAnswered) && answerResult.correct === true} />}
               <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
               {answerResult.correctText && <p className="correct-answer">Richtige Antwort: <strong>{answerResult.correctText}</strong></p>}
               {answerResult.explanation && <p className="question-explanation">{answerResult.explanation}</p>}
@@ -687,7 +700,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
               pendingChoice={busy ? tappedChoice : null} locked={busy || !canAnswer} onAnswer={(id) => void submitAnswer(id)} />
             <ErrorBanner error={error} />
             <div className={`answer-feedback${busy && tappedChoice ? " pending" : ""}`} role="status" aria-atomic="true">
-              <Clock3 size={18} aria-hidden="true" />
+              <GameIcon name="timer" size={18} />
               <span>{busy && tappedChoice ? <><strong>Wird gesendet …</strong> {tappedLabel}</> :
                 failed ? <><strong>Nicht gespeichert:</strong> {tappedLabel} · Tippe erneut auf eine Antwort.</> :
                 "Tippe auf eine Antwort – sie wird direkt abgegeben."}</span>
@@ -720,12 +733,15 @@ function AsyncQuizPlayer({ token }: { token: string }) {
       {state ? <section className="card async-player-card">
         <div className="async-player-identity"><Avatar avatarId={state.avatarId} /><strong>{state.displayName}</strong></div>
         <h2>{state.attemptStatus === "COMPLETED" ? "Quiz abgeschlossen" : "Quiz beendet"}</h2>
-        {state.attemptStatus === "COMPLETED" && <Finale winner={state.status !== "ACTIVE" && state.rank === 1} />}
+        {state.attemptStatus === "COMPLETED" && <Finale winner={resultAvailable && state.status !== "ACTIVE" && state.rank === 1}
+          celebrate={completedLocally && resultAvailable && lastAnswerCorrect} eventId={`${token}:${state.startedAt}:finale`} />}
         <p>{state.answeredCount} von {state.questionCount} Fragen beantwortet.
           {state.attemptStatus === "EXPIRED_PARTIAL" && " Nicht beantwortete Fragen zählen als 0 Punkte."}</p>
         {state.status === "ACTIVE" && !state.immediateReveal && <p>Deine Antworten sind gespeichert. Auflösung und Ergebnis siehst du nach Ende der Runde
           ({formatDateTimeWithZone(state.expiresAt, state.timeZone)}) über diesen Link oder denselben Quiz-Code.</p>}
-        {(state.status !== "ACTIVE" || state.immediateReveal) && <><p className="async-own-total">Dein Ergebnis: <strong>
+        {(state.status !== "ACTIVE" || state.immediateReveal) && !resultAvailable &&
+          <p role="status">Dein Ergebnis ist noch nicht vollständig verfügbar.</p>}
+        {resultAvailable && <><p className="async-own-total">Dein Ergebnis: <strong>
           <AnimatedPoints value={state.points ?? 0} />{rule ? " Punkte" : ` von ${state.questionCount} Punkten`}</strong></p>
           {state.rank != null && <p>{state.status === "ACTIVE" ? "Vorläufig" : "Endstand"}: Platz <strong>{state.rank}</strong></p>}
           <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
@@ -746,7 +762,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
         </>}
       </section> : info.status === "ACTIVE" && canAnswer ? <section className="card async-player-card">
         <h2>Du spielst in deinem Tempo</h2><p>Deine Antworten werden gespeichert. Du kannst bis {formatDateTimeWithZone(info.expiresAt, info.timeZone)} mitspielen.</p>
-        {rule && <p className="async-speed-intro"><Zap size={17} aria-hidden="true" /> {speedIntro(rule)}</p>}
+        {rule && <p className="async-speed-intro"><GameIcon name="speed" size={17} /> {speedIntro(rule)}</p>}
         <p>{info.immediateReveal ? "Lösung, Punkte und Serie siehst du sofort nach jeder Antwort." : "Die Auflösung folgt nach Ende der Runde."}
           {" "}{info.streakBonusEnabled ? "Streak-Bonuspunkte sind aktiv." : "Streak-Bonuspunkte sind aus; sammle trotzdem Serien und Abzeichen."}</p>
         <button className="button primary" disabled={busy} onClick={() => void start()}>
@@ -787,6 +803,7 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
   const [detailLimit, setDetailLimit] = useState(ASYNC_DETAIL_PAGE_SIZE);
   const [presenting, setPresenting] = useState(false);
   const [open, setOpen] = useState({ questions: false, players: false, info: false });
+  const celebrateFinal = useFinaleTransition(results?.isFinal, !presenting && !error);
   const participantDetails = useAsyncParticipantDetails(publicationId, results, open.players && !presenting, detailLimit);
   const toggle = (key: keyof typeof open) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
     const isOpen = event.currentTarget.open;
@@ -821,7 +838,7 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
         <section className="game-phase ranking-phase" aria-labelledby="async-ranking-title">
           <span className="eyebrow">DAS WAR EURE RUNDE</span>
           <h1 id="async-ranking-title">Endstand</h1>
-          {leaders.length > 0 && <Finale />}
+          {leaders.length > 0 && <Finale shared celebrate={celebrateFinal} eventId={`${publicationId}:admin:finale`} />}
           <p className="ranking-intro">Zusammen gerätselt. Gemeinsam gefeiert.</p>
           {leaders.length === 0 ? <p>Noch keine Teilnehmenden.</p> : <>
             <Podium players={rankingPlayers(leaders)} formatPoints={formatPoints} />

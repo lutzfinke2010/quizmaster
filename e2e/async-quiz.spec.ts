@@ -36,13 +36,18 @@ async function mockAsync(page: Page, options: {
         timeZone: "Europe/Berlin", status: "ACTIVE", retentionAt: expiresAt + 30 * 86400000, endedAt: null, maxParticipants: 250,
         immediateReveal: IMMEDIATE, streakBonusEnabled: STREAK_BONUS, ...scoring };
       function guest(attempt) {
-        return { ...base, displayName: "Flinker Fuchs", avatarId: "avatar-001", startedAt: attempt.startedAt, completedAt: null,
-          attemptStatus: attempt.answered >= QUESTIONS.length ? "COMPLETED" : "IN_PROGRESS", answeredCount: attempt.answered,
+        const status = sessionStorage.getItem("async-guest-status") || "ACTIVE";
+        const unknownResult = sessionStorage.getItem("async-unknown-result") === "1";
+        const answers = attempt.answers.map((answer) => unknownResult ? { ...answer, correct: null } : answer);
+        const rank = sessionStorage.getItem("async-guest-rank");
+        return { ...base, status, displayName: "Flinker Fuchs", avatarId: "avatar-001", startedAt: attempt.startedAt, completedAt: null,
+          attemptStatus: attempt.answered >= QUESTIONS.length ? "COMPLETED" : status === "ACTIVE" ? "IN_PROGRESS" : "EXPIRED_PARTIAL",
+          answeredCount: attempt.answered,
           nextQuestionIndex: attempt.answered < QUESTIONS.length ? attempt.answered : null,
           question: LEGACY ? question(attempt.answered, null)
             : attempt.openedIndex === attempt.answered ? question(attempt.answered, attempt.questionStart) : null,
           points: IMMEDIATE ? attempt.answers.reduce((sum, answer) => sum + answer.points, 0) : null, serverTime: Date.now(),
-          rank: IMMEDIATE && attempt.answered > 0 ? attempt.answered >= 2 ? 1 : 3 : null,
+          rank: IMMEDIATE && attempt.answered > 0 ? rank !== null ? Number(rank) : attempt.answered >= 2 ? 1 : 3 : null,
           streak: IMMEDIATE ? attempt.answers.at(-1)?.streak || 0 : null,
           maxStreak: IMMEDIATE ? Math.max(0, ...attempt.answers.map((answer) => answer.streak || 0)) : null,
           badges: IMMEDIATE ? [
@@ -50,7 +55,7 @@ async function mockAsync(page: Page, options: {
             ...(attempt.answers.some((answer) => answer.streak >= 3) ? ["STREAK_3"] : []),
             ...(attempt.answered === QUESTIONS.length && attempt.answers.every((answer) => answer.correct) ? ["PERFECT"] : [])
           ] : [],
-          answers: attempt.answers, results: IMMEDIATE ? attempt.answers.map((answer) => ({
+          answers, results: IMMEDIATE ? answers.map((answer) => ({
             ...answer, answered: true, questionText: QUESTIONS[answer.questionIndex].text
           })) : [] };
       }
@@ -981,4 +986,229 @@ test("Gamification: Veröffentlichungsoptionen haben unabhängige Defaults und w
   await expect(page.getByText("Veröffentlicht", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("published-options")!)))
     .toEqual({ streakBonusEnabled: true, immediateReveal: false });
+});
+
+test("Gamification-Assets: gespeicherte Antworten ohne Sofortauflösung verraten kein Ergebnis", async ({ page }) => {
+  await mockAsync(page);
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await expect(page.locator('.speed-bonus img[src$="/speed.svg"]')).toBeVisible();
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("heading", { name: "Antwort gespeichert" })).toBeVisible();
+  await expect(page.locator('.async-pause img[src$="/answer-saved.svg"]')).toBeVisible();
+  await expect(page.locator('.async-pause img[src*="/illustrations/"], .score-award, .achievements, .result-total')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.async-pause img[src$="/ready.svg"]')).toBeVisible();
+  await expect(page.locator(".score-award, .achievements, .answer-confetti")).toHaveCount(0);
+  await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
+  await page.getByRole("button", { name: /Acht/ }).click();
+  await page.getByRole("button", { name: "Weiter zu Frage 3" }).click();
+  await page.getByRole("button", { name: /Grün/ }).click();
+  await expect(page.getByRole("heading", { name: "Quiz abgeschlossen" })).toBeVisible();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".async-own-total, .async-own-results, .achievements, .final-confetti")).toHaveCount(0);
+});
+
+test("Gamification-Assets: unbekannte Ergebnisse zeigen weder falsche Lösungen noch einen unbestätigten Sieg", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true, questions: [{ text: "Welche Antwort stimmt?", answers: ["Nein", "Ja"] }] });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-unknown-result", "1");
+    sessionStorage.setItem("async-guest-rank", "1");
+  });
+  await page.getByRole("button", { name: /B.*Ja/ }).click();
+  await expect(page.getByRole("heading", { name: "Antwort gespeichert" })).toBeVisible();
+  await expect(page.locator('.async-pause img[src$="/answer-saved.svg"]')).toBeVisible();
+  await expect(page.locator('.async-pause img[src*="/illustrations/"], .score-award, .achievements')).toHaveCount(0);
+  await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.getByText("Dein Ergebnis ist noch nicht vollständig verfügbar.")).toBeVisible();
+  await expect(page.locator(".async-own-total, .async-own-results, .achievements, .final-confetti")).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.setItem("async-guest-status", "ENDED"));
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator('.finale-banner img[src$="/finale-winner.png"], .final-confetti')).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.removeItem("async-unknown-result"));
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-winner.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+test("Gamification-Assets: vorläufiger Rang eins bleibt Teilnahme, erst ein bestätigter Endrang ist ein Sieg", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true, questions: [{ text: "Welche Antwort stimmt?", answers: ["Nein", "Ja"] }] });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-guest-rank", "1");
+    sessionStorage.setItem("lose-confirmation", "1");
+  });
+  await page.getByRole("button", { name: /B.*Ja/ }).click();
+  await expect(page.getByRole("heading", { name: "Richtig!" })).toBeVisible();
+  await expect(page.locator('.async-pause img[src$="/answer-celebrate.png"]')).toBeVisible();
+  await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
+  await expect(page.getByText("Vorläufig: Platz", { exact: false })).toBeVisible();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti")).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.setItem("async-guest-status", "ENDED"));
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-winner.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.setItem("async-guest-rank", "2"));
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+});
+
+test("Gamification-Assets: unvollständige Teilnahme erhält keine Abschluss- oder Siegerfeier", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByRole("heading", { name: "Richtig!" })).toBeVisible();
+  await page.evaluate(() => {
+    sessionStorage.setItem("async-guest-rank", "1");
+    sessionStorage.setItem("async-guest-status", "ENDED");
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Quiz beendet" })).toBeVisible();
+  await expect(page.getByText("Nicht beantwortete Fragen zählen als 0 Punkte.", { exact: false })).toBeVisible();
+  await expect(page.locator(".finale-banner, .final-confetti")).toHaveCount(0);
+});
+
+test("Gamification-Assets: Verbindungsfehler und falsche Antwort zeigen keine Punktefeier", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.evaluate(() => sessionStorage.setItem("submit-fail", "1"));
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.getByText(/Antwort nicht bestätigt: Netzwerkfehler/)).toBeVisible();
+  await expect(page.locator('.answer-feedback img[src$="/timer.svg"]')).toBeVisible();
+  await expect(page.locator(".score-award, .answer-confetti, .finale-banner")).toHaveCount(0);
+  await page.getByRole("button", { name: /Mars/ }).click();
+  await expect(page.getByRole("heading", { name: "Leider daneben" })).toBeVisible();
+  await expect(page.locator('.async-pause img[src$="/answer-incorrect.svg"]')).toBeVisible();
+  await expect(page.locator('.async-pause img[src$="/answer-encourage.png"]')).toBeVisible();
+  await expect(page.locator(".score-award .animated-points")).toHaveAttribute("aria-label", "0");
+  await expect(page.locator(".answer-confetti, .points-pop")).toHaveCount(0);
+});
+
+test("Gamification-Assets: eine falsche letzte Antwort löst keine Siegerfeier aus", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true, questions: [{ text: "Welche Antwort stimmt?", answers: ["Nein", "Ja"] }] });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.evaluate(() => sessionStorage.setItem("async-guest-rank", "1"));
+  await page.getByRole("button", { name: /A.*Nein/ }).click();
+  await expect(page.getByRole("heading", { name: "Leider daneben" })).toBeVisible();
+  await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+test("Gamification-Assets: Serien und Abzeichen funktionieren ohne aktivierten Bonus", async ({ page }) => {
+  await mockAsync(page, { immediateReveal: true });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
+  await page.getByRole("button", { name: /Acht/ }).click();
+  await page.getByRole("button", { name: "Weiter zu Frage 3" }).click();
+  await page.getByRole("button", { name: /Grün/ }).click();
+  await expect(page.locator(".result-total .animated-points")).toHaveAttribute("aria-label", "4.500");
+  await expect(page.locator('.achievement-badges img[src$="/streak-3.svg"]')).toBeVisible();
+  await expect(page.locator('.streak-heading img[src$="/streak-active.svg"]')).toBeVisible();
+  await expect(page.locator(".streak-bonus")).toHaveCount(0);
+});
+
+for (const width of [320, 390, 430]) {
+  test(`Gamification-Assets: Link-Quiz-Auflösung passt bei ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mockAsync(page, { immediateReveal: true });
+    await page.goto("/q/token");
+    await page.getByRole("button", { name: "Quiz starten" }).click();
+    await page.getByRole("button", { name: /Saturn/ }).click();
+    await expect(page.locator('.async-pause img[src$="/answer-celebrate.png"]')).toBeVisible();
+    await expect(page.locator('.async-pause img[src$="/answer-correct.svg"]')).toBeVisible();
+    await expect(page.locator('.score-award img[src$="/points.svg"]')).toBeVisible();
+    await expect.poll(() => page.locator('img[src*="/assets/gamification/"]').evaluateAll((images) =>
+      images.every((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`gamification-async-${width}.png`), animations: "disabled" });
+  });
+}
+
+test("Gamification-Assets: Admin-Endstand feiert den Übergang, spätere Vollbildansicht und Reload nicht", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockAsync(page, { scores: Array.from({ length: 35 }, (_, index) => index < 2 ? 5000 : 5000 - index) });
+  await page.goto("/admin/async/p1");
+  await expect(page.locator(".async-leaders .podium-rank-1 .podium-crown")).toHaveCount(2);
+  await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
+  await page.getByRole("button", { name: "Aktualisieren", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".finale-banner")).toContainText("gemeinsam zu feiern");
+  await expect(page.locator(".final-confetti")).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await expect(stage.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(stage.locator(".podium-rank-1 .podium-crown")).toHaveCount(2);
+  await expect(stage.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  await expect.poll(() => stage.locator(".async-presentation-list-area").evaluate((area) => area.scrollHeight <= area.clientHeight + 1)).toBe(true);
+  const bounds = await stage.evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth,
+    height: element.clientHeight, scrollHeight: element.scrollHeight }));
+  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
+  expect(bounds.scrollHeight).toBeLessThanOrEqual(bounds.height);
+  await page.screenshot({ path: test.info().outputPath("gamification-async-final-1920.png"), animations: "disabled" });
+});
+
+test("Gamification-Assets: ein während der Vollbildansicht eintreffendes Finale feiert nur dort einmal", async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T12:00:00Z") });
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
+  await page.clock.runFor(10_000);
+  await expect(stage.getByRole("heading", { name: "Endstand" })).toBeVisible();
+  await expect(stage.locator(".final-confetti")).toHaveCount(1);
+  await stage.getByRole("button", { name: "Vollbild beenden" }).click();
+  await expect(stage).toBeHidden();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  await expect(stage.locator(".finale-banner")).toBeVisible();
+  await expect(stage.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+test("Gamification-Assets: ein während eines Verbindungsfehlers verpasstes Finale wird nicht nachgefeiert", async ({ page }) => {
+  await mockAsync(page);
+  await page.goto("/admin/async/p1");
+  await page.evaluate(() => sessionStorage.setItem("async-standings-fail", "1"));
+  await page.getByRole("button", { name: "Aktualisieren", exact: true }).click();
+  await expect(page.getByText(/Aktualisierung fehlgeschlagen: Netzwerkfehler/)).toBeVisible();
+  await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
+  await page.getByRole("button", { name: "Aktualisieren", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+test("Gamification-Assets: Reduced Motion lässt das Vollbildfinale ohne bewegte Elemente lesbar", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockAsync(page, { status: "ENDED" });
+  await page.goto("/admin/async/p1");
+  await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
+  const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
+  await expect(stage.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(stage.locator(".podium-rank-1 .podium-crown")).toHaveCount(2);
+  await expect(stage.locator(".answer-confetti")).toHaveCount(0);
+  await expect.poll(() => stage.locator(".podium-player").evaluateAll((players) =>
+    players.every((player) => getComputedStyle(player).transform === "none"))).toBe(true);
+  expect(await stage.locator(".finale-banner, .podium-crown").evaluateAll((elements) =>
+    elements.every((element) => getComputedStyle(element).animationName === "none"))).toBe(true);
 });

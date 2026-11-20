@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+
+const gamificationManifest = JSON.parse(readFileSync(
+  new URL("../spec/ratelama-gamification-assets/manifest.json", import.meta.url), "utf8",
+)) as { assets: Array<{ files: string[] }> };
 
 async function localMode(page: Page) {
   await page.route("**/amplify_outputs.json", (route) => route.fulfill({ status: 404 }));
@@ -18,6 +23,18 @@ async function expectNoHorizontalOverflow(page: Page) {
     }).map((element) => element.className).filter((name) => typeof name === "string"),
   }));
   expect(overflow.scrollWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width);
+}
+
+async function expectGameImagesLoaded(page: Page) {
+  const images = page.locator('img[src*="/assets/gamification/"]');
+  await expect.poll(() => images.evaluateAll((elements) => elements
+    .filter((element) => {
+      const image = element as HTMLImageElement;
+      return !image.complete || image.naturalWidth === 0;
+    }).map((element) => (element as HTMLImageElement).src))).toEqual([]);
+  await expect.poll(() => images.evaluateAll((elements) => elements.every((element) =>
+    element.getAttribute("alt") === "" && element.getAttribute("aria-hidden") === "true" &&
+    element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0))).toBe(true);
 }
 
 async function expectReadableText(page: Page, selectors: string) {
@@ -908,8 +925,15 @@ test("Gamification: Live-Punkte und Rangaufstieg feiern echte Ereignisse, nicht 
   await expect(page.locator(".answer-confetti")).toHaveCount(1);
   await expect(page.locator(".points-pop")).toHaveCount(1);
   await expect(page.locator(".score-award .animated-points")).toHaveText("950");
+  await expect.poll(() => page.locator(".points-pop").evaluate((element) =>
+    typeof element.getAnimations()[0]?.startTime)).toBe("number");
   const started = await page.locator(".points-pop").evaluate((element) => element.getAnimations()[0]?.startTime);
   await updateGame(page, { status: "REVEAL", questionIndex: 2 });
+  expect(await page.locator(".points-pop").evaluate((element) => element.getAnimations()[0]?.startTime)).toBe(started);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(page.getByText("Du bist offline.", { exact: false })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByText("Du bist offline.", { exact: false })).toHaveCount(0);
   expect(await page.locator(".points-pop").evaluate((element) => element.getAnimations()[0]?.startTime)).toBe(started);
   await updateGame(page, { status: "LEADERBOARD", questionIndex: 2, leaderboard: players(10) });
   await expect(page.locator(".rank-rise-animated")).toContainText("1 Platz gutgemacht");
@@ -939,4 +963,214 @@ test("Gamification: Reduced Motion behält Punkte und Abzeichen ohne Zählerfahr
   await expect(page.locator(".answer-confetti")).toHaveCount(0);
   await expect(page.locator(".achievement-badges")).toContainText("Dreier-Serie");
   expect(await page.locator(".milestone-pop").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+  await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 4, leaderboard: players(4) });
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti")).toHaveCount(0);
+  expect(await page.locator(".finale-banner").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+});
+
+test("Gamification-Assets: alle 26 Motive und 72 lokalen Varianten sind erreichbar", async ({ request }) => {
+  expect(gamificationManifest.assets).toHaveLength(26);
+  const files = gamificationManifest.assets.flatMap((asset) => asset.files);
+  expect(new Set(files).size).toBe(72);
+  await Promise.all(files.map(async (file) => {
+    expect(file).toMatch(/^public\/assets\/gamification\//);
+    const response = await request.get(`/${file.slice("public/".length)}`);
+    expect(response.ok(), file).toBe(true);
+    const bytes = await response.body();
+    if (file.endsWith(".svg")) {
+      expect(bytes.toString("utf8"), file).toMatch(/<svg[\s\S]*viewBox=/);
+    } else {
+      const size = Number(file.match(/\/(64|128|256|512|1024)\//)?.[1]);
+      expect(size, file).toBeGreaterThan(0);
+      expect(bytes.subarray(0, 8).toString("hex"), file).toBe("89504e470d0a1a0a");
+      expect(bytes.readUInt32BE(16), file).toBe(size);
+      expect(bytes.readUInt32BE(20), file).toBe(size);
+      expect([4, 6], file).toContain(bytes[25]);
+    }
+  }));
+});
+
+test("Gamification-Assets: bestätigte Punkte, Meilensteine und alle Badge-IDs behalten ihre Bedeutung", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator('.answer-feedback img[src$="/answer-saved.svg"]')).toBeVisible();
+  await page.evaluate(() => sessionStorage.setItem("personal-result", JSON.stringify({
+    points: 950, totalPoints: 2850, streak: 5, maxStreak: 5, streakBonusPoints: 200,
+    badges: ["FIRST_CORRECT", "STREAK_3", "STREAK_5", "PERFECT", "__proto__"],
+  })));
+  await setPhase(page, "REVEAL");
+  await expect(page.locator('.moment-visual img[src$="/answer-celebrate.png"]')).toBeVisible();
+  await expect(page.locator('.moment-visual img[src$="/answer-celebrate.png"]'))
+    .toHaveAttribute("srcset", /\/illustrations\/1024\/answer-celebrate\.png 2x$/);
+  await expect(page.locator('.moment-visual img[src$="/answer-correct.svg"]')).toBeVisible();
+  await expect(page.locator('.score-award img[src$="/points.svg"]')).toBeVisible();
+  await expect(page.locator('.streak-bonus img[src$="/streak-active.svg"]')).toBeVisible();
+  await expect(page.locator('.milestone-pop img[src$="/streak-milestone.svg"]')).toBeVisible();
+  await expect(page.locator(".achievement-badges li")).toHaveText([
+    "Erstes Aha!", "Dreier-Serie", "Unaufhaltsam", "Perfekte Runde", "__proto__",
+  ]);
+  expect(await page.locator(".achievement-badges img").evaluateAll((images) =>
+    images.map((image) => image.getAttribute("src")?.split("/").at(-1)))).toEqual([
+    "first-correct.svg", "streak-3.svg", "streak-5.svg", "perfect.svg", "badge-generic.svg",
+  ]);
+  await expect(page.locator('.badge-pop img[src$="/badge-generic.svg"]')).toBeVisible();
+  await expectGameImagesLoaded(page);
+});
+
+for (const answered of [false, true]) {
+  test(`Gamification-Assets: ${answered ? "falsche" : "fehlende"} Antwort feiert keinen Punktgewinn`, async ({ page }) => {
+    await mockGame(page);
+    await page.goto("/play/design");
+    if (answered) {
+      await page.getByRole("button", { name: /Mars/ }).click();
+      await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+    }
+    await setPhase(page, "REVEAL");
+    await expect(page.locator(".result-message")).toHaveText(answered ? "Leider daneben" : "Zeit abgelaufen · Keine Antwort");
+    await expect(page.locator('.moment-visual img[src$="/answer-encourage.png"]')).toBeVisible();
+    await expect(page.locator(`.moment-visual img[src$="/${answered ? "answer-incorrect" : "timer"}.svg"]`)).toBeVisible();
+    await expect(page.locator(".score-award .animated-points")).toHaveAttribute("aria-label", "0");
+    await expect(page.locator(".points-pop, .answer-confetti")).toHaveCount(0);
+    await expectGameImagesLoaded(page);
+    const own = { ...players(4)[3], rank: 1, correctAnswers: 0 };
+    await updateGame(page, { status: "FINISHED", leaderboard: [own] });
+    await expect(page.locator(".finale-banner")).toBeVisible();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+  });
+}
+
+test("Gamification-Assets: Rangaufstieg, Rangverlust und gleicher Rang verwenden die passenden Symbole", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  const leaderboard = players(4);
+  for (const [change, symbol, label] of [
+    [1, "rank-up", "1 Platz gutgemacht"],
+    [-2, "rank-down", "2 Plätze zurück"],
+    [0, "rank-steady", "Platz gehalten"],
+  ] as const) {
+    leaderboard[3] = { ...leaderboard[3], previousRank: 4 + change, rank: 4, rankChange: change };
+    await updateGame(page, { status: "LEADERBOARD", questionIndex: 1, leaderboard });
+    await expect(page.locator(".rank-change")).toContainText(label);
+    await expect(page.locator(`.rank-change img[src$="/${symbol}.svg"]`)).toBeVisible();
+    await expect(page.locator(".rank-rise-animated")).toHaveCount(change > 0 ? 1 : 0);
+  }
+  await expectGameImagesLoaded(page);
+});
+
+test("Gamification-Assets: ein bestätigter Live-Sieg zeigt das Siegerlama nur einmal", async ({ page }) => {
+  await mockGame(page);
+  await page.goto("/play/design");
+  await page.getByRole("button", { name: /Saturn/ }).click();
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await setPhase(page, "REVEAL");
+  await expect(page.locator(".result-message")).toHaveText("Richtig!");
+  const own = { ...players(4)[3], rank: 1, previousRank: 2, rankChange: 1 };
+  await updateGame(page, { status: "FINISHED", leaderboard: [own] });
+  await expect(page.locator('.finale-banner img[src$="/finale-winner.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti")).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.finale-banner img[src$="/finale-winner.png"]')).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+test("Gamification-Assets: geteilte Siege und das Präsentationsfinale bleiben bei 1920 px korrekt", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockGame(page);
+  await page.goto("/present/design");
+  const tied = players(24).map((player, index) => ({
+    ...player, points: index < 2 ? 4000 : player.points, rank: index < 2 ? 1 : index + 1,
+  }));
+  await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 24, leaderboard: tied });
+  await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+  await expect(page.locator(".finale-banner")).toContainText("gemeinsam zu feiern");
+  await expect(page.locator(".podium-rank-1 .podium-crown")).toHaveCount(2);
+  await expect(page.locator(".podium-rank-3 .podium-crown")).toHaveCount(0);
+  await expect(page.locator(".final-confetti")).toHaveCount(1);
+  await expect.poll(() => page.locator(".podium-player").evaluateAll((elements) =>
+    elements.every((element) => getComputedStyle(element).transform === "none"))).toBe(true);
+  const heights = await page.locator(".pedestal").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+  expect(heights[0]).toBe(heights[1]);
+  expect(await page.locator(".game-view").evaluate((element) => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1080);
+  await expectNoHorizontalOverflow(page);
+  await expectGameImagesLoaded(page);
+  await screenshot(page, "gamification-final-1920.png");
+  await page.reload();
+  await expect(page.locator(".finale-banner")).toBeVisible();
+  await expect(page.locator(".final-confetti, .finale-celebrating")).toHaveCount(0);
+});
+
+for (const width of [320, 390, 430]) {
+  test(`Gamification-Assets: Lobby, Countdown, Auflösung und persönliches Finale passen bei ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mockGame(page);
+    await page.goto("/play/design");
+    await updateGame(page, { status: "LOBBY", participantCount: 2 });
+    await expect(page.locator('.lobby-intro img[src$="/lobby-welcome.png"]')).toBeVisible();
+    await expect(page.locator(".player-identity")).toContainText("Fröhlicher Fuchs");
+    await expectNoHorizontalOverflow(page);
+    await updateGame(page, { status: "COUNTDOWN", opensAt: Date.now() + 60_000 });
+    await expect(page.locator('.moment-visual img[src$="/countdown-ready.png"]')).toBeVisible();
+    await expect(page.locator('.moment-visual img[src$="/ready.svg"]')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await setPhase(page, "QUESTION_OPEN");
+    await page.getByRole("button", { name: /Saturn/ }).click();
+    await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+    await setPhase(page, "REVEAL");
+    await expect(page.locator('.moment-visual img[src$="/answer-celebrate.png"]')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 4, leaderboard: players(4) });
+    await expect(page.locator('.finale-banner img[src$="/finale-participant.png"]')).toBeVisible();
+    await expect(page.locator('.personal-ranking img[src$="/trophy.svg"]')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expect.poll(() => page.locator(".leaderboard li").evaluateAll((elements) =>
+      elements.every((element) => getComputedStyle(element).transform === "none"))).toBe(true);
+    const vertical = await page.evaluate(() => ({
+      list: document.querySelector(".leaderboard")!.getBoundingClientRect().bottom,
+      footnote: document.querySelector(".game-footnote")!.getBoundingClientRect().top,
+    }));
+    expect(vertical.list).toBeLessThanOrEqual(vertical.footnote);
+    await expectGameImagesLoaded(page);
+    await screenshot(page, `gamification-final-${width}.png`);
+  });
+}
+
+test.describe("Gamification-Assets: lokale Fallbacks", () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test("SVG fällt auf PNG, defekte Badges auf Lucide und Illustrationen auf 1x bzw. Sticker zurück", async ({ page }) => {
+    const warnings: string[] = [];
+    page.on("console", (message) => { if (message.type() === "warning") warnings.push(message.text()); });
+    await mockGame(page);
+    await page.route("**/assets/gamification/**", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return [
+        "/icons/timer.svg", "/badges/first-correct.svg", "/badges/png/256/first-correct.png",
+        "/illustrations/1024/answer-celebrate.png",
+      ].some((suffix) => path.endsWith(suffix)) ? route.abort() : route.continue();
+    });
+    await page.goto("/play/design");
+    await expect(page.locator('.answer-feedback img[src$="/icons/png/128/timer.png"]')).toBeVisible();
+    await page.getByRole("button", { name: /Saturn/ }).click();
+    await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+    await page.evaluate(() => sessionStorage.setItem("personal-result", JSON.stringify({ badges: ["FIRST_CORRECT"] })));
+    await setPhase(page, "REVEAL");
+    const illustration = page.locator('.moment-visual img[src$="/answer-celebrate.png"]');
+    await expect(illustration).toBeVisible();
+    await expect.poll(() => illustration.evaluate((element) => (element as HTMLImageElement).currentSrc))
+      .toContain("/illustrations/512/answer-celebrate.png");
+    await expect(page.locator(".achievement-badges svg.game-icon")).toBeVisible();
+    await expect(page.locator(".achievement-badges")).toContainText("Erstes Aha!");
+    await expect(page.locator(".result-message")).toHaveText("Richtig!");
+    expect(warnings.some((warning) => warning.includes("Gamification-Grafik konnte nicht geladen werden"))).toBe(true);
+
+    await page.route("**/illustrations/512/answer-celebrate.png", (route) => route.abort());
+    await page.reload();
+    await expect(page.locator(".result-message")).toHaveText("Richtig!");
+    await expect(page.locator(".moment-visual")).toHaveCount(0);
+    await expect(page.locator('.personal-result .result-sticker img[src$="/answer-correct.svg"]')).toBeVisible();
+    await expect(page.locator(".points-pop, .answer-confetti")).toHaveCount(0);
+  });
 });

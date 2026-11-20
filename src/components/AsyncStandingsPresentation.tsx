@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { Maximize2 } from "lucide-react";
 import type { AsyncStandings } from "../cloud";
 import { Avatar, Podium } from "./GameView";
-import { AnimatedPoints, Finale, RankRise } from "./Gamification";
+import { AnimatedPoints, Finale, RankRise, useFinaleTransition } from "./Gamification";
 import { motion, useReducedMotion } from "motion/react";
 
 const PAGE_INTERVAL_MS = 8_000;
@@ -25,6 +25,7 @@ export function AsyncStandingsPresentation({ standings, statusText, formatPoints
   const [capacity, setCapacity] = useState(1);
   const [position, setPosition] = useState({ start: 0, page: 1 });
   const [paused, setPaused] = useState(false);
+  const celebrateFinal = useFinaleTransition(standings.isFinal, presenting && !error);
   const stage = useRef<HTMLDivElement>(null);
   const listArea = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -148,7 +149,8 @@ export function AsyncStandingsPresentation({ standings, statusText, formatPoints
           {" "}<button className="button secondary small" disabled={refreshing} onClick={onRefresh}>Erneut versuchen</button>
         </div>}
         {hint && <p className="async-presentation-hint" role="status">{hint}</p>}
-        {standings.isFinal && podium.length > 0 && <Finale />}
+        {standings.isFinal && podium.length > 0 &&
+          <Finale shared celebrate={celebrateFinal} eventId={`${standings.publicationId}:presentation:finale`} />}
         {!standings.isFinal && (standings.participants[0]?.rankChange ?? 0) > 0 &&
           (standings.participants[0]?.previousRank ?? 0) > 1 &&
           <RankRise change={standings.participants[0].rankChange ?? 0}

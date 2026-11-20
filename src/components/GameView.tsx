@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Check, CheckCircle2, Clock3, Sparkles, Trophy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import avatars from "../domain/avatars.json";
 import type { GameState, MyResult, Participation } from "../cloud";
 import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward } from "./Gamification";
+import { GameIcon, GameIllustration, MomentVisual } from "./GameAssets";
 import { STREAK_RULE_TEXT } from "../domain/gamification";
 import { answerColumns, useQuestionFocus } from "./QuestionLayout";
 import "./game.css";
@@ -40,7 +40,7 @@ export function Avatar({ avatarId }: { avatarId: string }) {
 export function Timer({ deadline, offset, now, compact = false }: { deadline: number; offset: number; now: number; compact?: boolean }) {
   const seconds = Math.max(0, Math.ceil((deadline - now - offset) / 1000));
   if (compact) return <span className={`timer-pill${seconds > 0 && seconds <= 3 ? " timer-urgent" : ""}`} role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
-    <Clock3 size={15} aria-hidden="true" />{seconds} s</span>;
+    <GameIcon name="timer" size={15} />{seconds} s</span>;
   return <span className={`timer${seconds > 0 && seconds <= 3 ? " timer-urgent" : ""}`} role="timer" aria-live="off" aria-label={`Noch ${seconds} Sekunden`}>
     <span key={seconds} className="timer-digit">{seconds}</span><small>Sekunden</small></span>;
 }
@@ -66,8 +66,9 @@ function AnswerProgress({ state }: { state: GameState }) {
 function RankChange({ player, questionIndex }: { player: RankedPlayer; questionIndex: number }) {
   if (questionIndex < 1 || player.previousRank < 1) return null;
   const change = player.rankChange;
-  return <span className="rank-change">{change > 0 ? `↑ ${change} ${change === 1 ? "Platz" : "Plätze"} gutgemacht` :
-    change < 0 ? `↓ ${-change} ${change === -1 ? "Platz" : "Plätze"} zurück` : "↔ Platz gehalten"}</span>;
+  return <span className="rank-change"><GameIcon name={change > 0 ? "rank-up" : change < 0 ? "rank-down" : "rank-steady"} size={16} />
+    {change > 0 ? `${change} ${change === 1 ? "Platz" : "Plätze"} gutgemacht` :
+      change < 0 ? `${-change} ${change === -1 ? "Platz" : "Plätze"} zurück` : "Platz gehalten"}</span>;
 }
 
 export function Podium({ players, final = true, formatPoints = number, animateChanges = false }: {
@@ -80,17 +81,15 @@ export function Podium({ players, final = true, formatPoints = number, animateCh
     {podium.map((player) => <motion.div layout={reduced ? false : "position"} initial={reduced ? false : { opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .45, delay: reduced ? 0 : player.rank === 1 ? .35 : player.rank === 2 ? .15 : 0 }}
       className={`podium-player podium-rank-${Math.min(player.rank, 3)}`} key={player.participantId}>
-      {player.rank === 1 && <Trophy className="podium-crown" size={28} aria-hidden="true" />}
+      {player.rank === 1 && <GameIcon name="crown" className="podium-crown" size={28} />}
       <Avatar avatarId={player.avatarId} /><strong>{player.displayName}</strong><span><AnimatedPoints value={player.points}
         from={animateChanges ? player.previousPoints ?? player.points : player.points} format={formatPoints} /> Punkte</span>
-      {(player.streak ?? 0) >= 3 && <small className="podium-streak"><FlameIcon />{player.streak} in Folge</small>}
+      {(player.streak ?? 0) >= 3 && <small className="podium-streak"><GameIcon name="streak-active" size={16} />{player.streak} in Folge</small>}
       {player.detail && <small className="podium-detail">{player.detail}</small>}
       <div className="pedestal"><span className="sr-only">Platz </span>{player.rank}</div>
     </motion.div>)}
   </div>;
 }
-
-function FlameIcon() { return <span aria-hidden="true">🔥</span>; }
 
 export function Leaderboard({ players, participantId, label = "Weitere Plätze", formatPoints = number, animateChanges = false }: {
   players: RankingPlayer[]; participantId?: string; label?: string; formatPoints?: (points: number) => string; animateChanges?: boolean;
@@ -111,8 +110,8 @@ export function Leaderboard({ players, participantId, label = "Weitere Plätze",
   </ol>;
 }
 
-function Ranking({ state, participant, personal, celebrate }: {
-  state: GameState; participant?: Participation | null; personal: boolean; celebrate: boolean;
+function Ranking({ state, participant, personal, celebrate, celebrateFinal }: {
+  state: GameState; participant?: Participation | null; personal: boolean; celebrate: boolean; celebrateFinal: boolean;
 }) {
   const final = state.status === "FINISHED";
   const ownIndex = state.leaderboard.findIndex((player) => player.participantId === participant?.participantId);
@@ -123,9 +122,11 @@ function Ranking({ state, participant, personal, celebrate }: {
   return <section className="ranking-phase" aria-labelledby="ranking-title">
     <span className="eyebrow">{final ? "DAS WAR EURE RUNDE" : `ZWISCHENSTAND · NACH FRAGE ${state.questionIndex + 1}`}</span>
     <h1 id="ranking-title">{final ? "Endstand" : "Zwischenstand"}</h1>
-    {final && state.leaderboard.length > 0 && <Finale winner={personal && own?.rank === 1} />}
+    {final && (personal ? Boolean(own) : state.leaderboard.length > 0) &&
+      <Finale winner={personal && own?.rank === 1} shared={!personal} celebrate={celebrateFinal}
+        eventId={`${state.sessionId}:${personal ? participant?.participantId ?? "personal" : "shared"}:finale`} />}
     {personal ? own ? <div className="personal-ranking">
-      <div className="result-sticker" aria-hidden="true"><Trophy size={32} /></div>
+      <div className="result-sticker" aria-hidden="true"><GameIcon name="trophy" size={32} /></div>
       <h2><span className="sr-only">Dein {final ? "Endstand" : "Zwischenstand"}: </span>Platz {own.rank}</h2>
       <div className="points"><AnimatedPoints value={own.points} from={celebrate ? own.previousPoints ?? own.points : own.points} /></div><p>Punkte insgesamt</p>
       {final && <p>{own.correctAnswers} von {state.questionCount} Fragen richtig beantwortet</p>}
@@ -160,8 +161,8 @@ export function AnswerTiles({ answers, selected, pendingChoice, locked, onAnswer
     const isPending = pendingChoice === answer.id;
     const content = <><span className="answer-letter">{String.fromCharCode(65 + index)}</span>
       <span className="answer-content"><span className="answer-text">{answer.text}</span>
-        {isSelected && <span className="answer-state"><Check size={15} aria-hidden="true" />Deine Antwort · abgegeben</span>}
-        {isPending && <span className="answer-state"><Clock3 size={15} aria-hidden="true" />Wird gesendet …</span>}
+        {isSelected && <span className="answer-state"><GameIcon name="answer-saved" size={15} />Deine Antwort · abgegeben</span>}
+        {isPending && <span className="answer-state"><GameIcon name="timer" size={15} />Wird gesendet …</span>}
       </span></>;
     const className = `answer-tile${isSelected ? " is-selected" : ""}${isPending ? " is-pending" : ""}`;
     return onAnswer ? <button key={answer.id} type="button" className={className}
@@ -192,20 +193,21 @@ function Reveal({ state, result, personal, selected, celebrate, eventScope }: {
     <span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount} · AUFLÖSUNG</span>
     <h1 id="reveal-title">Auflösung</h1>
     {personal && (result ? <div className="personal-result">
-      <div className={`result-sticker${result.correct ? "" : " result-sticker-peach"}`} aria-hidden="true">
-        {result.correct ? <Sparkles size={34} /> : <Clock3 size={34} />}</div>
+      <MomentVisual icon={!result.answered ? "timer" : result.correct ? "answer-correct" : "answer-incorrect"}
+        illustration={result.answered && result.correct ? "answer-celebrate" : "answer-encourage"}
+        subdued={!result.answered || !result.correct} />
       <h2 className="result-message" role="status">{!result.answered ? "Zeit abgelaufen · Keine Antwort" :
         result.correct ? "Richtig!" : "Leider daneben"}</h2>
       <ScoreAward key={result.questionId} points={result.points} extra={result.streakBonusPoints}
-        streak={result.streak} badges={result.badges} celebrate={celebrate}
+        streak={result.streak} badges={result.badges} celebrate={celebrate && result.answered && result.correct}
         eventId={`${eventScope}:points:${result.questionId}`} />
       <p className="result-total"><strong><AnimatedPoints value={result.totalPoints}
-        from={celebrate ? result.totalPoints - result.points : result.totalPoints} /> Punkte</strong> insgesamt</p>
+        from={celebrate && result.answered && result.correct ? result.totalPoints - result.points : result.totalPoints} /> Punkte</strong> insgesamt</p>
       <Achievements streak={result.streak} maxStreak={result.maxStreak} badges={result.badges} />
       {result.answered && result.elapsedMs != null &&
         <p className="result-time">Geantwortet in {(result.elapsedMs / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} Sekunden</p>}
     </div> : <p role="status">Dein Ergebnis wird geladen …</p>)}
-    {personal && correct && <p className="correct-answer"><CheckCircle2 size={21} aria-hidden="true" />
+    {personal && correct && <p className="correct-answer"><GameIcon name="answer-correct" size={21} />
       <span>Richtige Antwort: <strong>{String.fromCharCode(65 + correctIndex)} · {correct.text}</strong></span></p>}
     <h2 className="reveal-question">{question.text}</h2>
     <div className="results-grid">{question.answers.map((answer, index) => {
@@ -214,8 +216,8 @@ function Reveal({ state, result, personal, selected, celebrate, eventScope }: {
       return <div className={`result-option${isCorrect ? " correct" : ""}`} key={answer.id}>
         <div className="result-option-heading"><span className="answer-letter">{String.fromCharCode(65 + index)}</span>
           <strong>{answer.text}</strong></div>
-        {isCorrect && <span className="answer-state"><CheckCircle2 size={17} aria-hidden="true" />Richtige Antwort</span>}
-        {selected === answer.id && <span className="answer-state"><Check size={16} aria-hidden="true" />Deine Antwort</span>}
+        {isCorrect && <span className="answer-state"><GameIcon name="answer-correct" size={17} />Richtige Antwort</span>}
+        {selected === answer.id && <span className="answer-state"><GameIcon name="answer-saved" size={16} />Deine Antwort</span>}
         <span className="answer-votes">{count} {count === 1 ? "Stimme" : "Stimmen"}</span>
         <div className="vote-track" aria-hidden="true"><span style={{ width: `${votes > 0 ? Math.min(100, count / votes * 100) : 0}%` }} /></div>
       </div>;
@@ -266,9 +268,11 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
     </div>}
     <div className="game-phase" key={active ? `question-${state.questionId}` : `${phase}-${state.questionId}`}>
       {phase === "LOBBY" && <section className="lobby-phase">
-        <span className="eyebrow">ZUSAMMEN WIRD’S EINE RUNDE</span>
-        <h1>{personal ? "Du bist dabei." : "Ein Platz für dein Aha."}</h1>
-        <p>Die Runde beginnt, sobald der Quizmaster startet.</p>
+        <div className="lobby-intro"><div>
+          <span className="eyebrow">ZUSAMMEN WIRD’S EINE RUNDE</span>
+          <h1>{personal ? "Du bist dabei." : "Ein Platz für dein Aha."}</h1>
+          <p>Die Runde beginnt, sobald der Quizmaster startet.</p>
+        </div><GameIllustration name="lobby-welcome" className="lobby-illustration" /></div>
         {!personal && (joinCode || state.joinCode) && <JoinDetails code={(joinCode || state.joinCode)!} />}
         <p className="lobby-count"><strong><AnimatedPoints value={state.participantCount} /></strong> Teilnehmende</p>
         {state.participants.length > 0 ? <div className="players">
@@ -280,7 +284,7 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
       </section>}
       {phase === "COUNTDOWN" && <section className="countdown-phase">
         <span className="eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
-        <div className="result-sticker" aria-hidden="true"><Sparkles size={32} /></div>
+        <MomentVisual icon="ready" illustration="countdown-ready" />
         <h1>Gleich geht’s los!</h1>
         {state.opensAt != null && <Timer deadline={state.opensAt} offset={offset} now={now} />}
         <p>Mach dich bereit für die nächste Frage.</p>
@@ -307,7 +311,7 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
         <QuestionAnswers compact state={state} selected={selected} pendingChoice={pendingChoice}
           locked={!timeRemaining || Boolean(answerBusy)} onAnswer={onAnswer} />
         <div className={`answer-feedback${pendingChoice ? " pending" : ""}`} role="status" aria-atomic="true">
-          {selected && !pendingChoice ? <CheckCircle2 size={18} aria-hidden="true" /> : <Clock3 size={18} aria-hidden="true" />}
+          <GameIcon name={selected && !pendingChoice ? "answer-saved" : "timer"} size={18} />
           <span>{pendingChoice ? <><strong>Wird gesendet …</strong> {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : ""}</> :
             selected ? <><strong>Antwort ist drin:</strong> {choice ? `${String.fromCharCode(65 + choiceIndex)} · ${choice.text}` : "wird geladen …"}
               {timeRemaining ? " · bis Zeitablauf änderbar" : ""}</> :
@@ -328,7 +332,9 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
       </section>}
       {phase === "REVEAL" && <Reveal state={state} result={result} personal={personal} selected={selected} celebrate={celebrate}
         eventScope={`${state.sessionId}:${participant?.participantId ?? "presentation"}`} />}
-      {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal} celebrate={celebrate} />}
+      {["LEADERBOARD", "FINISHED"].includes(phase) && <Ranking state={state} participant={participant} personal={personal}
+        celebrate={celebrate}
+        celebrateFinal={initial.phase !== "FINISHED" && (!personal || Boolean(result?.answered && result.correct))} />}
       {phase === "CANCELLED" && <section className="countdown-phase"><h1>Runde abgebrochen</h1><p>Diese Sitzung wurde vom Quizmaster beendet.</p></section>}
     </div>
     {phase !== "LOBBY" && !compactQuestion && <p className="game-footnote">{state.participantCount} Teilnehmende · Gemeinsam rätseln, gemeinsam staunen.</p>}
