@@ -10,7 +10,7 @@ import { quizSchema, type Quiz } from "./domain/quiz";
 import type { GenerationRequest } from "./domain/quizGeneration";
 import { QuizGeneratorForm } from "./QuizGenerator";
 import { AdminGate } from "./AdminAuth";
-import { ErrorBanner, Layout, message } from "./components/Layout";
+import { ErrorBanner, Layout, LoadingNotice, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
 import { AnswerTiles, Avatar, GameView, Leaderboard, Podium, phaseLabels, type PersonalStanding } from "./components/GameView";
 import { PrivacyNote } from "./components/Privacy";
@@ -24,11 +24,11 @@ import { InvitationPage } from "./components/Invitation";
 import { useNoIndex } from "./hooks/useNoIndex";
 import { ASYNC_MAX_DURATION_DAYS, ASYNC_MAX_DURATION_MS } from "./domain/limits";
 import { ASYNC_SPEED_V1, type AsyncScoringRule } from "./domain/scoring";
-import { answerColumns, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
+import { answerColumns, QuestionPosition, SpeedBonus, useQuestionFocus } from "./components/QuestionLayout";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { AsyncStandingsPresentation } from "./components/AsyncStandingsPresentation";
 import { ASYNC_DETAIL_PAGE_SIZE, matchesAsyncDetail, useAsyncParticipantDetails, useAsyncStandings } from "./hooks/useAsyncStandings";
-import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward, StreakBonusOption, useFinaleTransition } from "./components/Gamification";
+import { Achievements, AnimatedPoints, Encouragement, Finale, RankRise, ScoreAward, StreakBonusOption, useFinaleTransition } from "./components/Gamification";
 import { GameIcon, MomentVisual } from "./components/GameAssets";
 
 /** Format für `<input type="datetime-local">` in der lokalen Zeitzone des Browsers. */
@@ -164,8 +164,8 @@ function Overview() {
   const endedPublications = asyncPublications.filter((publication) => !isActivePublication(publication))
     .sort((left, right) => (right.endedAt ?? right.expiresAt) - (left.endedAt ?? left.expiresAt));
   const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return <Layout><div className="section-heading"><div><span className="eyebrow">DEINE IDEEN, DEINE BÜHNE</span><h1>Deine Quizze</h1>
-    <p>Eine gute Frage ist der Anfang einer großartigen Runde.</p></div>
+  return <Layout><div className="section-heading workspace-heading"><div><span className="eyebrow">BASISLAGER · QUIZMASTER</span><h1>Deine Quizze</h1>
+    <p>Bereite Fragen vor, starte ein Live-Spiel oder teile eine Runde zum Mitmachen.</p></div>
     <div className="actions"><Link className="button primary" to="/admin/quizzes/new"><Plus size={18} aria-hidden="true" /> Neues Quiz</Link>
       <Link className="button secondary" to="/admin/quizzes/generate"><Bot size={18} aria-hidden="true" /> Quiz mit KI erstellen</Link>
       <button className="button secondary" disabled={busy} onClick={() => void logout()}>Abmelden</button></div></div>
@@ -264,7 +264,7 @@ function GeneratePage() {
     <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span><h1>Quiz mit KI erstellen</h1>
       <p>Beschreibe dein Wunschquiz. Der Vorschlag öffnet sich anschließend im Editor, wo du ihn prüfen und speichern kannst.</p></div></div>
     <ErrorBanner error={error} />
-    {busy && <p role="status" className="generator-status">Die KI schreibt deine Fragen. Das kann je nach Umfang bis zu einigen Minuten dauern …</p>}
+    {busy && <LoadingNotice>Die KI schreibt deine Fragen. Das kann je nach Umfang bis zu einigen Minuten dauern …</LoadingNotice>}
     <QuizGeneratorForm onGenerate={(request) => void generate(request)} busy={busy} />
   </Layout>;
 }
@@ -303,7 +303,7 @@ function EditorPage() {
     <ErrorBanner error={error} />
     {generatedQuiz && !record && <p role="status" className="generator-status">Dieser Entwurf wurde von einer KI erstellt.
       Bitte prüfe Fragen, richtige Antworten und Erklärungen, bevor du das Quiz speicherst.</p>}
-    {loading ? <p>Quiz wird geladen …</p> :
+    {loading ? <LoadingNotice>Quiz wird geladen …</LoadingNotice> :
       (quizId === "new" || record) && <QuizEditor initialQuiz={record?.quiz ?? generatedQuiz} onSave={(quiz) => void save(quiz)} saving={saving} cloudMode />}
   </Layout>;
 }
@@ -356,7 +356,7 @@ function PublishAsyncPage() {
     <div className="section-heading"><div><span className="eyebrow">QUIZ ZUM MITMACHEN</span><h1>Quizrunde veröffentlichen</h1>
       <p>Spiele in deinem Tempo: Alle Gäste spielen unabhängig bis zum angegebenen Ende. Das Live-Quiz bleibt davon unberührt.</p></div></div>
     <ErrorBanner error={error} />
-    {loading ? <p>Quiz wird geladen …</p> : !record ? <p>Quiz nicht gefunden.</p> : publication ? <section className="card async-published">
+    {loading ? <LoadingNotice>Quiz wird geladen …</LoadingNotice> : !record ? <p>Quiz nicht gefunden.</p> : publication ? <section className="card async-published">
       <span className="badge">Veröffentlicht</span><h2>{record.quiz.title}</h2>
       <p className="async-card-deadline"><Clock3 size={16} aria-hidden="true" /> Mitspielen bis{" "}
         <strong>{formatDateTimeWithZone(publication.expiresAt, publication.timeZone)}</strong></p>
@@ -650,6 +650,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
                 justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
             {justAnswered && <p className="async-pause-answer">Deine Antwort: <strong>{justAnswered.answer}</strong></p>}
             {answerResult && <div className="personal-result">
+              {answerResult.correct === false && <Encouragement />}
               <ScoreAward key={answerResult.questionIndex} points={answerResult.points ?? 0}
                 extra={answerResult.streakBonusPoints} streak={answerResult.streak} badges={state.badges}
                 celebrate={Boolean(justAnswered) && answerResult.correct === true}
@@ -690,7 +691,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
           <section className="question-phase compact-question async-question" aria-labelledby="async-question-title">
             <div className="question-metabar">
               <span className="question-meta-player"><Avatar avatarId={state.avatarId} /><span>{state.displayName}</span></span>
-              <span className="question-meta-progress">Frage {question.questionIndex + 1}/{state.questionCount}</span>
+              <QuestionPosition index={question.questionIndex} total={state.questionCount} />
               {rule && question.startedAt != null &&
                 <SpeedBonus key={`${question.questionIndex}-${question.startedAt}`} startedAt={question.startedAt} offset={clockOffset} rule={rule} />}
             </div>
@@ -722,7 +723,7 @@ function AsyncQuizPlayer({ token }: { token: string }) {
     </Layout>;
   }
   return <Layout gameMode="player"><Link className="back" to="/">← Zur Startseite</Link>
-    {loading ? <p>Quiz wird geladen …</p> : !info ? <div className="empty"><h1>Quizrunde nicht verfügbar</h1>
+    {loading ? <LoadingNotice>Quiz wird geladen …</LoadingNotice> : !info ? <div className="empty"><h1>Quizrunde nicht verfügbar</h1>
       <p>{error || "Dieser Link oder Quiz-Code ist ungültig oder die Ergebnisse wurden bereits gelöscht."}</p>
       <p><Link className="button secondary" to="/join">Quiz-Code eingeben</Link></p></div> : <>
       <div className="async-quiz-heading"><span className="eyebrow">QUIZ ZUM MITMACHEN · SPIELE IN DEINEM TEMPO</span><h1>{info.title}</h1>
@@ -819,7 +820,7 @@ function AsyncAdminResults({ publicationId }: { publicationId: string }) {
     setRankingLimit((value) => value + ASYNC_DETAIL_PAGE_SIZE)}>Weitere Plätze anzeigen</button>;
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <ErrorBanner error={error} />
-    {loading && !results ? <p>Ergebnisse werden geladen …</p> : !results ? <div>
+    {loading && !results ? <LoadingNotice>Ergebnisse werden geladen …</LoadingNotice> : !results ? <div>
       <p>Ergebnisse nicht verfügbar.</p>{!expired && <button className="button secondary" disabled={refreshing} onClick={refresh}>Erneut versuchen</button>}
     </div> : <div className="async-admin-results">
       <div className="async-admin-head">
@@ -1007,7 +1008,7 @@ function AdminSession() {
   return <Layout gameMode="admin"><div className="session-navigation"><Link className="back" to="/admin">← Zur Übersicht</Link>
     {session && <a className="header-link" href={`/present/${session.presentationToken}`} target="_blank" rel="noreferrer">Präsentationsansicht öffnen ↗</a>}
     </div><ErrorBanner error={error || liveError} />
-    {!state ? <p>Spielstand wird geladen …</p> : <>
+    {!state ? <LoadingNotice>Spielstand wird geladen …</LoadingNotice> : <>
       <div className="admin-session-grid">
       <GameView key={state.sessionId} state={state} offset={offset} joinCode={session?.joinCode} />
       <aside className="session-controls" aria-label="Sitzung steuern">
@@ -1177,7 +1178,7 @@ function PlayerSession({ sessionId }: { sessionId: string }) {
       pendingChoice={pending?.questionId === state.questionId ? pending?.choiceId : null}
       answerBusy={busy || restoringAnswer || Boolean(restoreError) || restoredQuestion !== state.questionId} answerRestoreFailed={Boolean(restoreError)}
       onAnswer={(choiceId) => void answer(choiceId)}
-      result={result?.questionId === state.questionId && ["REVEAL", "LEADERBOARD", "FINISHED"].includes(state.status) ? result : null} /> : <p>Spielstand wird geladen …</p>}
+      result={result?.questionId === state.questionId && ["REVEAL", "LEADERBOARD", "FINISHED"].includes(state.status) ? result : null} /> : <LoadingNotice>Spielstand wird geladen …</LoadingNotice>}
     {state && participant && <DeleteOwnData sessionId={sessionId} status={state.status} onDeleted={() => setDeleted(true)} />}
   </Layout>;
 }
@@ -1191,7 +1192,7 @@ function PresentationSession({ token }: { token: string }) {
   const live = useLiveState("", "presentation", token);
   return <Layout gameMode="presentation"><ErrorBanner error={live.error} />
     {live.error && <button className="button secondary" onClick={live.refresh}>Verbindung erneut prüfen</button>}
-    {live.state ? <GameView key={live.state.sessionId} state={live.state} offset={live.offset} presentation /> : <p>Präsentation wird geladen …</p>}
+    {live.state ? <GameView key={live.state.sessionId} state={live.state} offset={live.offset} presentation /> : <LoadingNotice>Präsentation wird geladen …</LoadingNotice>}
   </Layout>;
 }
 

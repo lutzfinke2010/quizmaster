@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { adminAccess, authMessage, emailSchema, passwordSchema } from "./domain/adminAuth";
-import { ErrorBanner, Layout } from "./components/Layout";
+import { ErrorBanner, Layout, LoadingNotice } from "./components/Layout";
 import { Button } from "./components/ui/button";
 import { ShieldCheck, Sparkles } from "lucide-react";
 
@@ -102,7 +102,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     });
   }
   if (step === "authorized") return <>{children}</>;
-  if (step === "checking") return <Layout><p>Anmeldung wird geprüft …</p></Layout>;
+  if (step === "checking") return <Layout><LoadingNotice>Anmeldung wird geprüft …</LoadingNotice></Layout>;
   if (step === "pending" || step === "sessionError") {
     return <Layout><div className="login-card"><h1>{step === "pending" ? "Freigabe ausstehend" : "Anmeldung prüfen"}</h1>
       {step === "pending" && <p>Dein Konto wartet auf die Quizmaster-Freigabe. Die Administration muss dich in Cognito der Gruppe „Quizmasters“ zuordnen.</p>}
@@ -115,7 +115,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   }
   return <Layout><div className="login-card">
     <span className="login-icon"><Sparkles size={26} aria-hidden="true" /></span>
-    <span className="eyebrow">HINTER JEDER RUNDE STECKT EINE GUTE IDEE</span>
+    <span className="eyebrow">BASISLAGER · QUIZMASTER</span>
     <h1>{step === "signUp" ? "Quizmaster-Konto anlegen" : step === "confirm" ? "E-Mail-Adresse bestätigen" :
       step === "newPassword" ? "Neues Passwort setzen" : "Quizmaster-Anmeldung"}</h1>
     <p>{step === "confirm" ? "Gib den sechsstelligen Code aus deiner Bestätigungs-E-Mail ein." :

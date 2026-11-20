@@ -1,14 +1,16 @@
-import { ArrowRight, Check, CheckCircle2, PartyPopper, PencilLine, Sparkles, Users } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, Compass, Flag, Mountain, PartyPopper, PencilLine, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+import { GameIllustration } from "./GameAssets";
 import { PrivacySection, TrustChips } from "./Privacy";
 
 export function HomeContent({ localMode = false }: { localMode?: boolean }) {
   return <>
     <section className="hero">
       <div className="hero-copy">
-        <span className="eyebrow"><span className="eyebrow-dot" /> WENIGER ALLTAG. MEHR AHA.</span>
+        <span className="eyebrow expedition-label"><Compass size={16} aria-hidden="true" /> DIE QUIZ-EXPEDITION</span>
         <h1>Kleine Fragen.<br /><span className="hero-highlight">Große Momente.</span></h1>
-        <p>Ein bisschen Wissen. Ein bisschen Bauchgefühl. Und ganz viel Spaß zusammen. Mach aus deiner nächsten Runde eine Quizshow.</p>
+        <p>{localMode ? "Pack deine besten Fragen ein. Hier bereitest du auf deinem Gerät die nächste Quizrunde für dein Team vor." :
+          "Das Teamquiz mit Lama: Spielt live zusammen oder rätselt im eigenen Tempo. Ein Quiz-Code reicht zum Mitmachen."}</p>
         <div className="actions">
           <Link className="button primary" to={localMode ? "/admin" : "/join"}>
             {localMode ? "Quiz vorbereiten" : "Mitspielen"} <ArrowRight size={19} aria-hidden="true" />
@@ -17,10 +19,28 @@ export function HomeContent({ localMode = false }: { localMode?: boolean }) {
             {localMode ? "Mitspielen" : "Quiz vorbereiten"}
           </Link>
         </div>
-        <TrustChips localMode={localMode} />
       </div>
-      <div className="hero-visual">
-        <span className="floating-sticker"><Sparkles size={19} aria-hidden="true" /> Bereit für dein Aha?</span>
+      <figure className="expedition-card">
+        <div className="expedition-landscape">
+          <span className="expedition-stamp"><Mountain size={15} aria-hidden="true" /> RATELAMA · FELDNOTIZ 01</span>
+          <GameIllustration name="lobby-welcome" className="expedition-guide" />
+        </div>
+        <figcaption><Flag size={19} aria-hidden="true" /><strong>Station 01 · Basislager</strong><span aria-hidden="true">01 / 03</span></figcaption>
+      </figure>
+    </section>
+    <TrustChips localMode={localMode} />
+    <section className="how-it-works" aria-labelledby="how-heading">
+      <div className="how-heading"><span className="eyebrow">DEINE ROUTE</span><h2 id="how-heading">In drei Schritten mittendrin.</h2></div>
+      <ol className="steps">
+        <li><span className="step-icon step-peach"><PencilLine aria-hidden="true" /></span>
+          <div><span className="step-number">01 / VORBEREITEN</span><h3>Deine Fragen. Dein Quiz.</h3><p>Eigene Ideen sammeln oder mit einem Beispielquiz loslegen.</p></div></li>
+        <li><span className="step-icon step-purple"><Users aria-hidden="true" /></span>
+          <div><span className="step-number">02 / ZUSAMMENKOMMEN</span><h3>Code teilen. Alle dabei.</h3><p>Per Quiz-Code oder QR-Code findet dein Team in die Runde.</p></div></li>
+        <li><span className="step-icon step-lime"><PartyPopper aria-hidden="true" /></span>
+          <div><span className="step-number">03 / LOSRÄTSELN</span><h3>Mitfiebern. Weiterwissen.</h3><p>Antwort auswählen, Auflösung entdecken und gemeinsam feiern.</p></div></li>
+      </ol>
+      <details className="quiz-preview">
+        <summary>Eine Beispielfrage ansehen</summary>
         <section className="sample-quiz" aria-label="Beispiel einer Quizrunde">
           <div className="sample-topline"><span className="badge">SO SIEHT’S AUS · BEISPIEL</span><span aria-hidden="true">✳</span></div>
           <h2>Welcher Planet ist für seine Ringe bekannt?</h2>
@@ -32,19 +52,7 @@ export function HomeContent({ localMode = false }: { localMode?: boolean }) {
           </div>
           <p className="sample-confirmation"><CheckCircle2 size={19} aria-hidden="true" /> Deine Auswahl: B · Saturn</p>
         </section>
-        <span className="visual-caption">Zusammen rätseln ist einfach besser.</span>
-      </div>
-    </section>
-    <section className="how-it-works" aria-labelledby="how-heading">
-      <div className="how-heading"><span className="eyebrow">KEIN GROSSES DING</span><h2 id="how-heading">In drei Schritten mittendrin.</h2></div>
-      <ol className="steps">
-        <li><span className="step-icon step-peach"><PencilLine aria-hidden="true" /></span>
-          <div><span className="step-number">01 / VORBEREITEN</span><h3>Deine Fragen. Dein Quiz.</h3><p>Eigene Ideen sammeln oder mit einem Beispielquiz loslegen.</p></div></li>
-        <li><span className="step-icon step-purple"><Users aria-hidden="true" /></span>
-          <div><span className="step-number">02 / ZUSAMMENKOMMEN</span><h3>Code teilen. Alle dabei.</h3><p>Live-Quiz oder Quiz zum Mitmachen: per Quiz-Code oder QR-Code direkt in die Runde.</p></div></li>
-        <li><span className="step-icon step-lime"><PartyPopper aria-hidden="true" /></span>
-          <div><span className="step-number">03 / LOSRÄTSELN</span><h3>Mitfiebern. Weiterwissen.</h3><p>Antwort auswählen, Auflösung entdecken und gemeinsam feiern.</p></div></li>
-      </ol>
+      </details>
     </section>
     <PrivacySection localMode={localMode} />
   </>;

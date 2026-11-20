@@ -3,10 +3,10 @@ import { motion, useReducedMotion } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
 import avatars from "../domain/avatars.json";
 import type { GameState, MyResult, Participation } from "../cloud";
-import { Achievements, AnimatedPoints, Finale, RankRise, ScoreAward } from "./Gamification";
+import { Achievements, AnimatedPoints, Encouragement, Finale, RankRise, ScoreAward } from "./Gamification";
 import { GameIcon, GameIllustration, MomentVisual } from "./GameAssets";
 import { STREAK_RULE_TEXT } from "../domain/gamification";
-import { answerColumns, useQuestionFocus } from "./QuestionLayout";
+import { answerColumns, QuestionPosition, useQuestionFocus } from "./QuestionLayout";
 import "./game.css";
 
 export const phaseLabels: Record<string, string> = {
@@ -198,6 +198,7 @@ function Reveal({ state, result, personal, selected, celebrate, eventScope }: {
         subdued={!result.answered || !result.correct} />
       <h2 className="result-message" role="status">{!result.answered ? "Zeit abgelaufen · Keine Antwort" :
         result.correct ? "Richtig!" : "Leider daneben"}</h2>
+      {result.answered && !result.correct && <Encouragement />}
       <ScoreAward key={result.questionId} points={result.points} extra={result.streakBonusPoints}
         streak={result.streak} badges={result.badges} celebrate={celebrate && result.answered && result.correct}
         eventId={`${eventScope}:points:${result.questionId}`} />
@@ -250,6 +251,9 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
   const currentPlayer = state.leaderboard.find((player) => player.participantId === participant?.participantId);
   const score = currentPlayer?.points ?? result?.totalPoints ?? standing?.player.points;
   const rank = currentPlayer?.rank ?? standing?.player.rank;
+  const scoreLabel = score != null ? `${number(score)} Punkte` :
+    state.questionIndex < 1 ? "Noch keine Wertung" : "Wertung nach der Auflösung";
+  const standingLabel = scoreLabel + (rank != null ? ` · ${currentPlayer ? "Platz" : "Zuletzt Platz"} ${rank}` : "");
   const choiceIndex = state.question?.answers.findIndex((answer) => answer.id === (pendingChoice ?? selected)) ?? -1;
   const choice = choiceIndex >= 0 ? state.question?.answers[choiceIndex] : undefined;
   const active = ["QUESTION_OPEN", "QUESTION_CLOSED", "SCORING"].includes(phase);
@@ -262,8 +266,7 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
     </header>}
     {personal && !compactQuestion && <div className={`player-identity${["REVEAL", "LEADERBOARD", "FINISHED"].includes(phase) ? " player-identity-result" : ""}`}>
       {participant ? <><Avatar avatarId={participant.avatarId} /><div><strong>{participant.displayName}</strong>
-        <span>{score != null ? `${number(score)} Punkte` : state.questionIndex < 1 ? "Noch keine Wertung" : "Wertung nach der Auflösung"}
-          {rank != null && ` · ${currentPlayer ? "Platz" : "Zuletzt Platz"} ${rank}`}</span></div></> :
+        <span>{standingLabel}</span></div></> :
         <span role="status">Deine Teilnahme wird geladen …</span>}
     </div>}
     <div className="game-phase" key={active ? `question-${state.questionId}` : `${phase}-${state.questionId}`}>
@@ -300,13 +303,13 @@ export function GameView({ state, offset, participant, personal = false, onAnswe
       </section>}
       {compactQuestion && state.question && <section className="question-phase compact-question" aria-labelledby="question-title">
         <div className="question-metabar">
-          <span className="sr-only" role="status">{phaseLabels[phase] ?? phase}</span>
-          {participant ? <span className="question-meta-player"><Avatar avatarId={participant.avatarId} />
-            <span>{participant.displayName}{score != null && <small> · {number(score)} P.</small>}</span></span> :
+          {participant ? <div className="player-identity question-meta-player"><Avatar avatarId={participant.avatarId} />
+            <div><strong>{participant.displayName}</strong><small>{standingLabel}</small></div></div> :
             <span role="status">Teilnahme wird geladen …</span>}
-          <span className="question-meta-progress">Frage {state.questionIndex + 1}/{state.questionCount}</span>
+          <QuestionPosition index={state.questionIndex} total={state.questionCount} />
           {phase === "QUESTION_OPEN" && state.closesAt != null && <Timer compact deadline={state.closesAt} offset={offset} now={now} />}
         </div>
+        <span className="phase-badge" role="status">{phaseLabels[phase] ?? phase}</span>
         <h1 id="question-title" ref={headingRef} tabIndex={-1}>{state.question.text}</h1>
         <QuestionAnswers compact state={state} selected={selected} pendingChoice={pendingChoice}
           locked={!timeRemaining || Boolean(answerBusy)} onAnswer={onAnswer} />

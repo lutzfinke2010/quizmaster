@@ -69,6 +69,10 @@ export function StreakBonusOption({ enabled, onChange, disabled = false }: {
   </div>;
 }
 
+export function Encouragement() {
+  return <p className="encouragement">Auch danebenraten gehört dazu. Jetzt weißt du mehr!</p>;
+}
+
 export function Achievements({ streak = 0, maxStreak = 0, badges = [] }: {
   streak?: number | null; maxStreak?: number | null; badges?: string[] | null;
 }) {
@@ -77,7 +81,8 @@ export function Achievements({ streak = 0, maxStreak = 0, badges = [] }: {
   return <div className={`achievements${current >= 3 ? " is-on-fire" : ""}`}>
     <div className="streak-heading"><GameIcon name={current >= 3 ? "streak-active" : "streak-idle"} size={22} />
       <strong>{current > 0 ? `${current} richtig in Folge` : "Die nächste Serie wartet!"}</strong>
-      {(maxStreak ?? 0) > 0 && <span>Beste Serie: {maxStreak}</span>}
+      {(maxStreak ?? 0) > 0 && <span className={current === maxStreak ? "at-best" : undefined}>
+        {current === maxStreak && <GameIcon name="trophy" size={16} />} Beste Serie: {maxStreak}</span>}
     </div>
     <progress value={Math.min(current, target)} max={target} aria-label={`${current} richtige Antworten in Folge; nächstes Ziel ${target}`} />
     <p className="streak-next">{current < 5 ? `Noch ${target - current} bis zum nächsten Serien-Meilenstein` : "Stark! Halte deine Serie am Laufen."}</p>

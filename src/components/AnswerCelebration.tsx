@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-const colors = ["#d8ef91", "#f4b89a", "#b6a0dd", "#73b9af"];
+const colors = ["var(--lime)", "var(--sun)", "var(--lilac)", "var(--teal)"];
 
 export function AnswerCelebration({ final = false }: { final?: boolean }) {
   return <div className={`answer-confetti${final ? " final-confetti" : ""}`} aria-hidden="true">

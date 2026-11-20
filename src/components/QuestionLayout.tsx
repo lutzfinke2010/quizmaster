@@ -5,6 +5,12 @@ import { GameIcon } from "./GameAssets";
 /** Antworten bis zu dieser Länge gelten als „kurz“ und dürfen zweispaltig stehen. */
 export const SHORT_ANSWER_MAX_LENGTH = 18;
 
+export function QuestionPosition({ index, total }: { index: number; total: number }) {
+  return <span className="question-meta-progress">Frage {index + 1}/{total}
+    <progress aria-hidden="true" value={index + 1} max={total} />
+  </span>;
+}
+
 /** Gemeinsame Spaltenregel für Live und Async: zwei Spalten nur bei 2 oder 4 kurzen Antworten. */
 export function answerColumns(answers: ReadonlyArray<{ text: string }>): 1 | 2 {
   return (answers.length === 2 || answers.length === 4) &&

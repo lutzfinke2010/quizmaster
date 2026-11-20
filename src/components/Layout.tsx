@@ -1,5 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
-import { ArrowUpRight, ShieldCheck } from "lucide-react";
+import { AlertCircle, Compass, Layers, ShieldCheck, Ticket } from "lucide-react";
 import { PrivacyFacts } from "./Privacy";
 
 export function message(error: unknown): string {
@@ -23,13 +23,11 @@ export function Layout({ children, localMode = false, gameMode }: {
         <span className="brand-copy">
           <img className="brand-mark" src="/brand/ratelama-icon.png" width="512" height="512" alt="" />
           <span className="brand-name">RateLama</span>
-          <span className="brand-caption">Einfach. Zusammen. Spielen.</span>
         </span>
       </Link>
       {gameMode && gameMode !== "admin" ? <span className="live-label">Gemeinsam spielen</span> : <nav className="header-nav" aria-label="Hauptnavigation">
-        <NavLink className="nav-link" to="/join">Mitspielen</NavLink>
-        <NavLink className="nav-link" to="/admin">{localMode ? "Quiz-Entwürfe" : "Quizmaster"}
-          <ArrowUpRight size={16} aria-hidden="true" /></NavLink>
+        <NavLink className="nav-link" to="/join"><Ticket size={17} aria-hidden="true" />Mitspielen</NavLink>
+        <NavLink className="nav-link" to="/admin"><Layers size={17} aria-hidden="true" />{localMode ? "Quiz-Entwürfe" : "Quizmaster"}</NavLink>
       </nav>}
     </header>
     <main id="main-content" tabIndex={-1} className="container">{children}</main>
@@ -50,5 +48,9 @@ export function Layout({ children, localMode = false, gameMode }: {
 }
 
 export function ErrorBanner({ error }: { error: string }) {
-  return error ? <p role="alert" className="error-banner">{error}</p> : null;
+  return error ? <p role="alert" className="error-banner"><AlertCircle size={18} aria-hidden="true" /> {error}</p> : null;
+}
+
+export function LoadingNotice({ children }: { children: React.ReactNode }) {
+  return <p role="status" className="loading-notice"><Compass size={22} aria-hidden="true" />{children}</p>;
 }

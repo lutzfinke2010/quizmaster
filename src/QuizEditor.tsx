@@ -166,6 +166,7 @@ export function QuizEditor({ initialQuiz, onSave, saving = false, cloudMode = fa
       <aside className="editor-outline" aria-label="Quizübersicht">
         <span className="eyebrow">DEIN QUIZ IM BLICK</span>
         <h2>{fields.length} {fields.length === 1 ? "Frage" : "Fragen"}</h2>
+        <progress className="editor-progress" value={chosenCount} max={Math.max(1, fields.length)} aria-label="Fragen mit gewählter Lösung" />
         <p>{chosenCount} von {fields.length} Lösungen gewählt. Zum Bearbeiten eine Frage öffnen.</p>
         <nav aria-label="Fragen im Quiz"><ol className="outline-list">
           {questions.map((question, index) => {

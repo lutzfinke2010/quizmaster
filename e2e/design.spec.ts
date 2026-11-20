@@ -210,6 +210,10 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Kleine Fragen.");
     await screenshot(page, "home.png");
     await expectNoHorizontalOverflow(page);
+    await page.locator(".quiz-preview summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("region", { name: "Beispiel einer Quizrunde" })).toContainText("Deine Auswahl: B · Saturn");
+    await expectNoHorizontalOverflow(page);
     await page.goto("/admin/quizzes/new");
     await expect(page.getByRole("heading", { name: "Neues Quiz", exact: true })).toBeVisible();
     await page.getByLabel("Antwort 2 bei Frage 1", { exact: true }).fill("Eine längere Antwort für die nächste gemeinsame Quizrunde");
@@ -224,6 +228,19 @@ for (const width of [320, 390, 768, 1440]) {
     await screenshot(page, "editor.png");
   });
 }
+
+test("Im Smartphone-Querformat bleiben Fragefortschritt und Antwortbestätigung erreichbar", async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 320 });
+  await mockGame(page);
+  await page.goto("/play/design");
+  await expect(page.locator(".question-meta-progress")).toHaveText("Frage 1/2");
+  await expect(page.locator(".question-meta-progress progress")).toHaveAttribute("value", "1");
+  const choice = page.getByRole("button", { name: /Saturn/ });
+  await choice.click();
+  await expect(choice).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".answer-feedback")).toContainText("Antwort ist drin");
+  await expectNoHorizontalOverflow(page);
+});
 
 test("Tastatur, Fokus, Navigationszustand und Fehlermeldungen sind zugänglich", async ({ page }) => {
   await localMode(page);
@@ -386,7 +403,7 @@ test("Zentrale Texte und Auswahlmarkierungen erfüllen mindestens 4,5:1 Kontrast
   await localMode(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expectReadableText(page, ".button, .eyebrow, .hero-copy p, .badge, .sample-selected, .sample-confirmation, .trust-chips li, .trust-link, .privacy-section h2, .privacy-section h3, .privacy-section p, .privacy-section li, .privacy-more summary, .footer-privacy summary, .footer-privacy li");
+  await expectReadableText(page, ".button, .eyebrow, .expedition-stamp, .expedition-card figcaption, .hero-copy p, .badge, .sample-selected, .sample-confirmation, .trust-chips li, .trust-link, .privacy-section h2, .privacy-section h3, .privacy-section p, .privacy-section li, .privacy-more summary, .footer-privacy summary, .footer-privacy li");
   await page.goto("/admin/quizzes/new");
   await page.getByRole("radio", { name: "Antwort 2 bei Frage 1 ist richtig" }).check();
   await expectReadableText(page, ".is-correct .correct-choice, .selection-summary, .field-error, .outline-link small, .hint");
