@@ -50,6 +50,7 @@ Der Quizmaster-Login ruft vor der Anmeldung keine Gast-Identität ab (`getCurren
 
 ## 5. AWS-Aufgaben (nicht im Code prüfbar)
 
+- [ ] Für die KI-Quizgenerierung: OpenAI-Vertragsbedingungen bzw. Data Processing Addendum prüfen und abschließen, Drittlandübermittlung (USA) bewerten und Angaben in der Datenschutzerklärung (Abschnitt 7) bestätigen
 - [ ] Vertragspartei und Auftragsverarbeitungsvertrag (Art. 28 DSGVO) über AWS Artifact / Konsole prüfen und annehmen (die öffentliche DPA-URL lieferte beim Prüfen 404)
 - [ ] Regionen (eu-central-1), Subprozessoren, Support-Zugriffe und Drittlandübermittlungen prüfen; Frankfurt bedeutet nicht, dass jede Verarbeitung in Deutschland stattfindet
 - [ ] Point-in-Time-Recovery/Backups der DynamoDB-Tabelle: Status und Aufbewahrung prüfen, in Löschkonzept aufnehmen

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { Link, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "aws-amplify/auth";
-import { ArrowRight, Check, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
+import { ArrowRight, Bot, Check, Clock3, KeyRound, Plus, Presentation as PresentationIcon, Sparkles, Users, Zap } from "lucide-react";
 import { cloud, type AsyncAnswerReceipt, type AsyncGuestState, type AsyncStandingParticipant, type AsyncPublicationSummary, type MyResult, type Participation, type QuizRecord, type QuizSummary, type SessionSummary } from "./cloud";
 import { exampleQuiz } from "./domain/exampleQuiz";
 import { QuizEditor } from "./QuizEditor";
-import type { Quiz } from "./domain/quiz";
+import { quizSchema, type Quiz } from "./domain/quiz";
+import type { GenerationRequest } from "./domain/quizGeneration";
+import { QuizGeneratorForm } from "./QuizGenerator";
 import { AdminGate } from "./AdminAuth";
 import { ErrorBanner, Layout, message } from "./components/Layout";
 import { HomeContent } from "./components/HomeContent";
@@ -161,6 +163,7 @@ function Overview() {
   return <Layout><div className="section-heading"><div><span className="eyebrow">DEINE IDEEN, DEINE BÜHNE</span><h1>Deine Quizze</h1>
     <p>Eine gute Frage ist der Anfang einer großartigen Runde.</p></div>
     <div className="actions"><Link className="button primary" to="/admin/quizzes/new"><Plus size={18} aria-hidden="true" /> Neues Quiz</Link>
+      <Link className="button secondary" to="/admin/quizzes/generate"><Bot size={18} aria-hidden="true" /> Quiz mit KI erstellen</Link>
       <button className="button secondary" disabled={busy} onClick={() => void logout()}>Abmelden</button></div></div>
     <ErrorBanner error={error} />
     <ul className="mode-compare" aria-label="Spielmodi">
@@ -221,9 +224,53 @@ function Overview() {
     </Layout>;
 }
 
+const GENERATION_POLL_MS = 3_000;
+const GENERATION_MAX_WAIT_MS = 17 * 60_000;
+
+function GeneratePage() {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  async function generate(request: GenerationRequest) {
+    setBusy(true); setError("");
+    try {
+      let job = await cloud.startQuizGeneration(request);
+      const started = Date.now();
+      while (job.status === "PENDING") {
+        if (Date.now() - started > GENERATION_MAX_WAIT_MS) throw new Error("Die KI-Generierung dauert zu lange. Bitte versuche es erneut.");
+        await new Promise((resolve) => setTimeout(resolve, GENERATION_POLL_MS));
+        if (!active.current) return;
+        job = await cloud.getQuizGeneration(job.jobId);
+      }
+      if (job.status === "FAILED" || !job.quiz) throw new Error(job.error || "Die KI-Generierung ist fehlgeschlagen.");
+      if (active.current) navigate("/admin/quizzes/new", { state: { generatedQuiz: job.quiz } });
+    } catch (caught) {
+      if (active.current) setError(message(caught));
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+  return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
+    <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span><h1>Quiz mit KI erstellen</h1>
+      <p>Beschreibe dein Wunschquiz. Der Vorschlag öffnet sich anschließend im Editor, wo du ihn prüfen und speichern kannst.</p></div></div>
+    <ErrorBanner error={error} />
+    {busy && <p role="status" className="generator-status">Die KI schreibt deine Fragen. Das kann je nach Umfang bis zu einigen Minuten dauern …</p>}
+    <QuizGeneratorForm onGenerate={(request) => void generate(request)} busy={busy} />
+  </Layout>;
+}
+
 function EditorPage() {
   const { quizId = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [generatedQuiz] = useState(() => {
+    const state: unknown = location.state;
+    if (quizId !== "new" || !state || typeof state !== "object" || !("generatedQuiz" in state)) return undefined;
+    const parsed = quizSchema.safeParse(state.generatedQuiz);
+    return parsed.success ? parsed.data : undefined;
+  });
   const [record, setRecord] = useState<QuizRecord | null>(null);
   const [loading, setLoading] = useState(quizId !== "new");
   const [saving, setSaving] = useState(false);
@@ -245,8 +292,11 @@ function EditorPage() {
   return <Layout><Link className="back" to="/admin">← Zur Übersicht</Link>
     <div className="section-heading"><div><span className="eyebrow">QUIZWERKSTATT</span><h1>{record ? "Quiz bearbeiten" : "Neues Quiz"}</h1>
       <p>Deine Ideen werden zur nächsten Lieblingsrunde. Eine richtige Antwort pro Frage.</p></div></div>
-    <ErrorBanner error={error} />{loading ? <p>Quiz wird geladen …</p> :
-      (quizId === "new" || record) && <QuizEditor initialQuiz={record?.quiz} onSave={(quiz) => void save(quiz)} saving={saving} cloudMode />}
+    <ErrorBanner error={error} />
+    {generatedQuiz && !record && <p role="status" className="generator-status">Dieser Entwurf wurde von einer KI erstellt.
+      Bitte prüfe Fragen, richtige Antworten und Erklärungen, bevor du das Quiz speicherst.</p>}
+    {loading ? <p>Quiz wird geladen …</p> :
+      (quizId === "new" || record) && <QuizEditor initialQuiz={record?.quiz ?? generatedQuiz} onSave={(quiz) => void save(quiz)} saving={saving} cloudMode />}
   </Layout>;
 }
 
@@ -1071,6 +1121,7 @@ function PresentationSession({ token }: { token: string }) {
 export function CloudApp() {
   return <Routes><Route path="/" element={<Home />} />
     <Route path="/admin" element={<AdminGate><Overview /></AdminGate>} />
+    <Route path="/admin/quizzes/generate" element={<AdminGate><GeneratePage /></AdminGate>} />
     <Route path="/admin/quizzes/:quizId" element={<AdminGate><EditorPage /></AdminGate>} />
     <Route path="/admin/quizzes/:quizId/publish" element={<AdminGate><PublishAsyncPage /></AdminGate>} />
     <Route path="/admin/async/:publicationId" element={<AdminGate><AsyncAdminResultsPage /></AdminGate>} />

@@ -13,10 +13,13 @@ import { LambdaInvoke } from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { auth } from "./auth/resource";
 import { timerDispatch, timerStep, timerSweep } from "./functions/timer/resource";
 import { gameApi } from "./functions/api/resource";
+import { quizGenerator } from "./functions/generator/resource";
 import { data } from "./data/resource";
 import { eventPublisher, subscriptionAuth } from "./functions/events/resource";
 
-const backend = defineBackend({ auth, data, gameApi, eventPublisher, subscriptionAuth, timerDispatch, timerStep, timerSweep });
+const backend = defineBackend({
+  auth, data, gameApi, quizGenerator, eventPublisher, subscriptionAuth, timerDispatch, timerStep, timerSweep,
+});
 
 backend.auth.resources.cfnResources.cfnUserPool.adminCreateUserConfig = {
   allowAdminCreateUserOnly: false,
@@ -47,13 +50,21 @@ table.addGlobalSecondaryIndex({
 const stepFunction = backend.timerStep.resources.lambda;
 const dispatchFunction = backend.timerDispatch.resources.lambda;
 const sweepFunction = backend.timerSweep.resources.lambda;
-for (const fn of [backend.timerStep, backend.timerDispatch, backend.timerSweep, backend.gameApi, backend.subscriptionAuth]) {
+for (const fn of [backend.timerStep, backend.timerDispatch, backend.timerSweep, backend.gameApi, backend.subscriptionAuth,
+  backend.quizGenerator]) {
   fn.addEnvironment("TABLE_NAME", table.tableName);
 }
 table.grantReadWriteData(stepFunction);
 table.grantReadWriteData(dispatchFunction);
 table.grantReadWriteData(sweepFunction);
 table.grantReadWriteData(backend.gameApi.resources.lambda);
+// KI-Quizgenerierung läuft asynchron in einer eigenen Lambda, weil AppSync Anfragen nach 30 Sekunden abbricht.
+// Fehler vermerkt die Lambda selbst am Job; automatische Wiederholungen würden nur doppelte OpenAI-Kosten erzeugen.
+const generatorFunction = backend.quizGenerator.resources.lambda;
+table.grantReadWriteData(generatorFunction);
+generatorFunction.configureAsyncInvoke({ retryAttempts: 0, maxEventAge: Duration.minutes(15) });
+generatorFunction.grantInvoke(backend.gameApi.resources.lambda);
+backend.gameApi.addEnvironment("QUIZ_GENERATOR_FUNCTION_NAME", generatorFunction.functionName);
 backend.gameApi.addEnvironment("IDENTITY_POOL_ID", backend.auth.resources.cfnResources.cfnIdentityPool.ref);
 const maxParticipants = Number(process.env.QUIZRUSH_MAX_PARTICIPANTS ?? "100");
 const retentionDays = Number(process.env.QUIZRUSH_RETENTION_DAYS ?? "7");

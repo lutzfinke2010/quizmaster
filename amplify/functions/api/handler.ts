@@ -1,4 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 import { QuizStore } from "../../../src/server/quizStore";
@@ -20,8 +21,11 @@ import {
   listAsyncPublications, publishAsyncQuiz, resolveJoinCode, startAsyncQuiz, submitAsyncAnswer,
 } from "../../../src/server/asyncQuiz";
 import { isJoinCodeLike } from "../../../src/server/joinCode";
+import { getQuizGeneration, startQuizGeneration } from "../../../src/server/quizGeneration";
+import { requireQuizmaster } from "../../../src/server/adminPrincipal";
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const lambda = new LambdaClient({});
 
 function environment(name: string): string {
   const value = process.env[name];
@@ -72,6 +76,17 @@ async function dispatch(raw: unknown, now: number): Promise<unknown> {
       await quizStore.deleteQuiz(quizmaster(event.identity), args.quizId, z.number().int().parse(args.expectedVersion));
       return true;
     case "duplicateQuiz": return quizStore.duplicateQuiz(quizmaster(event.identity), args.quizId, now);
+    case "startQuizGeneration": {
+      const principal = quizmaster(event.identity);
+      await enforceRateLimit(client, tableName, requireQuizmaster(principal), "generate", now);
+      const functionName = environment("QUIZ_GENERATOR_FUNCTION_NAME");
+      return startQuizGeneration(client, tableName, args.request, principal, now, async (jobId) => {
+        await lambda.send(new InvokeCommand({
+          FunctionName: functionName, InvocationType: "Event", Payload: Buffer.from(JSON.stringify({ jobId })),
+        }));
+      });
+    }
+    case "getQuizGeneration": return getQuizGeneration(client, tableName, args.jobId, quizmaster(event.identity), now);
     case "listQuizzes": return quizStore.listQuizzes(quizmaster(event.identity), args.cursor);
     case "getQuiz": return quizStore.getQuiz(quizmaster(event.identity), args.quizId);
     case "listSessions": return listSessions(client, tableName, quizmaster(event.identity), now);
