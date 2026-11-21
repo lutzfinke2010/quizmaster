@@ -1,5 +1,7 @@
 # RateLama: Gamification-Assets und ChatGPT-Auftrag
 
+> **Historisch:** Dieser Auftrag beschreibt die frühere Oberfläche. Die heutige App unter `src/ui/` zeichnet Lama, Abzeichen und Illustrationen als SVG-Komponenten und lädt `public/assets/gamification/` nicht mehr; das gelieferte Paket liegt nur noch unter `spec/ratelama-gamification-assets/`.
+
 ## Verwendung
 
 Kopiere **ab „Auftrag an ChatGPT“ bis zum Ende dieser Datei** in einen ChatGPT-Chat mit Bildgenerierung und Dateierstellung. Das dort gewünschte Ergebnis ist ein herunterladbares ZIP mit echten Bilddateien, Asset-Katalog, Vorschau und einem Einbindungsauftrag für dieses Repository.

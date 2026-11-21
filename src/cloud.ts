@@ -4,6 +4,7 @@ import {
   CognitoAWSCredentialsAndIdentityIdProvider, DefaultIdentityIdStore, cognitoUserPoolsTokenProvider,
 } from "aws-amplify/auth/cognito";
 import { z } from "zod";
+import { isQuizCategory } from "./domain/categories";
 import { quizSchema } from "./domain/quiz";
 import type { GenerationRequest } from "./domain/quizGeneration";
 import { createExpiringIdentityStorage } from "./guestIdentityStorage";
@@ -37,9 +38,16 @@ export async function configureCloud(): Promise<boolean> {
   return true;
 }
 
-const quizRecord = z.object({ quizId: z.string(), version: z.number(), updatedAt: z.number(), quiz: quizSchema });
+/** GraphQL returns null for a missing optional category; the domain schema expects it to be absent. */
+const responseQuiz = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || !("category" in value) || value.category !== null) return value;
+  const { category: _category, ...quiz } = value as Record<string, unknown>;
+  return quiz;
+}, quizSchema);
+const quizRecord = z.object({ quizId: z.string(), version: z.number(), updatedAt: z.number(), quiz: responseQuiz });
 const quizSummary = z.object({ quizId: z.string(), version: z.number(), updatedAt: z.number(), title: z.string(),
-  description: z.string(), questionCount: z.number() });
+  description: z.string(), questionCount: z.number(),
+  category: z.string().nullish().transform((value) => isQuizCategory(value) ? value : undefined) });
 const quizSummaryPage = z.object({ items: z.array(quizSummary), nextCursor: z.string().nullish() });
 const sessionSummary = z.object({ sessionId: z.string(), title: z.string(), status: z.string(),
   joinCode: z.string(), presentationToken: z.string(), createdAt: z.number() });
@@ -182,14 +190,14 @@ export type SessionSummary = z.infer<typeof sessionSummary>;
 export type QuizRecord = z.infer<typeof quizRecord>;
 export type QuizSummary = z.infer<typeof quizSummary>;
 const quizGenerationJob = z.object({ jobId: z.string(), status: z.enum(["PENDING", "SUCCEEDED", "FAILED"]), createdAt: z.number(),
-  quiz: quizSchema.nullish(), error: z.string().nullish() });
+  quiz: responseQuiz.nullish(), error: z.string().nullish() });
 export type QuizGenerationJob = z.infer<typeof quizGenerationJob>;
 const gameEvent = z.object({ sessionId: z.string(), version: z.number(),
   participantCount: z.number().nullish(), answerCount: z.number().nullish() });
 export type GameEvent = z.infer<typeof gameEvent>;
 
-const quizFields = "quizId version updatedAt quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
-const generationFields = "jobId status createdAt error quiz { title description questions { text durationSeconds explanation answers { text correct } } }";
+const quizFields = "quizId version updatedAt quiz { title description category questions { text durationSeconds explanation answers { text correct } } }";
+const generationFields = "jobId status createdAt error quiz { title description category questions { text durationSeconds explanation answers { text correct } } }";
 const participationFields = "sessionId participantId displayName avatarId joinedAt";
 const stateFields = `sessionId status version title joinCode streakBonusEnabled questionId questionIndex questionCount participantCount opensAt closesAt
   answerCount eligibleParticipantCount serverTime question { text answers { id text } }
@@ -209,7 +217,7 @@ export const cloud = {
     const items: QuizSummary[] = [];
     let cursor: string | null | undefined;
     do {
-      const page = await operation("query ListQuizzes($cursor: String) { listQuizzes(cursor: $cursor) { items { quizId version updatedAt title description questionCount } nextCursor } }",
+      const page = await operation("query ListQuizzes($cursor: String) { listQuizzes(cursor: $cursor) { items { quizId version updatedAt title description questionCount category } nextCursor } }",
         "listQuizzes", { cursor }, "userPool", quizSummaryPage);
       items.push(...page.items);
       cursor = page.nextCursor;

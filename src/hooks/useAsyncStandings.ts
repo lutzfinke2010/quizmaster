@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   cloud, type AsyncParticipantResult, type AsyncStandingParticipant, type AsyncStandings,
 } from "../cloud";
-import { message } from "../components/Layout";
+import { message } from "../ui/common/message";
 
 const REFRESH_INTERVAL_MS = 10_000;
 const MAX_TIMEOUT_MS = 2_147_000_000;

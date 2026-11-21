@@ -1,0 +1,17 @@
+.rl-llama .rl-llama-body { transform-box: view-box; transform-origin: 50% 100%; }
+.rl-llama-curious .rl-llama-body { animation: rl-llama-ponder 3.2s ease-in-out infinite; }
+.rl-llama-curious .rl-llama-thought { animation: rl-llama-float 2.2s ease-in-out infinite; }
+.rl-llama-cheering .rl-llama-body { animation: rl-llama-cheer 560ms cubic-bezier(.3, 1.6, .5, 1) 2; }
+.rl-llama-cheering .rl-llama-sparks,
+.rl-llama-proud .rl-llama-sparks { animation: rl-llama-sparks 900ms ease-in-out infinite alternate; }
+.rl-llama-surprised .rl-llama-body { animation: rl-llama-startle 480ms ease-out; }
+.rl-llama-surprised .rl-llama-alert { transform-box: fill-box; transform-origin: 50% 100%; animation: rl-llama-pop-in 360ms cubic-bezier(.3, 1.6, .5, 1); }
+.rl-llama-proud .rl-llama-hooves { transform-box: fill-box; transform-origin: 50% 100%; animation: rl-llama-thumb 2.4s ease-in-out infinite; }
+
+@keyframes rl-llama-ponder { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-2.5deg); } }
+@keyframes rl-llama-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes rl-llama-cheer { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px) scale(1.02); } }
+@keyframes rl-llama-sparks { from { opacity: .4; } to { opacity: 1; } }
+@keyframes rl-llama-startle { 0% { transform: translateY(0); } 25% { transform: translateY(-8px) rotate(-2deg); } 50% { transform: rotate(2deg); } 75% { transform: rotate(-1deg); } 100% { transform: none; } }
+@keyframes rl-llama-pop-in { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+@keyframes rl-llama-thumb { 0%, 70%, 100% { transform: rotate(0); } 80% { transform: rotate(-10deg) translateY(-3px); } 90% { transform: rotate(6deg); } }

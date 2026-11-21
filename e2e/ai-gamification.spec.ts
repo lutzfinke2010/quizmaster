@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("Ein KI-Quiz kann geprüft, mit Gamification veröffentlicht und live gestartet werden", async ({ page }) => {
-  await page.route("**/src/AdminAuth.tsx", (route) => route.fulfill({
+  await page.route("**/src/ui/admin/AdminGate.tsx", (route) => route.fulfill({
     contentType: "application/javascript", body: "export function AdminGate({children}) { return children; }",
   }));
   await page.route("**/src/cloud.ts", (route) => route.fulfill({
@@ -73,6 +73,7 @@ test("Ein KI-Quiz kann geprüft, mit Gamification veröffentlicht und live gesta
   await expect(page.getByRole("status")).toContainText("Die KI schreibt deine Fragen");
   await expect(page).toHaveURL(/\/admin\/quizzes\/new$/);
   await expect(page.getByText("Dieser Entwurf wurde von einer KI erstellt.")).toBeVisible();
+  await expect(page.getByLabel("Quiztitel")).toHaveValue("Weltraumquiz");
   await expect(page.getByLabel("Fragetext")).toHaveValue("Welcher Planet hat Ringe?");
   await expect(page.getByLabel("Antwort 1 bei Frage 1 ist richtig")).toBeChecked();
   await page.getByLabel("Fragetext").fill("Welcher Planet besitzt auffällige Ringe?");

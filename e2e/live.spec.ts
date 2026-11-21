@@ -108,8 +108,9 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
   await expect(page.getByRole("button", { name: "Sitzung erstellen" })).toBeVisible();
   await page.getByRole("button", { name: "Sitzung erstellen" }).click();
   await expect(page.getByRole("button", { name: "Erste Frage starten" })).toBeVisible();
-  const code = await page.locator(".join-code").innerText();
+  const code = (await page.locator(".rl-join-code-digits").innerText()).replace(/\s/g, "");
   expect(code).toMatch(/^\d{6}$/);
+  const spacedCode = `${code.slice(0, 3)} ${code.slice(3)}`;
   const sessionUrl = page.url();
 
   const first = await browser.newContext();
@@ -124,8 +125,8 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     await player1.goto(`/join/${code}`);
     await player2.goto("/join");
     await player2.getByLabel("Quiz-Code").fill(code);
-    await player1.getByRole("button", { name: "Mitspielen" }).click();
-    await player2.getByRole("button", { name: "Mitspielen" }).click();
+    await player1.getByRole("button", { name: "Los geht’s" }).click();
+    await player2.getByRole("button", { name: "Los geht’s" }).click();
     await expect(player1).toHaveURL(/\/play\//);
     await expect(player2).toHaveURL(/\/play\//);
     await expect(page.getByText("2 Teilnehmende")).toBeVisible({ timeout: 30_000 });
@@ -133,11 +134,11 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     if (!presentationPath) throw new Error("Präsentationslink fehlt.");
     const sameBrowserDisplay = await page.context().newPage();
     await sameBrowserDisplay.goto(presentationPath);
-    await expect(sameBrowserDisplay.locator(".join-code")).toHaveText(code);
+    await expect(sameBrowserDisplay.locator(".rl-live-join-code")).toHaveText(spacedCode);
     await sameBrowserDisplay.close();
     const display = await presentation.newPage();
     await display.goto(presentationPath);
-    await expect(display.locator(".join-code")).toHaveText(code);
+    await expect(display.locator(".rl-live-join-code")).toHaveText(spacedCode);
     await expect(display.getByText("2 Teilnehmende")).toBeVisible({ timeout: 30_000 });
     await expect(display.getByRole("button", { name: "Erste Frage starten" })).toHaveCount(0);
     const intruder = await outsider.newPage();
@@ -235,7 +236,7 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     await expect(player1.getByRole("button", { name: /Die zweite/ })).toHaveClass(/is-selected/);
     await player1.getByRole("button", { name: /Die erste/ }).click();
     await expect(player1.getByRole("button", { name: /Die erste/ })).toHaveClass(/is-selected/);
-    await expect(player1.locator(".answer-progress")).toContainText("1 von 2");
+    await expect(player1.locator(".rl-live-progress")).toContainText("1 von 2");
     await player2.waitForTimeout(1500);
     await player2.getByRole("button", { name: /Die erste/ }).click();
     await expect(player2.getByText("Antwort ist drin", { exact: true })).toBeVisible();
@@ -243,19 +244,19 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     await expect(player1.getByText("Antwort ist drin", { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(player1.getByRole("button", { name: /Die erste/ })).toHaveAttribute("aria-pressed", "true");
     await expect(player1.getByRole("button", { name: /Die zweite/ })).toBeEnabled();
-    await expect(player1.locator(".answer-progress")).toContainText("2 von 2");
+    await expect(player1.locator(".rl-live-progress")).toContainText("2 von 2");
     await page.close();
     await expect(player1.getByRole("heading", { name: "Auflösung" })).toBeVisible({ timeout: 40_000 });
     await expect(player2.getByRole("heading", { name: "Auflösung" })).toBeVisible({ timeout: 40_000 });
     await expect(display.getByRole("heading", { name: "Auflösung", exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(display.locator(".ranking-phase")).toHaveCount(0);
+    await expect(display.locator(".rl-live-ranking")).toHaveCount(0);
     const admin = await page.context().newPage();
     await admin.goto(sessionUrl);
     await admin.getByRole("button", { name: "Zwischenstand anzeigen" }).click();
     await expect(player1.getByRole("heading", { name: "Zwischenstand", exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(display.locator(".podium-player")).toHaveCount(2);
-    await expect(player1.locator(".leaderboard li").first()).toContainText("(du)");
-    const points = await player1.locator(".leaderboard li strong").allTextContents();
+    await expect(display.locator(".rl-podium-player")).toHaveCount(2);
+    await expect(player1.locator(".rl-leaderboard li").first()).toContainText("(du)");
+    const points = await player1.locator(".rl-leaderboard .rl-leaderboard-points").allTextContents();
     expect(Number(points[0].replace(/\D/g, ""))).toBeGreaterThan(Number(points[1].replace(/\D/g, "")));
     await admin.getByRole("button", { name: "Nächste Frage starten" }).click();
     await expect(player1.getByRole("button", { name: /Zwei/ })).toBeEnabled({ timeout: 30_000 });
@@ -265,7 +266,7 @@ test("Zwei Gäste spielen zwei Fragen mit automatischer Auswertung", async ({ br
     await admin.getByRole("button", { name: "Zwischenstand anzeigen" }).click();
     await admin.getByRole("button", { name: "Endstand anzeigen" }).click();
     await expect(player1.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(player1.locator(".leaderboard li").first()).toContainText("(du)");
+    await expect(player1.locator(".rl-leaderboard li").first()).toContainText("(du)");
   } finally {
     await first.close();
     await second.close();

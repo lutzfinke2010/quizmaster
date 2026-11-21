@@ -11,7 +11,7 @@ const FIXED_END = Date.UTC(2030, 11, 24, 17, 0);
 type MockOptions = { title?: string; failFirstInfo?: boolean; expiresInMs?: number; status?: string };
 
 async function mockCloud(page: Page, options: MockOptions = {}) {
-  await page.route("**/src/AdminAuth.tsx", (route) => route.fulfill({
+  await page.route("**/src/ui/admin/AdminGate.tsx", (route) => route.fulfill({
     contentType: "application/javascript", body: "export function AdminGate({children}) { return children; }",
   }));
   await page.route("**/src/cloud.ts", (route) => route.fulfill({
@@ -102,7 +102,7 @@ test.describe("Verwaltung: kompakte Karten", () => {
     await expect(page.getByRole("heading", { name: "Veröffentlichte Quizrunden" })).toBeVisible();
     await expect(page.getByText("QUIZ ZUM MITMACHEN").first()).toBeVisible();
     const active = page.locator(".async-publication-card").filter({ hasText: "Tierisch unglaubliche Fakten" });
-    await expect(active.locator(".join-code-digits")).toHaveText("004 281");
+    await expect(active.locator(".rl-join-code-digits")).toHaveText("004 281");
     await expect(active).toContainText("Mitspielen bis");
     await expect(active).toContainText(/24\.12\.2030, 18:00 Uhr MEZ/);
     await expect(active.locator("input")).toHaveCount(0);
@@ -117,7 +117,7 @@ test.describe("Verwaltung: kompakte Karten", () => {
     await expect(active.getByRole("button", { name: "Vorzeitig beenden" })).toBeHidden();
 
     const legacy = page.locator(".async-publication-card").filter({ hasText: "Altes Quiz ohne Code" });
-    await expect(legacy.locator(".join-code-digits")).toHaveText("482 619");
+    await expect(legacy.locator(".rl-join-code-digits")).toHaveText("482 619");
     // Nachvergabe läuft serverseitig und idempotent; React StrictMode (Entwicklung) darf den Effekt doppelt auslösen.
     expect(await counter(page, "ensure-calls")).toBeGreaterThanOrEqual(1);
     expect(await counter(page, "ensure-calls")).toBeLessThanOrEqual(2);
@@ -130,7 +130,7 @@ test.describe("Verwaltung: kompakte Karten", () => {
     await expect(ended.locator(".badge")).toHaveText("Vorzeitig beendet");
     await expect(ended).toContainText("Beendet am");
     await expect(ended.getByRole("link", { name: "Einladung anzeigen" })).toHaveCount(0);
-    await expect(ended.locator(".join-code-digits")).toHaveCount(0);
+    await expect(ended.locator(".rl-join-code-digits")).toHaveCount(0);
     await expect(ended.getByRole("link", { name: "Ergebnisse ansehen" })).toHaveAttribute("href", "/admin/async/p-ended");
 
     const text = await page.locator("main").innerText();
@@ -162,9 +162,9 @@ test.describe("Gemeinsame Codeeingabe", () => {
     const input = page.getByLabel("Quiz-Code");
     await expect(input).toHaveAttribute("type", "text");
     await expect(input).toHaveAttribute("inputmode", "numeric");
-    await expect(page.locator(".join-card .privacy-note")).toContainText("Ohne Name und E-Mail dabei.");
+    await expect(page.locator(".rl-join-card .rl-privacy-note")).toContainText("Ohne Name und E-Mail dabei.");
     await input.fill("004 281");
-    await page.getByRole("button", { name: "Mitspielen" }).click();
+    await page.getByRole("button", { name: "Los geht’s" }).click();
     await expect(page).toHaveURL(/\/q\/004281$/);
     await expect(page.getByRole("heading", { name: "Tierisch unglaubliche Fakten" })).toBeVisible();
     await expect(page.getByText(/Mitspielen bis .*2030, 18:00 Uhr MEZ/).first()).toBeVisible();
@@ -177,7 +177,7 @@ test.describe("Gemeinsame Codeeingabe", () => {
     await mockCloud(page);
     await page.goto("/join/123456");
     await expect(page.getByLabel("Quiz-Code")).toHaveValue("123456");
-    await page.getByRole("button", { name: "Mitspielen" }).click();
+    await page.getByRole("button", { name: "Los geht’s" }).click();
     await expect(page).toHaveURL(/\/play\/live-1$/);
     expect(await page.evaluate(() => sessionStorage.getItem("joined"))).toBe("123456");
   });
@@ -192,7 +192,7 @@ test.describe("Gemeinsame Codeeingabe", () => {
       await mockCloud(page);
       await page.goto("/join");
       await page.getByLabel("Quiz-Code").fill(input);
-      await page.getByRole("button", { name: "Mitspielen" }).click();
+      await page.getByRole("button", { name: "Los geht’s" }).click();
       await expect(page.getByRole("alert")).toHaveText(expected);
       await expect(page).toHaveURL(/\/join$/);
     });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Hub } from "aws-amplify/utils";
 import { ConnectionState, CONNECTION_STATE_CHANGE } from "aws-amplify/api";
 import { cloud, type GameState } from "../cloud";
-import { message } from "../components/Layout";
+import { message } from "../ui/common/message";
 import { classifyLiveEvent } from "./liveEvents";
 
 export type LiveMode = "admin" | "guest" | "presentation";

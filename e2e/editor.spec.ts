@@ -9,8 +9,9 @@ test("Beispielquiz kann gespeichert, dupliziert und bearbeitet werden", async ({
   await expect(page.getByText("Lokaler Entwurfsmodus:")).toBeVisible();
   await page.getByLabel("Gespeicherte Entwürfe anzeigen und lokale Speicherung aktivieren").check();
   await page.getByRole("button", { name: "Beispielquiz verwenden" }).click();
-  await expect(page.getByRole("heading", { name: "Frage 10" })).toBeVisible();
   await page.getByLabel("Quiztitel").fill("Meine Quizrunde");
+  await page.getByRole("button", { name: "Weiter" }).click();
+  await expect(page.getByRole("heading", { name: "Frage 10" })).toBeVisible();
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(page.getByRole("heading", { name: "Meine Quizrunde" })).toBeVisible();
   await page.getByRole("button", { name: "Meine Quizrunde duplizieren" }).click();
@@ -23,9 +24,21 @@ test("Beispielquiz kann gespeichert, dupliziert und bearbeitet werden", async ({
 
 test("Ein unvollständiges Quiz kann nicht gespeichert werden", async ({ page }) => {
   await page.goto("/admin/quizzes/new");
+  await page.getByRole("button", { name: "Weiter" }).click();
+  await expect(page.getByText("Bitte ausfüllen.").first()).toBeVisible();
+  await expect(page.getByLabel("Quiztitel")).toBeFocused();
+  await page.getByLabel("Quiztitel").fill("Halbfertig");
+  await page.getByRole("button", { name: "Weiter" }).click();
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(page.getByText("Bitte ausfüllen.").first()).toBeVisible();
   await expect(page.getByText("Bitte genau eine richtige Antwort auswählen.")).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/quizzes\/new$/);
+
+  await page.getByRole("button", { name: "Grundlagen" }).click();
+  await page.getByLabel("Quiztitel").clear();
+  await page.getByRole("button", { name: "Fragen" }).click();
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByLabel("Quiztitel")).toBeFocused();
   await expect(page).toHaveURL(/\/admin\/quizzes\/new$/);
 });
 
@@ -33,6 +46,7 @@ test("Zwei Fragen lassen sich mobil anlegen und umsortieren", async ({ page }) =
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/quizzes/new");
   await page.getByLabel("Quiztitel").fill("Mobilquiz");
+  await page.getByRole("button", { name: "Weiter" }).click();
   await page.getByLabel("Fragetext").first().fill("Erste Frage?");
   await page.getByLabel("Antwort 1 bei Frage 1", { exact: true }).fill("Richtig");
   await page.getByLabel("Antwort 2 bei Frage 1", { exact: true }).fill("Falsch");
@@ -52,6 +66,8 @@ test("Zwei Fragen lassen sich mobil anlegen und umsortieren", async ({ page }) =
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(page.getByRole("heading", { name: "Mobilquiz" })).toBeVisible();
   await page.getByRole("link", { name: "Bearbeiten" }).click();
+  await expect(page.getByLabel("Quiztitel")).toHaveValue("Mobilquiz");
+  await page.getByRole("button", { name: "Weiter" }).click();
   await expect(page.getByLabel("Fragetext").first()).toHaveValue("Zweite Frage?");
   await expect(page.getByLabel("Antwort 1 bei Frage 1 ist richtig")).toBeChecked();
 });
@@ -59,6 +75,7 @@ test("Zwei Fragen lassen sich mobil anlegen und umsortieren", async ({ page }) =
 test("Neue Quizentwürfe bleiben bis zur Aktivierung im Arbeitsspeicher", async ({ page }) => {
   await page.goto("/admin/quizzes/new");
   await page.getByLabel("Quiztitel").fill("Nur im Arbeitsspeicher");
+  await page.getByRole("button", { name: "Weiter" }).click();
   await page.getByLabel("Fragetext").first().fill("Welche Antwort stimmt?");
   await page.getByLabel("Antwort 1 bei Frage 1", { exact: true }).fill("Diese");
   await page.getByLabel("Antwort 2 bei Frage 1", { exact: true }).fill("Jene");
@@ -137,6 +154,7 @@ for (const width of [320, 1440]) {
     await page.getByRole("button", { name: "Beispielquiz verwenden" }).click();
     const title = "Ein langer Quiztitel für unsere gemeinsame Feierabendrunde mit Freunden";
     await page.getByLabel("Quiztitel").fill(title);
+    await page.getByRole("button", { name: "Weiter" }).click();
     await page.getByRole("button", { name: "Entwurf speichern" }).click();
     const trigger = page.getByRole("button", { name: `${title} löschen` });
     await trigger.focus();
@@ -180,4 +198,40 @@ test("Neuladen behält den nativen Schutz ungespeicherter lokaler Änderungen", 
   await page.reload();
   expect((await warning).type()).toBe("beforeunload");
   await expect(page.getByLabel("Quiztitel")).toHaveValue("");
+});
+
+test("Kategorie wird gespeichert und die Detailseite zeigt Fragen und Aktionen", async ({ page }) => {
+  await page.goto("/admin");
+  await page.getByLabel("Gespeicherte Entwürfe anzeigen und lokale Speicherung aktivieren").check();
+  await page.getByRole("link", { name: "Neues Quiz" }).first().click();
+  await page.getByLabel("Quiztitel").fill("Tierquiz");
+  await page.getByLabel("Kategorie").selectOption({ label: "Tiere & Natur" });
+  await page.getByRole("button", { name: "Weiter" }).click();
+  await page.getByLabel("Fragetext").first().fill("Welches Tier summt?");
+  await page.getByLabel("Antwort 1 bei Frage 1", { exact: true }).fill("Biene");
+  await page.getByLabel("Antwort 2 bei Frage 1", { exact: true }).fill("Fisch");
+  await page.getByLabel("Antwort 1 bei Frage 1 ist richtig").check();
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+
+  await page.getByRole("link", { name: "Tierquiz" }).click();
+  await expect(page).toHaveURL(/\/admin\/quizzes\/[^/]+$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Tierquiz" })).toBeVisible();
+  await expect(page.getByText("Tiere & Natur", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fragen im Überblick" })).toBeVisible();
+  await expect(page.getByText("Biene (richtige Antwort)")).toBeVisible();
+  const original = page.url();
+
+  await page.getByRole("button", { name: "Duplizieren" }).click();
+  await expect(page).not.toHaveURL(original);
+  await expect(page.getByRole("heading", { level: 1, name: "Tierquiz" })).toBeVisible();
+  await page.getByRole("link", { name: "Bearbeiten" }).click();
+  await expect(page.getByLabel("Kategorie")).toHaveValue("tiere-natur");
+  await page.goBack();
+
+  await page.getByRole("button", { name: "Löschen" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Entwurf löschen?" });
+  await dialog.getByRole("button", { name: "Entwurf löschen" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("heading", { name: "Tierquiz" })).toHaveCount(1);
 });

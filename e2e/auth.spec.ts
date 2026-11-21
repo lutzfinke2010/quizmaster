@@ -14,7 +14,11 @@ test.beforeEach(async ({ page }) => {
         calls.push(name); localStorage.setItem("test-cloud-calls", JSON.stringify(calls));
         return [];
       }
-      export const cloud = { listQuizzes: () => list("listQuizzes"), listSessions: () => list("listSessions") };
+      export const cloud = {
+        listQuizzes: () => list("listQuizzes"),
+        listSessions: () => list("listSessions"),
+        listAsyncPublications: () => list("listAsyncPublications"),
+      };
     `,
   }));
   await page.route(/\/node_modules\/\.vite\/deps\/aws-amplify_auth\.js/, (route) => route.fulfill({

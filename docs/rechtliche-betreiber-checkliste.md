@@ -44,7 +44,7 @@ Der Quizmaster-Login ruft vor der Anmeldung keine Gast-Identität ab (`getCurren
 | DSGVO / TDDDG | anwendbar; Haushaltsausnahme dürfte bei öffentlicher Nutzung nicht greifen |
 | BFSG | Nur bei Verbraucherdienstleistungen im elektronischen Geschäftsverkehr; derzeit voraussichtlich nicht einschlägig – bei Monetarisierung neu prüfen |
 | VSBG / Widerruf / AGB | Kostenloser Dienst ohne Vertragsabschluss mit Verbrauchern: derzeit keine AGB; bei Entgelt neu prüfen |
-| Urheberrecht / Lizenzen | `LICENSES/shadcn-ui.txt` und weitere Abhängigkeitslizenzen bei Weitergabe beilegen |
+| Urheberrecht / Lizenzen | Abhängigkeitslizenzen bei Weitergabe beilegen |
 | BetrVG § 87 Abs. 1 Nr. 6 | Nur relevant, falls im Arbeitgeberumfeld eingesetzt; mit Arbeitgeber klären |
 | Neuprüfung | bei neuen Funktionen (Analytics, Werbung, Fotos, Chat, Entgelt, Marketing-E-Mails) |
 

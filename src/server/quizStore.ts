@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand, type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
+import { isQuizCategory, type QuizCategory } from "../domain/categories";
 import { quizSchema, type Quiz } from "../domain/quiz";
 import { requireQuizmaster } from "./adminPrincipal";
 
@@ -18,18 +19,26 @@ export type StoredQuiz = z.infer<typeof storedQuizSchema>;
 
 export interface QuizSummary {
   quizId: string; version: number; updatedAt: number; title: string; description: string; questionCount: number;
+  category?: QuizCategory;
 }
 export interface QuizSummaryPage { items: QuizSummary[]; nextCursor: string | null }
 
 const summarySchema = z.object({
   quizId: quizIdSchema, ownerId: z.string(), version: z.number().int(), updatedAt: z.number().int(),
   summaryTitle: z.string().optional(), summaryDescription: z.string().optional(), questionCount: z.number().int().optional(),
+  summaryCategory: z.string().optional(),
 });
 const QUIZ_PAGE_SIZE = 100;
 
 /** Denormalisierte Metadaten, damit die Übersicht per Projektion ohne die (bis zu 350 KB großen) Fragen auskommt. */
 function summaryAttributes(quiz: Quiz) {
-  return { summaryTitle: quiz.title, summaryDescription: quiz.description, questionCount: quiz.questions.length };
+  return { summaryTitle: quiz.title, summaryDescription: quiz.description, questionCount: quiz.questions.length,
+    ...(quiz.category ? { summaryCategory: quiz.category } : {}) };
+}
+
+/** Older items have no (or an unknown) category; the summary then omits it. */
+function summaryCategory(value: unknown): { category?: QuizCategory } {
+  return isQuizCategory(value) ? { category: value } : {};
 }
 
 function encodeCursor(key: Record<string, unknown> | undefined): string | null {
@@ -54,7 +63,12 @@ function ownerKey(principal: unknown) {
 }
 
 function validateQuiz(rawQuiz: unknown): Quiz {
-  const quiz = quizSchema.parse(rawQuiz);
+  // GraphQL may deliver an omitted optional input field as null.
+  const input = rawQuiz && typeof rawQuiz === "object" && (rawQuiz as { category?: unknown }).category === null
+    ? { ...rawQuiz, category: undefined } : rawQuiz;
+  const quiz = quizSchema.parse(input);
+  // DynamoDB rejects undefined attribute values; a quiz without category simply has no such key.
+  if (quiz.category === undefined) delete quiz.category;
   if (Buffer.byteLength(JSON.stringify(quiz), "utf8") > 350 * 1024) {
     throw new Error("Das Quiz ist für die Speicherung zu groß.");
   }
@@ -110,7 +124,7 @@ export class QuizStore {
     const page = await this.client.send(new QueryCommand({
       TableName: this.tableName, ConsistentRead: true, Limit: QUIZ_PAGE_SIZE,
       KeyConditionExpression: "pk = :owner AND begins_with(sk, :prefix)",
-      ProjectionExpression: "quizId, ownerId, #version, updatedAt, summaryTitle, summaryDescription, questionCount",
+      ProjectionExpression: "quizId, ownerId, #version, updatedAt, summaryTitle, summaryDescription, questionCount, summaryCategory",
       ExpressionAttributeNames: { "#version": "version" },
       ExpressionAttributeValues: { ":owner": owner.pk, ":prefix": "QUIZ#" },
       ExclusiveStartKey: decodeCursor(rawCursor, owner.pk),
@@ -121,12 +135,14 @@ export class QuizStore {
       if (item.ownerId !== owner.ownerId) throw new Error("Quiz gehört nicht zu diesem Konto.");
       if (item.summaryTitle !== undefined && item.summaryDescription !== undefined && item.questionCount !== undefined) {
         items.push({ quizId: item.quizId, version: item.version, updatedAt: item.updatedAt,
-          title: item.summaryTitle, description: item.summaryDescription, questionCount: item.questionCount });
+          title: item.summaryTitle, description: item.summaryDescription, questionCount: item.questionCount,
+          ...summaryCategory(item.summaryCategory) });
         continue;
       }
       const legacy = await this.getQuiz(principal, item.quizId);
       items.push({ quizId: legacy.quizId, version: legacy.version, updatedAt: legacy.updatedAt,
-        title: legacy.quiz.title, description: legacy.quiz.description, questionCount: legacy.quiz.questions.length });
+        title: legacy.quiz.title, description: legacy.quiz.description, questionCount: legacy.quiz.questions.length,
+        ...summaryCategory(legacy.quiz.category) });
     }
     return { items, nextCursor: encodeCursor(page.LastEvaluatedKey) };
   }
@@ -141,12 +157,14 @@ export class QuizStore {
     const updatedAt = time(now);
     await this.client.send(new UpdateCommand({
       TableName: this.tableName, Key: { pk: owner.pk, sk: `QUIZ#${quizId}` },
-      UpdateExpression: "SET quiz = :quiz, updatedAt = :updatedAt, #version = :next, summaryTitle = :title, summaryDescription = :description, questionCount = :questionCount",
+      UpdateExpression: "SET quiz = :quiz, updatedAt = :updatedAt, #version = :next, summaryTitle = :title, summaryDescription = :description, questionCount = :questionCount" +
+        (quiz.category ? ", summaryCategory = :category" : " REMOVE summaryCategory"),
       ConditionExpression: "ownerId = :owner AND #version = :expected",
       ExpressionAttributeNames: { "#version": "version" },
       ExpressionAttributeValues: { ":quiz": quiz, ":updatedAt": updatedAt, ":owner": owner.ownerId,
         ":expected": version, ":next": version + 1,
-        ":title": quiz.title, ":description": quiz.description, ":questionCount": quiz.questions.length },
+        ":title": quiz.title, ":description": quiz.description, ":questionCount": quiz.questions.length,
+        ...(quiz.category ? { ":category": quiz.category } : {}) },
     }));
     return { quizId, ownerId: owner.ownerId, version: version + 1, updatedAt, quiz };
   }

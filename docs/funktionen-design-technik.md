@@ -124,35 +124,36 @@ Eine vorhandene, aber ungültige JSON-Konfiguration oder ein Netzwerkfehler beim
 
 RateLama wirkt freundlich, hell und spielerisch, ohne wie eine grelle Gameshow auszusehen. Die Oberfläche spricht die Nutzenden auf Deutsch direkt mit „du“ an. Kurze motivierende Texte wie „Kleine Fragen. Große Momente.“ oder „Gemeinsam spielen, gemeinsam staunen.“ unterstützen den gemeinschaftlichen Charakter.
 
-Das RateLama-Logo, das Lama-Icon, Tieravatare und Gamification-Grafiken liegen lokal im Projekt. Auf schmalen Kopfzeilen ersetzt das Icon mit Markenname das breite Logo. Es gibt 50 Tieravatar-Motive; für die Anzeige existieren ein- und zweifach aufgelöste Varianten sowie ein neutraler Fallback.
+Das RateLama-Logo, das Lama mit seinen Stimmungen, Abzeichen und Illustrationen sind als SVG-Komponenten im Code gezeichnet; Tieravatare liegen als lokale Bilder im Projekt. Auf schmalen Kopfzeilen ersetzt das Icon mit Markenname das breite Logo. Es gibt 50 Tieravatar-Motive; für die Anzeige existieren ein- und zweifach aufgelöste Varianten sowie ein neutraler Fallback.
 
 ### Farbpalette
 
-Die App verwendet warme helle Flächen mit dunkler Schrift, Grün als Primärfarbe und Pastellakzenten. Die wichtigsten CSS-Tokens stehen in [`src/styles.css`](../src/styles.css) und [`src/components/game.css`](../src/components/game.css).
+Die App verwendet warme helle Flächen mit dunkler Schrift, Grün als Primärfarbe und Pastellakzenten. Die wichtigsten CSS-Tokens stehen in [`src/ui/base.css`](../src/ui/base.css); Bereichsstile liegen unter [`src/ui/`](../src/ui/).
 
 | Einsatz | Farbe | Wert |
 | --- | --- | --- |
-| Seitenhintergrund | Creme | `#fff8ec` |
-| Schrift | dunkles Grün | `#113d36` |
-| Sekundärtext | gedämpftes Graugrün | `#505f54` |
-| Primäraktionen | kräftiges Grün | `#006d4f` |
-| Fortschritt | Blattgrün | `#45871a` |
-| Spielflächen | warmes Weiß | `#fffefa` |
-| Kartenakzente | Mint / Aqua / Rosé | `#edf8da` / `#ccf2ef` / `#ffdde4` |
+| Seitenhintergrund | Creme | `#f9f1e3` / `#fdf6e9` |
+| Schrift | dunkles Grün | `#17352c` |
+| Sekundärtext | gedämpftes Graugrün | `#4f5d52` |
+| Primäraktionen | Petrolgrün | `#0f8f6c` / `#0a6b52` |
+| Erfolg und Fortschritt | Grasgrün | `#34b83a` |
+| Karten | warmes Weiß | `#fffdf8` |
+| Antwortkarten A–D | Pastellblau / -gelb / -rosa / -violett | sanfte Verläufe mit dunkler Schrift |
+| Fehler | Rot | `#c62f3b` |
 | Tastaturfokus | Violett | `#5543b6` |
 
 Es gibt keinen in der Anwendung umschaltbaren Dark Mode. Farben werden nicht allein zur Kennzeichnung von Auswahl, Fehlern oder richtigen Antworten verwendet: Symbole und erklärender Text ergänzen sie.
 
 ### Typografie, Komponenten und Layout
 
-- **Schrift:** Systemschriftstapel `Avenir Next`, Avenir, Segoe UI, sans-serif; keine heruntergeladenen Webfonts. Große, kräftige Überschriften mit enger Laufweite kontrastieren mit ruhigen Fließtexten. Kleine, gesperrte Großbuchstaben dienen als Bereichsmarkierungen.
-- **Formensprache:** Abgerundete Karten, Buttons und Eingabefelder, feine Konturen und zum Teil harte, leicht versetzte Schatten. Kleine gedrehte Sticker und lokale Illustrationen geben der sonst ruhigen Oberfläche einen spielerischen Akzent.
-- **Aktionen:** Primäre Buttons sind petrolfarben, sekundäre hell mit Kontur; gefährliche Aktionen werden zurückhaltend rot dargestellt und teilweise über gestaltete Bestätigungsdialoge abgesichert. Standard-Buttons sind mindestens 48 px hoch, kleine Aktionen mindestens 44 px.
-- **Quizansicht:** Großflächige Antwortkacheln mit Buchstaben und Statusanzeigen. Ausgewählte Antworten werden petrolfarben hervorgehoben, ausstehende Sendungen anders markiert. Fortschrittsbalken, Timer, Ergebnisverteilungen und Podium machen den Spielzustand sichtbar.
+- **Schrift:** Gerundeter Systemschriftstapel (`ui-rounded`, SF Pro Rounded, Nunito, Arial Rounded, Avenir Next, system-ui); keine heruntergeladenen Webfonts. Große, kräftige Überschriften mit enger Laufweite kontrastieren mit ruhigen Fließtexten. Kleine, gesperrte Großbuchstaben dienen als Bereichsmarkierungen.
+- **Formensprache:** Stark abgerundete Karten, Pillen-Buttons und Eingabefelder mit weichen, leicht versetzten Schatten. Das Lama, eine Quiz-Wegkarte, Wiesen und Konfetti geben der ruhigen Oberfläche einen spielerischen Akzent.
+- **Aktionen:** Primäre Buttons (z. B. „Los geht’s“) sind petrolgrün, sekundäre hell mit Kontur; gefährliche Aktionen werden zurückhaltend rot dargestellt und teilweise über gestaltete Bestätigungsdialoge abgesichert. Standard-Buttons sind mindestens 48 px hoch, kleine Aktionen mindestens 44 px.
+- **Quizansicht:** Große, abgerundete Antwortkarten mit Buchstaben, die beim Antippen kurz aufspringen; mobil untereinander, ab breiteren Bildschirmen im 2×2-Raster. Richtige Antworten werden grün, falsche wackeln kurz und werden sanft rot markiert, während die richtige Lösung grün hervorgehoben wird. Das Lama reagiert neugierig, jubelnd oder überrascht. Fortschrittsbalken, Timer, Ergebnisverteilungen und Podium machen den Spielzustand sichtbar.
 - **Responsive Gestaltung:** Die Oberfläche unterstützt Breiten ab 320 px. Auf Smartphones werden Navigation, Karten und Editorbereiche gestapelt; die persönliche Frageansicht bleibt kompakt. In der persönlichen Frageansicht werden zwei oder vier Antworten nur dann zweispaltig dargestellt, wenn alle Antworttexte höchstens 18 Zeichen lang sind; längere Texte stehen einspaltig. Die Präsentation nutzt größere Flächen und Schrift.
 - **Zugänglichkeit:** Sprunglink, sichtbarer Tastaturfokus, beschriftete Felder und Fehlermeldungen, Statusansagen, Fokusführung in Dialogen und Unterstützung für reduzierte Bewegung und erzwungene Farben sind implementiert. Die vorhandenen Prüfungen ersetzen keine vollständige Prüfung mit assistiven Technologien.
 
-Für Bewegung nutzt die App kurze Übergänge, Einblendungen, animierte Punkte und Konfetti. Bei `prefers-reduced-motion` werden unter anderem Partikel und Bewegungsanimationen unterdrückt; die eigentlichen Ergebnisse und Erfolge bleiben sichtbar. Fehlende Icons und Abzeichen fallen von SVG auf PNG und schließlich auf ein einfaches Symbol zurück; Illustrationen nutzen kleinere PNG-Varianten oder einen Sticker als Fallback.
+Für Bewegung nutzt die App kurze Übergänge, Einblendungen, animierte Punkte und Konfetti. Bei `prefers-reduced-motion` werden unter anderem Partikel und Bewegungsanimationen unterdrückt; die eigentlichen Ergebnisse und Erfolge bleiben sichtbar. Unbekannte Abzeichen erhalten ein neutrales Symbol.
 
 ## 4. Aktuell verwendete Technik
 
@@ -166,7 +167,7 @@ Die folgenden Versionen sind die im Lockfile aufgelösten Versionen, nicht zwing
 | Routing | React Router DOM **7.18.5** | Clientseitige Seiten und Direktlinks |
 | Entwicklung und Build | Vite **8.3.8**, npm | Entwicklungsserver und statischer Produktionsbuild |
 | Gestaltung | Tailwind CSS **4.3.5**, eigene CSS-Dateien | Utility-Klassen und das eigens definierte RateLama-Design |
-| UI-Bausteine | Radix UI **1.8.1**, shadcn-Button, class-variance-authority **0.7.1** | Zugängliche Dialogprimitive und Button-Varianten |
+| UI-Bausteine | Radix UI **1.8.1** | Zugängliche Dialogprimitive |
 | Formulare und Validierung | React Hook Form **7.92.0**, Zod **4.6.7**, Hookform-Resolver **7.0.6** | Editor, Anmeldung, Generator und Prüfung von Daten |
 | Animationen | Motion **14.14.0** und CSS-Animationen | Punkte, Ranglisten, Übergänge und Feiern |
 | Icons und QR-Codes | Lucide React **1.73.0**, qrcode.react **4.2.0** | Icons und lokal im Browser erzeugte QR-Codes |
@@ -227,13 +228,15 @@ Die Live-Präsentation nutzt einen zufälligen Präsentationstoken. Geteilte Dat
 | `/q/:token` | Quiz zum Mitmachen über kurzen Code oder älteren Token |
 | `/einladung/:code` | Öffentliche Einladungsansicht für eine Quizrunde zum Mitmachen |
 | `/admin` | Anmeldung bzw. Quiz-, Sitzungs- und Veröffentlichungsübersicht |
-| `/admin/quizzes/:quizId` | Editor; `new` legt ein neues Quiz an |
+| `/admin/quizzes/new` | Editor für ein neues Quiz |
 | `/admin/quizzes/generate` | KI-Quizgenerator |
+| `/admin/quizzes/:quizId` | Quizdetails mit Fragenübersicht und Startaktionen |
+| `/admin/quizzes/:quizId/bearbeiten` | Editor für ein bestehendes Quiz |
 | `/admin/quizzes/:quizId/publish` | Veröffentlichung eines Quiz zum Mitmachen |
 | `/admin/sessions/:sessionId` | Steuerung einer Live-Sitzung |
 | `/admin/async/:publicationId` | Ergebnisse und geschützte Vollbildpräsentation einer Quizrunde |
 | `/impressum`, `/datenschutz` | Öffentliche rechtliche Seiten |
 
-Die zentralen Implementierungen liegen in [`src/CloudApp.tsx`](../src/CloudApp.tsx), [`src/QuizEditor.tsx`](../src/QuizEditor.tsx), [`src/components/GameView.tsx`](../src/components/GameView.tsx), [`src/domain/`](../src/domain/), [`src/server/`](../src/server/) und [`amplify/`](../amplify/).
+Die zentralen Implementierungen liegen in [`src/App.tsx`](../src/App.tsx), [`src/ui/`](../src/ui/) (Bereiche `home/`, `live/`, `async/`, `admin/`, gemeinsame Bausteine in `game/`, `common/`, `shell/`), [`src/domain/`](../src/domain/), [`src/server/`](../src/server/) und [`amplify/`](../amplify/).
 
-Konkrete Schritte für lokale Entwicklung, AWS-Sandbox, Deployment und Betrieb stehen im [README](../README.md); zusätzliche Hinweise zu den lokalen Spielgrafiken in [Gamification-Assets](gamification-assets-chatgpt.md).
+Konkrete Schritte für lokale Entwicklung, AWS-Sandbox, Deployment und Betrieb stehen im [README](../README.md); der historische Auftrag für das frühere Grafikpaket steht in [Gamification-Assets](gamification-assets-chatgpt.md).

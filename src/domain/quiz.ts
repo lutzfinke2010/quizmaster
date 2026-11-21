@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { QUIZ_CATEGORIES } from "./categories";
 
 const requiredText = (max: number) =>
   z.string().trim().min(1, "Bitte ausfüllen.").max(max, `Höchstens ${max} Zeichen.`);
@@ -23,6 +24,8 @@ export const questionSchema = z.object({
 export const quizSchema = z.object({
   title: requiredText(120),
   description: z.string().trim().max(500, "Höchstens 500 Zeichen."),
+  /** Optional for backwards compatibility: quizzes saved earlier have no category. */
+  category: z.enum(QUIZ_CATEGORIES, "Bitte eine Kategorie auswählen.").optional(),
   questions: z.array(questionSchema).min(1, "Mindestens eine Frage ist erforderlich.")
     .max(100, "Höchstens 100 Fragen sind erlaubt."),
 });

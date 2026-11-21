@@ -1,0 +1,17 @@
+.rl-celebration { position: absolute; left: 50%; bottom: 150px; width: 0; height: 0; pointer-events: none; z-index: 5; }
+.rl-confetto {
+  position: absolute; width: 10px; height: 14px; border-radius: 3px; opacity: 0;
+  animation: rl-confetti 1200ms cubic-bezier(.15, .7, .3, 1) var(--delay) forwards;
+}
+.rl-flying-star { position: absolute; width: 28px; height: 28px; opacity: 0; animation: rl-star-fly 1400ms ease-out var(--delay) forwards; }
+
+@keyframes rl-confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0) scale(.4); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--x), calc(var(--y) + 60px)) rotate(540deg) scale(1); }
+}
+@keyframes rl-star-fly {
+  0% { opacity: 0; transform: translate(var(--x), var(--y)) scale(.4); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--x), calc(var(--y) - 280px)) scale(1.2) rotate(40deg); }
+}

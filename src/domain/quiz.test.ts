@@ -16,6 +16,17 @@ describe("Quizvalidierung", () => {
     expect(snapshot.questions[0].answers[0].text).toBe("Pferd");
   });
 
+  it("akzeptiert eine bekannte Kategorie und Quizze ohne Kategorie", () => {
+    expect(quizSchema.parse({ ...exampleQuiz, category: "geografie" }).category).toBe("geografie");
+    const { category: _category, ...legacy } = exampleQuiz;
+    expect(quizSchema.parse(legacy)).not.toHaveProperty("category");
+  });
+
+  it("lehnt unbekannte Kategorien ab", () => {
+    expect(quizSchema.safeParse({ ...exampleQuiz, category: "sport" }).success).toBe(false);
+    expect(quizSchema.safeParse({ ...exampleQuiz, category: null }).success).toBe(false);
+  });
+
   it("lehnt leere Texte und eine fehlende Lösung ab", () => {
     const quiz = { title: " ", description: "", questions: [newQuestion()] };
     expect(quizSchema.safeParse(quiz).success).toBe(false);

@@ -31,7 +31,7 @@ async function mockCloud(page: Page, data: {
   sessions: Session[]; publications: Publication[];
   quizzes?: Array<{ quizId: string; title: string; version: number; questionCount: number }>;
 }) {
-  await page.route("**/src/AdminAuth.tsx", (route) => route.fulfill({
+  await page.route("**/src/ui/admin/AdminGate.tsx", (route) => route.fulfill({
     contentType: "application/javascript", body: "export function AdminGate({children}) { return children; }",
   }));
   await page.route("**/src/cloud.ts", (route) => route.fulfill({
@@ -203,7 +203,7 @@ test.describe("Verwaltung: beendete Einträge eingeklappt", () => {
     await expect(publicationRows.nth(1).locator(".badge")).toHaveText("Vorzeitig beendet");
     await expect(publicationRows.nth(1)).toContainText(/Beendet am \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2} Uhr ME/);
     await expect(publicationRows.nth(1).getByRole("link", { name: "Ergebnisse ansehen" })).toHaveAttribute("href", "/admin/async/p-ended");
-    await expect(publications.locator(".join-code-digits, [href^='/einladung/']")).toHaveCount(0);
+    await expect(publications.locator(".rl-join-code-digits, [href^='/einladung/']")).toHaveCount(0);
     await shot(page, "admin-uebersicht-aufgeklappt-1440.png");
   });
 

@@ -19,7 +19,8 @@ const schema = a.schema({
     answers: a.ref("Answer").array().required(),
   }),
   Quiz: a.customType({
-    title: a.string().required(), description: a.string().required(), questions: a.ref("Question").array().required(),
+    title: a.string().required(), description: a.string().required(), category: a.string(),
+    questions: a.ref("Question").array().required(),
   }),
   QuizRecord: a.customType({
     quizId: a.id().required(), version: a.integer().required(), updatedAt: a.float().required(), quiz: a.ref("Quiz").required(),
@@ -27,6 +28,7 @@ const schema = a.schema({
   QuizSummary: a.customType({
     quizId: a.id().required(), version: a.integer().required(), updatedAt: a.float().required(),
     title: a.string().required(), description: a.string().required(), questionCount: a.integer().required(),
+    category: a.string(),
   }),
   QuizGenerationRequest: a.customType({
     title: a.string().required(), topic: a.string().required(), questionCount: a.integer().required(),

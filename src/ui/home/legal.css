@@ -1,0 +1,14 @@
+.rl-legal-page { display: flex; flex-direction: column; gap: 22px; line-height: 1.6; color: #2a463c; }
+.rl-legal-page h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); font-weight: 900; line-height: 1.15; color: #183a30; }
+.rl-legal-page section { display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 24px; background: var(--rl-card); box-shadow: 0 8px 24px -14px #5a3e1a45, inset 0 0 0 1px #f1e8d6; }
+.rl-legal-page h2 { font-size: 1.2rem; font-weight: 900; line-height: 1.25; color: #183a30; }
+.rl-legal-page h3 { font-size: 1.05rem; font-weight: 900; color: #183a30; }
+.rl-legal-page ul { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.rl-legal-page a:not(.rl-btn) { color: #0a6b52; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.rl-legal-page code { font-size: .85em; overflow-wrap: anywhere; }
+.rl-legal-draft { padding: 14px 16px; border-radius: 18px; background: #fff6da; box-shadow: inset 0 0 0 2px #f1d999; color: #6b4300; }
+.rl-legal-address { font-style: normal; font-weight: 700; color: #183a30; }
+.rl-legal-table-wrap { overflow-x: auto; border-radius: 16px; box-shadow: inset 0 0 0 1.5px #eee5d2; }
+.rl-legal-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: .92rem; }
+.rl-legal-table th, .rl-legal-table td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #eee5d2; }
+.rl-legal-table th { font-weight: 900; color: #183a30; background: #fbf5ea; }

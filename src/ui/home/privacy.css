@@ -1,0 +1,23 @@
+.rl-privacy-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0 0 0 20px; font-size: .95rem; line-height: 1.5; color: #2a463c; }
+.rl-trust { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rl-trust-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rl-trust-chips li {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; font-size: .9rem; font-weight: 800;
+  color: #1d4a12; background: #e6f6d6; box-shadow: inset 0 0 0 1.5px #b9e39a;
+}
+.rl-trust-chips svg { color: #2b9a2f; }
+.rl-trust-link { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 8px; }
+.rl-privacy { display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 16px; outline: none; }
+.rl-privacy-intro { display: flex; align-items: flex-start; gap: 14px; }
+.rl-privacy-intro p { margin-top: 6px !important; line-height: 1.45; color: #2a463c; }
+.rl-privacy-seal { display: grid; place-items: center; flex: none; width: 56px; height: 56px; border-radius: 18px; color: #0a6b52; background: #e2f4cf; }
+.rl-privacy-cards { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.rl-privacy-cards li { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 18px; background: #fff; box-shadow: inset 0 0 0 2px #f1e8d6; }
+.rl-privacy-cards p { font-size: .95rem; line-height: 1.45; color: #2a463c; }
+.rl-privacy-card-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #2f6fb8; background: #e6f2fd; }
+.rl-privacy-note { display: flex; gap: 12px; padding: 14px 16px; border-radius: 18px; background: #eef6fd; box-shadow: inset 0 0 0 2px #c8def5; line-height: 1.45; }
+.rl-privacy-note > svg { flex: none; color: #2f6fb8; }
+.rl-privacy-disclosure { margin-top: 8px; }
+.rl-privacy-disclosure > summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; font-weight: 800; color: #0a6b52; }
+.rl-privacy-disclosure .rl-privacy-list { margin-top: 6px; }
+.rl-privacy-cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }

@@ -1,0 +1,77 @@
+/* Phone card layout */
+.rl-screen-layout { display: flex; flex-direction: column; align-items: center; }
+.rl-screen-layout > .rl-screen { flex: 1 0 auto; }
+.rl-header-aside { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; }
+@media (min-width: 520px) {
+  .rl-screen-layout { padding: 32px 16px 0; }
+  .rl-screen-layout > .rl-screen { flex: none; }
+}
+@media (min-width: 900px) {
+  .rl-screen-play { max-width: 960px; }
+  .rl-screen-play .rl-header { padding: 22px 32px 6px; }
+  .rl-screen-play .rl-main { padding: 4px 32px 28px; }
+}
+
+/* Footer (all pages) */
+.rl-footer {
+  display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 960px; margin: 0 auto;
+  padding: 18px 18px 26px; font-size: .92rem; color: #4f5d52;
+}
+.rl-footer-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; }
+.rl-footer-tagline { font-weight: 700; }
+.rl-footer-legal { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.rl-footer-legal a {
+  display: inline-flex; align-items: center; min-height: 48px; padding: 0 4px; font-weight: 800; color: #0a5a45;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.rl-footer-privacy { border-radius: 18px; background: #fffdf8b0; box-shadow: inset 0 0 0 1.5px #eee5d2; }
+.rl-footer-privacy > summary {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 14px; cursor: pointer; font-weight: 800; color: #2a463c;
+}
+.rl-footer-privacy > summary svg { width: 20px; height: 20px; flex: none; color: #0a6b52; }
+.rl-footer-privacy .rl-privacy-list { padding: 0 16px 14px 34px; }
+.rl-footer.is-compact { padding-top: 8px; padding-bottom: 12px; }
+
+/* Text pages */
+.rl-page-layout { display: flex; flex-direction: column; }
+.rl-page-header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  width: 100%; max-width: 960px; margin: 0 auto; padding: 18px 18px 6px;
+}
+.rl-page-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.rl-page-nav-link {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; border-radius: 999px;
+  font-weight: 800; color: #2a463c; background: #fff; box-shadow: 0 2px 8px #5a3e1a1a;
+}
+.rl-page-nav-link svg { width: 18px; height: 18px; }
+.rl-page-nav-link:hover, .rl-page-nav-link.active { color: #10744f; background: #e2f4cf; }
+.rl-page-main { flex: 1; width: 100%; max-width: 880px; margin: 0 auto; padding: 18px 18px 24px; outline: none; }
+
+/* Shared screen */
+.rl-stage-layout { display: flex; flex-direction: column; }
+.rl-stage-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px clamp(18px, 3vw, 40px) 4px; }
+.rl-stage-main {
+  flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 1440px; margin: 0 auto;
+  padding: 12px clamp(18px, 3vw, 40px) 20px; outline: none;
+}
+
+/* Admin area */
+.rl-admin-layout { min-height: 100vh; min-height: 100dvh; }
+.rl-admin-column { display: flex; flex-direction: column; min-width: 0; }
+.rl-admin-column > .rl-overview-main { flex: 1; }
+.rl-admin-column > .rl-footer { max-width: none; padding-left: 40px; padding-right: 40px; }
+.rl-nav-button { width: 100%; cursor: pointer; text-align: left; }
+.rl-nav-button:hover:not(:disabled) { background: #eef6e2; }
+.rl-nav-button:disabled { opacity: .6; cursor: wait; }
+@media (max-width: 860px) {
+  .rl-admin-column > .rl-footer { padding-left: 18px; padding-right: 18px; }
+  .rl-nav-button { width: auto; }
+}
+/* On phones the admin navigation wraps instead of hiding entries behind a horizontal scroll. */
+@media (max-width: 640px) {
+  .rl-admin-layout .rl-sidebar { flex-wrap: wrap; overflow-x: visible; gap: 8px 10px; padding: 10px 12px; }
+  .rl-admin-layout .rl-sidebar > nav { flex: 1 1 auto; min-width: 0; }
+  .rl-admin-layout .rl-nav { flex-wrap: wrap; gap: 6px; }
+  .rl-admin-layout .rl-nav-item { min-height: 48px; padding: 6px 12px; gap: 8px; font-size: .95rem; }
+  .rl-admin-layout .rl-nav-item svg { width: 20px; height: 20px; }
+}

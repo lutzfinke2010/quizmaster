@@ -1,0 +1,107 @@
+/* Avatars */
+.rl-avatar { flex: none; width: 48px; height: 48px; border-radius: 16px; object-fit: cover; background: #fff; box-shadow: 0 2px 6px #5a3e1a22; }
+
+.rl-animated-points { font-variant-numeric: tabular-nums; }
+
+/* Progress meter (streaks, answer progress) */
+.rl-meter { width: 100%; height: 14px; appearance: none; border: 0; border-radius: 999px; background: #eee8da; overflow: hidden; }
+.rl-meter::-webkit-progress-bar { background: #eee8da; border-radius: 999px; }
+.rl-meter::-webkit-progress-value { background: linear-gradient(180deg, #7ee04a, #2fb52f); border-radius: 999px; }
+.rl-meter::-moz-progress-bar { background: linear-gradient(180deg, #7ee04a, #2fb52f); border-radius: 999px; }
+
+/* Question position */
+.rl-question-position { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 160px; padding: 6px 14px 6px 8px; border-radius: 999px; background: #fff; box-shadow: 0 3px 12px #5a3e1a1f; }
+.rl-question-position-label { flex: none; padding: 4px 10px; border-radius: 999px; font-size: .88rem; font-weight: 900; color: #fff; background: #0f8f6c; white-space: nowrap; }
+.rl-question-position-track { flex: 1; height: 14px; border-radius: 999px; background: #eee8da; overflow: hidden; }
+.rl-question-position-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(180deg, #ffd34d, #f5a41a); transition: width 250ms ease; }
+
+/* Timers */
+.rl-countdown.is-compact { width: auto; padding-right: 16px; }
+.rl-stage-timer { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; width: 128px; height: 128px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 6px #7ee04a, 0 10px 24px -10px #2a9a3066; color: #183a30; }
+.rl-stage-timer-digit { font-size: 3.2rem; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; animation: rl-pop 220ms ease-out; }
+.rl-stage-timer small { font-size: .9rem; font-weight: 800; color: #4f5d52; }
+.rl-stage-timer.is-urgent { box-shadow: inset 0 0 0 6px #ff8a4a, 0 10px 24px -10px #e9512a66; color: #d2401c; }
+
+.rl-speed-bonus { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: .92rem; font-weight: 700; color: #183a30; background: #fff6da; box-shadow: inset 0 0 0 1.5px #f1d999; }
+.rl-speed-bonus svg { width: 18px; height: 18px; color: #e08a00; }
+.rl-speed-bonus-track { width: 72px; height: 8px; border-radius: 999px; background: #f1e4bf; overflow: hidden; }
+.rl-speed-bonus-track > span { display: block; height: 100%; background: linear-gradient(90deg, #ffc21a, #ff8a2a); transition: width 500ms linear; }
+.rl-speed-bonus.is-over { background: #f2efe7; box-shadow: inset 0 0 0 1.5px #e3dccb; color: #4f5d52; }
+
+/* Rewards */
+.rl-score-award { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.rl-score-award-points { display: inline-flex; align-items: center; gap: 6px; font-size: 2.2rem; font-weight: 900; color: #183a30; }
+.rl-score-award-star { width: 34px; height: 34px; }
+.rl-score-award-label { font-weight: 700; color: #4f5d52; }
+.rl-streak-bonus { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: #c4622a; }
+.rl-streak-bonus-flame { width: 20px; height: 20px; }
+.rl-award-sequence { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rl-award-sequence .rl-celebration { bottom: 40px; }
+.rl-points-pop { display: inline-flex; align-items: center; gap: 8px; padding: 8px 22px; border-radius: 22px; font-size: 1.6rem; font-weight: 900; color: #183a30; background: linear-gradient(180deg, #f7ffe0, #e4f8b8); box-shadow: inset 0 0 0 2px #d2ef9a, 0 8px 18px -8px #4cbf3f66; animation: rl-burst-in 240ms cubic-bezier(.3, 1.6, .5, 1); }
+.rl-points-pop-star { width: 32px; height: 32px; }
+.rl-milestone-pop, .rl-badge-pop { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 999px; font-weight: 900; animation: rl-burst-in 240ms cubic-bezier(.3, 1.6, .5, 1) 120ms both; }
+.rl-milestone-pop { color: #9a3d0c; background: #ffeee2; box-shadow: inset 0 0 0 2px #f6c6a6; }
+.rl-milestone-flame { width: 22px; height: 22px; }
+.rl-badge-pop { color: #5a3c00; background: #fff6da; box-shadow: inset 0 0 0 2px #f1d999; }
+
+.rl-badge-icon { width: 20px; height: 20px; flex: none; color: #a86f00; }
+.rl-badge-double { display: inline-flex; align-items: center; width: auto; }
+.rl-badge-double > svg { width: 20px; height: 20px; }
+.rl-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rl-badges > li { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 12px; border-radius: 999px; font-weight: 800; font-size: .92rem; color: #5a3c00; background: #fff6da; box-shadow: inset 0 0 0 1.5px #f1d999; }
+
+.rl-achievements { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 14px 16px; border-radius: 22px; background: #fff; box-shadow: inset 0 0 0 1.5px #eee5d2; text-align: left; }
+.rl-achievements-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #183a30; }
+.rl-achievements-flame { width: 26px; height: 26px; filter: grayscale(.7); opacity: .7; }
+.rl-achievements.is-on-fire .rl-achievements-flame { filter: none; opacity: 1; animation: rl-pop 240ms ease-out; }
+.rl-achievements-trophy { width: 18px; height: 16px; }
+
+.rl-encouragement { padding: 10px 16px; border-radius: 18px; font-weight: 800; color: #6b4fc9; background: #f0ebfd; box-shadow: inset 0 0 0 1.5px #d0c4f1; text-align: center; }
+
+.rl-rank-rise { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; font-weight: 900; color: #10744f; background: #e2f4cf; box-shadow: inset 0 0 0 2px #cfe9b4; }
+.rl-rank-rise svg { width: 22px; height: 22px; }
+.rl-rank-rise.is-animated { animation: rl-burst-in 240ms cubic-bezier(.3, 1.6, .5, 1); }
+.rl-rank-change { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: #4f5d52; }
+.rl-rank-change svg { width: 18px; height: 18px; }
+.rl-rank-change.is-up { color: #10744f; }
+.rl-rank-change.is-down { color: #b4472a; }
+
+.rl-finale { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 16px; border-radius: 28px; text-align: center; background: linear-gradient(180deg, #fff9e6, #ffefc2); box-shadow: inset 0 0 0 2px #f1d999; }
+.rl-finale-llama { width: 150px; height: auto; }
+.rl-finale-trophy { position: absolute; top: 14px; right: 14px; width: 72px; height: auto; }
+.rl-finale-text { font-size: 1.3rem; font-weight: 900; color: #183a30; }
+.rl-finale.is-celebrating .rl-finale-trophy { animation: rl-burst-in 400ms cubic-bezier(.3, 1.6, .5, 1); }
+
+/* Podium */
+.rl-podium { display: flex; align-items: flex-end; justify-content: center; gap: 12px; padding-top: 30px; }
+.rl-podium-player { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; max-width: 190px; text-align: center; }
+.rl-podium-player .rl-avatar { width: 64px; height: 64px; border-radius: 22px; }
+.rl-podium-player.is-rank-1 .rl-avatar { width: 78px; height: 78px; }
+.rl-podium-crown { position: absolute; top: -30px; width: 30px; height: 30px; color: #f0a90e; fill: #ffd34d; }
+.rl-podium-name { max-width: 100%; overflow-wrap: anywhere; font-weight: 900; color: #183a30; }
+.rl-podium-points { font-size: .92rem; font-weight: 800; color: #2a463c; }
+.rl-podium-streak, .rl-podium-detail { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: #4f5d52; }
+.rl-podium-streak svg { width: 16px; height: 16px; }
+.rl-podium-block { display: grid; place-items: center; width: 100%; margin-top: 6px; border-radius: 18px 18px 8px 8px; font-size: 1.8rem; font-weight: 900; color: #fff; }
+.rl-podium-player.is-rank-1 .rl-podium-block { height: 110px; background: linear-gradient(180deg, #ffd34d, #f0a90e); }
+.rl-podium-player.is-rank-2 .rl-podium-block { height: 82px; background: linear-gradient(180deg, #c9d6e3, #96a9bd); }
+.rl-podium-player.is-rank-3 .rl-podium-block { height: 62px; background: linear-gradient(180deg, #f6c6a6, #d9874f); }
+
+/* Leaderboard */
+.rl-leaderboard { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rl-leaderboard > li { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px 8px 8px; border-radius: 20px; background: #fff; box-shadow: inset 0 0 0 1.5px #eee5d2; }
+.rl-leaderboard > li.is-you { background: #eaf6dc; box-shadow: inset 0 0 0 2px #9fd67a; }
+.rl-leaderboard .rl-avatar { width: 40px; height: 40px; border-radius: 14px; }
+.rl-leaderboard-rank { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%; font-weight: 900; color: #183a30; background: #f4ecdc; }
+.rl-leaderboard-rank.is-gained { color: #fff; background: #2fb52f; }
+.rl-leaderboard-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 800; color: #183a30; }
+.rl-leaderboard-points { flex: none; font-weight: 900; color: #183a30; }
+.rl-leaderboard-points span { font-weight: 700; color: #4f5d52; }
+
+/* Streak option (publish/start forms) */
+.rl-streak-option { display: flex; flex-direction: column; gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rl-points-pop, .rl-milestone-pop, .rl-badge-pop, .rl-rank-rise.is-animated, .rl-stage-timer-digit,
+  .rl-finale.is-celebrating .rl-finale-trophy, .rl-achievements.is-on-fire .rl-achievements-flame { animation: none; }
+}
