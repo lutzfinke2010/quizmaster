@@ -2,25 +2,29 @@ import "./mascot.css";
 
 export type MascotState = "intro" | "correct" | "wrong" | "celebration";
 
-type Asset = { file: string; width: number; height: number; variants: number[] };
+type Asset = { file: string; width: number; height: number; variants: number[]; fallback: number };
 
 const BODY_HEIGHTS = [180, 300, 450, 640, 900];
 
 /** Figures are cropped to their silhouette, so the same CSS height gives every pose the same scale. */
 const MASCOTS: Record<MascotState, Asset & { alt: string }> = {
-  intro: { file: "lama-winken", width: 812, height: 1524, variants: BODY_HEIGHTS, alt: "RateLama begrüßt dich" },
-  correct: { file: "lama-daumenhoch", width: 907, height: 1486, variants: BODY_HEIGHTS, alt: "RateLama freut sich über die richtige Antwort" },
-  wrong: { file: "lama-falsch-antwort", width: 759, height: 1364, variants: BODY_HEIGHTS, alt: "RateLama nimmt die falsche Antwort gelassen" },
-  celebration: { file: "lama-jubel", width: 892, height: 1449, variants: BODY_HEIGHTS, alt: "RateLama jubelt zum Quizabschluss" },
+  intro: { file: "lama-winken", width: 813, height: 1526, variants: BODY_HEIGHTS, fallback: 450, alt: "RateLama begrüßt dich" },
+  correct: { file: "lama-daumenhoch", width: 908, height: 1487, variants: BODY_HEIGHTS, fallback: 450, alt: "RateLama freut sich über die richtige Antwort" },
+  wrong: { file: "lama-falsch-antwort", width: 759, height: 1364, variants: BODY_HEIGHTS, fallback: 450, alt: "RateLama nimmt die falsche Antwort gelassen" },
+  celebration: { file: "lama-jubel", width: 893, height: 1450, variants: BODY_HEIGHTS, fallback: 450, alt: "RateLama jubelt zum Quizabschluss" },
 };
 
-const HEAD: Asset = { file: "lama-kopf-avatar", width: 818, height: 1222, variants: [64, 128, 192, 256] };
+const HEAD: Asset = { file: "lama-kopf-avatar", width: 818, height: 1222, variants: [64, 128, 192, 256], fallback: 128 };
 
-function sources({ file, width, height, variants }: Asset, size: number) {
+/**
+ * Palette-quantised PNG variants by height. Deliberately PNG rather than WebP: the Amplify SPA rewrite
+ * (see README) serves `index.html` for file types outside its allow-list, which breaks the image.
+ */
+function sources({ file, width, height, variants, fallback }: Asset, size: number) {
   const base = `${import.meta.env.BASE_URL}assets/ratelama/mascots/${file}`;
   return {
-    src: `${base}.png`,
-    srcSet: variants.map((h) => `${base}-${h}.webp ${Math.round(width * h / height)}w`).join(", "),
+    src: `${base}-${fallback}.png`,
+    srcSet: variants.map((h) => `${base}-${h}.png ${Math.round(width * h / height)}w`).join(", "),
     sizes: `${Math.ceil(size * width / height)}px`,
   };
 }

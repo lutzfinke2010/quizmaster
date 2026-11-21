@@ -1144,7 +1144,7 @@ for (const width of [320, 390, 430]) {
   });
 }
 
-test("Maskottchen: die Auflösung zeigt das Daumen-hoch-Lama vollständig, dekorativ und als WebP", async ({ page }) => {
+test("Maskottchen: die Auflösung zeigt das Daumen-hoch-Lama vollständig, dekorativ und in passender Größe", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 664 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockAsync(page, { immediateReveal: true });
@@ -1155,7 +1155,7 @@ test("Maskottchen: die Auflösung zeigt das Daumen-hoch-Lama vollständig, dekor
   await expect(mascot).toHaveAttribute("alt", "");
   await expect.poll(() => mascot.evaluate((element) => {
     const image = element as HTMLImageElement;
-    return image.complete && image.naturalWidth > 0 && /\/lama-daumenhoch-\d+\.webp$/.test(image.currentSrc);
+    return image.complete && image.naturalWidth > 0 && /\/lama-daumenhoch-\d+\.png$/.test(image.currentSrc);
   })).toBe(true);
   const card = await page.locator(".async-moment").boundingBox();
   const figure = await mascot.boundingBox();
@@ -1165,13 +1165,13 @@ test("Maskottchen: die Auflösung zeigt das Daumen-hoch-Lama vollständig, dekor
   expect(figure!.height).toBeGreaterThanOrEqual(96);
   await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
   await page.getByRole("button", { name: /Sechs/ }).click();
-  await expect(page.locator(".async-moment.is-wrong .quiz-mascot-wrong")).toHaveAttribute("src", /\/assets\/ratelama\/mascots\/lama-falsch-antwort\.png$/);
+  await expect(page.locator(".async-moment.is-wrong .quiz-mascot-wrong")).toHaveAttribute("src", /\/assets\/ratelama\/mascots\/lama-falsch-antwort-450\.png$/);
   const logo = page.locator(".rl-header .rl-brand-mark");
   await expect(logo).toHaveAttribute("alt", "");
   await expect(page.getByRole("link", { name: "RateLama – Startseite" })).toBeVisible();
   await expect.poll(() => logo.evaluate((element) => {
     const image = element as HTMLImageElement;
-    return image.complete && image.naturalWidth > 0 && /\/lama-kopf-avatar-\d+\.webp$/.test(image.currentSrc);
+    return image.complete && image.naturalWidth > 0 && /\/lama-kopf-avatar-\d+\.png$/.test(image.currentSrc);
   })).toBe(true);
   // The head avatar keeps its proportions instead of being squeezed into the old square slot.
   const mark = (await logo.boundingBox())!;
