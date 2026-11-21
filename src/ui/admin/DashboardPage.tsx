@@ -12,7 +12,7 @@ import { ErrorNotice, LoadingNotice } from "../common/Notices";
 import { message } from "../common/message";
 import { StreakBonusOption } from "../game/Rewards";
 import { Sparkle } from "../Illustrations";
-import { LlamaMascot } from "../OverviewIllustrations";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { routes } from "../routes";
 import { usePageTitle } from "../usePageTitle";
 import { ArchiveRow, ArchiveSection } from "./Archive";
@@ -81,7 +81,7 @@ export function DashboardPage() {
           <Link className="rl-btn rl-btn-secondary" to={routes.generate}><Bot aria-hidden="true" /> Quiz mit KI erstellen</Link>
         </div>
       </div>
-      <LlamaMascot className="rl-adm-header-art" />
+      <RateLamaMascot state="intro" size={200} decorative className="rl-adm-header-art" />
     </header>
     <ErrorNotice error={error} />
     {!loadedAt ? !error && <LoadingNotice>Deine Quizze werden geladen …</LoadingNotice> : <>

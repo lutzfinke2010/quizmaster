@@ -1,11 +1,11 @@
 import type { GameState } from "../../cloud";
 import { DeadlineTimer } from "../game/Timers";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 
 export function LiveCountdown({ state, offset }: { state: GameState; offset: number }) {
   return <section className="rl-live-countdown" aria-labelledby="countdown-title">
     <span className="rl-eyebrow">FRAGE {state.questionIndex + 1} VON {state.questionCount}</span>
-    <LlamaCharacter mood="curious" className="rl-live-llama" />
+    <RateLamaMascot state="intro" size={140} decorative className="rl-live-llama" />
     <h1 id="countdown-title" className="rl-h1">Gleich geht’s los!</h1>
     {state.opensAt != null && <DeadlineTimer deadline={state.opensAt} offset={offset} size="stage" />}
     <p className="rl-lead">Mach dich bereit für die nächste Frage.</p>

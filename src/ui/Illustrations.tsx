@@ -2,35 +2,6 @@ import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
-const OUTLINE = "#4a3426";
-
-export function LlamaHead(props: IconProps) {
-  const fluff = [
-    [21, 25, 6.5], [27, 19.5, 6.5], [34, 18, 6.8], [41, 20.5, 6.3], [45.5, 26, 5.5], [17.5, 31, 5],
-  ];
-  const shapes = <>
-    <ellipse cx="17" cy="15" rx="5.2" ry="12" transform="rotate(-22 17 15)" />
-    <ellipse cx="47" cy="15" rx="5.2" ry="12" transform="rotate(22 47 15)" />
-    <ellipse cx="32" cy="39" rx="17.5" ry="18" />
-    {fluff.map(([cx, cy, r]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />)}
-  </>;
-  return <svg viewBox="0 0 64 64" aria-hidden="true" {...props}>
-    <g fill={OUTLINE} stroke={OUTLINE} strokeWidth="3.4" strokeLinejoin="round">{shapes}</g>
-    <g fill="#fdf3df">{shapes}</g>
-    <ellipse cx="17" cy="15.5" rx="2.4" ry="7.5" transform="rotate(-22 17 15.5)" fill="#f6b7ad" />
-    <ellipse cx="47" cy="15.5" rx="2.4" ry="7.5" transform="rotate(22 47 15.5)" fill="#f6b7ad" />
-    <g fill="#f8e6c6">
-      <circle cx="27" cy="21" r="3.2" /><circle cx="36" cy="19.5" r="3.4" /><circle cx="42" cy="23" r="2.6" />
-    </g>
-    <ellipse cx="33" cy="47" rx="10" ry="7.5" fill="#fffaf0" />
-    <path d="M21.5 38.5q3.2-3.6 6.4 0M37 38.5q3.2-3.6 6.4 0" fill="none" stroke={OUTLINE} strokeWidth="2.2" strokeLinecap="round" />
-    <path d="M30.5 43.5h5l-2.5 2.4z" fill={OUTLINE} strokeLinejoin="round" stroke={OUTLINE} strokeWidth="1" />
-    <path d="M27.5 47.5q5.5 6.5 11 0" fill="#e2645b" stroke={OUTLINE} strokeWidth="2" strokeLinejoin="round" />
-    <ellipse cx="20" cy="44.5" rx="3.6" ry="2.3" fill="#f59b92" opacity=".55" />
-    <ellipse cx="45" cy="44.5" rx="3.6" ry="2.3" fill="#f59b92" opacity=".55" />
-  </svg>;
-}
-
 export function Flame(props: IconProps) {
   return <svg viewBox="0 0 32 32" aria-hidden="true" {...props}>
     <defs>

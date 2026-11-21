@@ -1006,7 +1006,7 @@ test("Gamification-Assets: gespeicherte Antworten ohne Sofortauflösung verraten
   await page.getByRole("button", { name: "Weiter zu Frage 3" }).click();
   await page.getByRole("button", { name: /Grün/ }).click();
   await expect(page.getByRole("heading", { name: "Quiz abgeschlossen" })).toBeVisible();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".async-own-total, .async-own-results, .rl-achievements, .rl-celebration")).toHaveCount(0);
 });
 
@@ -1023,16 +1023,16 @@ test("Gamification-Assets: unbekannte Ergebnisse zeigen weder falsche Lösungen 
   await expect(page.locator(".async-pause .async-moment-saved")).toBeVisible();
   await expect(page.locator(".async-pause .rl-answer.is-correct, .async-pause .rl-answer.is-wrong, .rl-score-award, .rl-achievements")).toHaveCount(0);
   await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.getByText("Dein Ergebnis ist noch nicht vollständig verfügbar.")).toBeVisible();
   await expect(page.locator(".async-own-total, .async-own-results, .rl-achievements, .rl-celebration")).toHaveCount(0);
   await page.evaluate(() => sessionStorage.setItem("async-guest-status", "ENDED"));
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
-  await expect(page.locator(".rl-finale .rl-llama-cheering, .rl-celebration")).toHaveCount(0);
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-celebration, .rl-celebration")).toHaveCount(0);
   await page.evaluate(() => sessionStorage.removeItem("async-unknown-result"));
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-celebration")).toBeVisible();
   await expect(page.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
 });
 
@@ -1046,21 +1046,21 @@ test("Gamification-Assets: vorläufiger Rang eins bleibt Teilnahme, erst ein bes
   });
   await page.getByRole("button", { name: "Ja", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Richtig!" })).toBeVisible();
-  await expect(page.locator(".async-pause .async-moment.is-correct .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".async-pause .async-moment.is-correct .quiz-mascot-correct")).toBeVisible();
   await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
   await expect(page.getByText("Vorläufig: Platz", { exact: false })).toBeVisible();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-finale .rl-celebration")).toHaveCount(1);
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
   await page.evaluate(() => sessionStorage.setItem("async-guest-status", "ENDED"));
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-celebration")).toBeVisible();
   await expect(page.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
   await page.evaluate(() => sessionStorage.setItem("async-guest-rank", "2"));
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
 });
 
 test("Gamification-Assets: unvollständige Teilnahme erhält keine Abschluss- oder Siegerfeier", async ({ page }) => {
@@ -1092,7 +1092,7 @@ test("Gamification-Assets: Verbindungsfehler und falsche Antwort zeigen keine Pu
   await expect(page.getByRole("heading", { name: "Leider daneben" })).toBeVisible();
   await expect(page.locator(".async-pause .rl-answer.is-wrong")).toContainText("Mars");
   await expect(page.locator(".async-pause .rl-answer.is-correct")).toContainText("Saturn");
-  await expect(page.locator(".async-pause .async-moment.is-wrong .rl-llama-surprised")).toBeVisible();
+  await expect(page.locator(".async-pause .async-moment.is-wrong .quiz-mascot-wrong")).toBeVisible();
   await expect(page.locator(".async-pause .rl-explanation")).toContainText("Richtig ist: Saturn");
   await expect(page.locator(".rl-score-award")).toHaveCount(0);
   await expect(page.locator(".rl-celebration, .rl-points-pop")).toHaveCount(0);
@@ -1106,7 +1106,7 @@ test("Gamification-Assets: eine falsche letzte Antwort löst keine Siegerfeier a
   await page.getByRole("button", { name: "Nein", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Leider daneben" })).toBeVisible();
   await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(page.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
 });
@@ -1134,7 +1134,7 @@ for (const width of [320, 390, 430]) {
     await page.goto("/q/token");
     await page.getByRole("button", { name: "Quiz starten" }).click();
     await page.getByRole("button", { name: /Saturn/ }).click();
-    await expect(page.locator(".async-pause .async-moment.is-correct .rl-llama-cheering")).toBeVisible();
+    await expect(page.locator(".async-pause .async-moment.is-correct .quiz-mascot-correct")).toBeVisible();
     await expect(page.locator(".async-pause .rl-answer.is-correct")).toBeVisible();
     await expect(page.locator(".rl-score-award .rl-score-award-star")).toBeVisible();
     // Illustrations are inline SVG now – the old PNG/SVG gamification assets must not be loaded anymore.
@@ -1143,6 +1143,41 @@ for (const width of [320, 390, 430]) {
     await page.screenshot({ path: test.info().outputPath(`gamification-async-${width}.png`), animations: "disabled" });
   });
 }
+
+test("Maskottchen: die Auflösung zeigt das Daumen-hoch-Lama vollständig, dekorativ und als WebP", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockAsync(page, { immediateReveal: true });
+  await page.goto("/q/token");
+  await page.getByRole("button", { name: "Quiz starten" }).click();
+  await page.getByRole("button", { name: "Saturn", exact: true }).click();
+  const mascot = page.locator(".async-moment .quiz-mascot-correct");
+  await expect(mascot).toHaveAttribute("alt", "");
+  await expect.poll(() => mascot.evaluate((element) => {
+    const image = element as HTMLImageElement;
+    return image.complete && image.naturalWidth > 0 && /\/lama-daumenhoch-\d+\.webp$/.test(image.currentSrc);
+  })).toBe(true);
+  const card = await page.locator(".async-moment").boundingBox();
+  const figure = await mascot.boundingBox();
+  // Ears and feet stay inside the hero card instead of being clipped.
+  expect(figure!.y).toBeGreaterThanOrEqual(card!.y);
+  expect(figure!.y + figure!.height).toBeLessThanOrEqual(card!.y + card!.height);
+  expect(figure!.height).toBeGreaterThanOrEqual(96);
+  await page.getByRole("button", { name: "Weiter zu Frage 2" }).click();
+  await page.getByRole("button", { name: /Sechs/ }).click();
+  await expect(page.locator(".async-moment.is-wrong .quiz-mascot-wrong")).toHaveAttribute("src", /\/assets\/ratelama\/mascots\/lama-falsch-antwort\.png$/);
+  const logo = page.locator(".rl-header .rl-brand-mark");
+  await expect(logo).toHaveAttribute("alt", "");
+  await expect(page.getByRole("link", { name: "RateLama – Startseite" })).toBeVisible();
+  await expect.poll(() => logo.evaluate((element) => {
+    const image = element as HTMLImageElement;
+    return image.complete && image.naturalWidth > 0 && /\/lama-kopf-avatar-\d+\.webp$/.test(image.currentSrc);
+  })).toBe(true);
+  // The head avatar keeps its proportions instead of being squeezed into the old square slot.
+  const mark = (await logo.boundingBox())!;
+  expect(mark.height).toBeCloseTo(50, 0);
+  expect(mark.width / mark.height).toBeCloseTo(818 / 1222, 1);
+});
 
 for (const [width, height] of [[360, 640], [390, 664], [768, 640]] as const) {
   for (const [answer, heading] of [["Saturn", "Richtig!"], ["Mars", "Leider daneben"]] as const) {
@@ -1174,7 +1209,7 @@ test("Gamification-Assets: Admin-Endstand feiert den Übergang, spätere Vollbil
   await page.evaluate(() => sessionStorage.setItem("async-status", "ENDED"));
   await page.getByRole("button", { name: "Aktualisieren", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Endstand", exact: true })).toBeVisible();
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-finale")).toContainText("gemeinsam zu feiern");
   await expect(page.locator(".rl-finale .rl-celebration")).toHaveCount(1);
   await page.reload();
@@ -1182,7 +1217,7 @@ test("Gamification-Assets: Admin-Endstand feiert den Übergang, spätere Vollbil
   await expect(page.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
   await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
   const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
-  await expect(stage.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(stage.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(stage.locator(".rl-podium-player.is-rank-1 .rl-podium-crown")).toHaveCount(2);
   await expect(stage.locator(".rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
   await expect.poll(() => stage.locator(".async-presentation-list-area").evaluate((area) => area.scrollHeight <= area.clientHeight + 1)).toBe(true);
@@ -1230,7 +1265,7 @@ test("Gamification-Assets: Reduced Motion lässt das Vollbildfinale ohne bewegte
   await page.goto("/admin/async/p1");
   await page.getByRole("button", { name: "Vollbild anzeigen" }).click();
   const stage = page.getByRole("region", { name: "Ergebnispräsentation" });
-  await expect(stage.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(stage.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(stage.locator(".rl-podium-player.is-rank-1 .rl-podium-crown")).toHaveCount(2);
   await expect(stage.locator(".rl-celebration")).toHaveCount(0);
   await expect.poll(() => stage.locator(".rl-podium-player").evaluateAll((players) =>

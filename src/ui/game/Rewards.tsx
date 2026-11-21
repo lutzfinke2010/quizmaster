@@ -5,12 +5,11 @@ import { STREAK_RULE_TEXT } from "../../domain/gamification";
 import { Celebration } from "../Feedback";
 import { formatPoints } from "../format";
 import { Flame, Star, Trophy } from "../Illustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { AnimatedPoints } from "./AnimatedPoints";
 import { BadgeIcon, badgeLabel } from "./BadgeIcon";
 import { claimGameEvent, useAwardEvent } from "./events";
 import "../celebration.css";
-import "../llama.css";
 import "./game.css";
 
 /** Option in the publish/session form – the bonus is computed by the backend. */
@@ -105,7 +104,8 @@ export function Finale({ winner = false, shared = false, celebrate = false, even
   const allowed = useAwardEvent(eventId, celebrate);
   return <div className={`rl-finale${allowed ? " is-celebrating" : ""}`}>
     {!reduced && allowed && <Celebration />}
-    <LlamaCharacter mood={winner ? "cheering" : "proud"} className="rl-finale-llama" />
+    {/* Only a confirmed win gets the cheering pose; everyone else finishing gets a thumbs-up. */}
+    <RateLamaMascot state={winner ? "celebration" : "correct"} size={150} decorative className="rl-finale-llama" />
     <Trophy className="rl-finale-trophy" />
     <strong className="rl-finale-text">{winner ? "Ganz oben! Das ist dein Moment." :
       shared ? "Geschafft. Zeit, gemeinsam zu feiern!" : "Geschafft. Zeit, dich zu feiern!"}</strong>

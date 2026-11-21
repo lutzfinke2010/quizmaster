@@ -11,7 +11,7 @@ import {
 import { message } from "../common/message";
 import { ErrorNotice, LoadingNotice } from "../common/Notices";
 import { Meadow } from "../CreateIllustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { routes } from "../routes";
 import { EditorFrame } from "./EditorFrame";
 import { FieldError } from "./FieldError";
@@ -113,7 +113,7 @@ function GeneratorForm({ onGenerate, busy }: { onGenerate: (request: GenerationR
       </div>
       <footer className="rl-editor-footer">
         <Meadow className="rl-editor-meadow" />
-        <LlamaCharacter key={busy ? "busy" : "idle"} mood={busy ? "surprised" : "curious"} className="rl-editor-llama" />
+        <RateLamaMascot key={busy ? "busy" : "idle"} state={busy ? "correct" : "intro"} size={124} decorative className="rl-editor-llama" />
         <div className="rl-editor-action">
           <button type="submit" className="rl-start-button rl-editor-button" disabled={busy}>
             <Sparkles strokeWidth={2.6} aria-hidden="true" />{busy ? "Quiz wird erstellt …" : "Quiz erstellen lassen"}</button>

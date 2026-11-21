@@ -288,7 +288,7 @@ test("Eigene Antwort bleibt beim Senden, Auswerten und Neuladen sichtbar", async
   await expect(page.locator(".rl-live-vote.is-correct")).toContainText("Saturn");
   await expect(page.locator(".rl-answers")).toHaveCount(0);
   await expect(page.locator(".rl-celebration")).toHaveCount(1);
-  await expect(page.locator(".rl-live-reveal .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".rl-live-reveal .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-celebration")).toHaveAttribute("aria-hidden", "true");
   await expect.poll(() => page.locator(".rl-celebration .rl-confetto").evaluateAll((particles) =>
     particles.some((particle) => {
@@ -324,7 +324,7 @@ test("Falsche Antwort bleibt von der richtigen Lösung unterscheidbar – ohne K
   await expect(page.locator(".rl-live-result-message")).toContainText("Leider daneben");
   await expect(page.locator(".rl-live-vote").filter({ hasText: "Mars" })).toContainText("Deine Antwort");
   await expect(page.locator(".rl-live-correct")).toContainText("Saturn");
-  await expect(page.locator(".rl-live-reveal .rl-llama-surprised")).toBeVisible();
+  await expect(page.locator(".rl-live-reveal .quiz-mascot-wrong")).toBeVisible();
   await expect(page.locator(".rl-celebration")).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".rl-live-vote").filter({ hasText: "Mars" })).toContainText("Deine Antwort");
@@ -978,7 +978,7 @@ test("Gamification: Reduced Motion behält Punkte und Abzeichen ohne Zählerfahr
   await expect(page.locator(".rl-badges")).toContainText("Dreier-Serie");
   expect(await page.locator(".rl-milestone-pop").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
   await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 4, leaderboard: players(4) });
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-finale .rl-celebration")).toHaveCount(0);
   expect(await page.locator(".rl-finale").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
 });
@@ -993,8 +993,8 @@ test("Gamification: bestätigte Punkte, Meilensteine und alle Badge-IDs behalten
     badges: ["FIRST_CORRECT", "STREAK_3", "STREAK_5", "PERFECT", "__proto__"],
   })));
   await setPhase(page, "REVEAL");
-  await expect(page.locator(".rl-live-result.is-correct .rl-llama-cheering")).toBeVisible();
-  await expect(page.locator(".rl-live-reveal .rl-llama-curious, .rl-live-reveal .rl-llama-surprised")).toHaveCount(0);
+  await expect(page.locator(".rl-live-result.is-correct .quiz-mascot-correct")).toBeVisible();
+  await expect(page.locator(".rl-live-reveal .quiz-mascot-wrong")).toHaveCount(0);
   await expect(page.locator(".rl-score-award-star")).toBeVisible();
   await expect(page.locator(".rl-streak-bonus .rl-streak-bonus-flame")).toBeVisible();
   await expect(page.locator(".rl-milestone-pop")).toContainText("Unaufhaltsam!");
@@ -1019,8 +1019,8 @@ for (const answered of [false, true]) {
     }
     await setPhase(page, "REVEAL");
     await expect(page.locator(".rl-live-result-message")).toHaveText(answered ? "Leider daneben" : "Zeit abgelaufen · Keine Antwort");
-    await expect(page.locator(".rl-live-result.is-wrong .rl-llama-surprised")).toBeVisible();
-    await expect(page.locator(".rl-live-reveal .rl-llama-cheering")).toHaveCount(0);
+    await expect(page.locator(".rl-live-result.is-wrong .quiz-mascot-wrong")).toBeVisible();
+    await expect(page.locator(".rl-live-reveal .quiz-mascot-correct")).toHaveCount(0);
     await expect(page.locator(".rl-encouragement")).toHaveCount(answered ? 1 : 0);
     await expect(page.locator(".rl-score-award-points .rl-animated-points")).toHaveAttribute("aria-label", "0");
     await expect(page.locator(".rl-score-award-star")).toHaveCount(0);
@@ -1059,11 +1059,11 @@ test("Gamification: ein bestätigter Live-Sieg zeigt das Siegerlama nur einmal",
   await expect(page.locator(".rl-live-result-message")).toHaveText("Richtig!");
   const own = { ...players(4)[3], rank: 1, previousRank: 2, rankChange: 1 };
   await updateGame(page, { status: "FINISHED", leaderboard: [own] });
-  await expect(page.locator(".rl-finale .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-celebration")).toBeVisible();
   await expect(page.locator(".rl-finale")).toContainText("Ganz oben! Das ist dein Moment.");
   await expect(page.locator(".rl-finale .rl-celebration")).toHaveCount(1);
   await page.reload();
-  await expect(page.locator(".rl-finale .rl-llama-cheering")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-celebration")).toBeVisible();
   await expect(page.locator(".rl-finale .rl-celebration, .rl-finale.is-celebrating")).toHaveCount(0);
 });
 
@@ -1075,7 +1075,7 @@ test("Gamification: geteilte Siege und das Präsentationsfinale bleiben bei 1920
     ...player, points: index < 2 ? 4000 : player.points, rank: index < 2 ? 1 : index + 1,
   }));
   await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 24, leaderboard: tied });
-  await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+  await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
   await expect(page.locator(".rl-finale")).toContainText("gemeinsam zu feiern");
   await expect(page.locator(".rl-podium-player.is-rank-1 .rl-podium-crown")).toHaveCount(2);
   await expect(page.locator(".rl-podium-player.is-rank-3 .rl-podium-crown")).toHaveCount(0);
@@ -1098,21 +1098,21 @@ for (const width of [320, 390, 430]) {
     await mockGame(page);
     await page.goto("/play/design");
     await updateGame(page, { status: "LOBBY", participantCount: 2 });
-    await expect(page.locator(".rl-live-lobby .rl-llama-cheering")).toBeVisible();
+    await expect(page.locator(".rl-live-lobby .quiz-mascot-intro")).toBeVisible();
     await expect(page.locator(".rl-live-identity")).toContainText("Fröhlicher Fuchs");
     await expectNoHorizontalOverflow(page);
     await updateGame(page, { status: "COUNTDOWN", opensAt: Date.now() + 60_000 });
-    await expect(page.locator(".rl-live-countdown .rl-llama-curious")).toBeVisible();
+    await expect(page.locator(".rl-live-countdown .quiz-mascot-intro")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await setPhase(page, "QUESTION_OPEN");
-    await expect(page.locator(".rl-live-question .rl-llama-curious")).toBeVisible();
+    await expect(page.locator(".rl-live-question .quiz-mascot-intro")).toBeVisible();
     await page.getByRole("button", { name: /Saturn/ }).click();
     await expect(page.locator(".rl-live-feedback")).toContainText("Antwort ist drin");
     await setPhase(page, "REVEAL");
-    await expect(page.locator(".rl-live-reveal .rl-llama-cheering")).toBeVisible();
+    await expect(page.locator(".rl-live-reveal .quiz-mascot-correct")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await updateGame(page, { status: "FINISHED", questionIndex: 4, questionCount: 5, participantCount: 4, leaderboard: players(4) });
-    await expect(page.locator(".rl-finale .rl-llama-proud")).toBeVisible();
+    await expect(page.locator(".rl-finale .quiz-mascot-correct")).toBeVisible();
     await expect(page.locator(".rl-live-own-rank .rl-live-trophy")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expect.poll(() => page.locator(".rl-leaderboard li").evaluateAll((elements) =>

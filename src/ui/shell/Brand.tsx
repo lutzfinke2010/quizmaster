@@ -1,9 +1,9 @@
 import { Link } from "react-router-dom";
-import { LlamaHead } from "../Illustrations";
+import { RateLamaHead } from "../RateLamaMascot";
 
 export function Brand({ to = "/", label = "RateLama – Startseite" }: { to?: string; label?: string }) {
   return <Link className="rl-brand" to={to} aria-label={label}>
-    <LlamaHead className="rl-brand-mark" />
+    <RateLamaHead className="rl-brand-mark" />
     <span className="rl-brand-name">RateLama</span>
   </Link>;
 }

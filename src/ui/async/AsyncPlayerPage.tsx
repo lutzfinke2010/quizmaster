@@ -7,7 +7,7 @@ import { useNoIndex } from "../../hooks/useNoIndex";
 import { AnswerCards } from "../AnswerCards";
 import { ExplanationCard, ScorePill } from "../Feedback";
 import { Flame } from "../Illustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot, preloadMascots } from "../RateLamaMascot";
 import { message } from "../common/message";
 import { ErrorNotice, LoadingNotice } from "../common/Notices";
 import { AnimatedPoints } from "../game/AnimatedPoints";
@@ -26,6 +26,8 @@ type PublicInfo = Awaited<ReturnType<typeof cloud.asyncPublicInfo>>;
 type Choice = { id: string; text: string };
 /** Confirmed answer that paused the quiz; keeps the tapped cards so the reveal can show them. */
 type PausedAfter = { answeredCount: number; answer: string; questionIndex: number; question: string; choiceId: string; answers: Choice[] };
+/** Largest rendered height of the reveal llama (see `.async-moment-llama`). */
+const MOMENT_MASCOT_SIZE = 116;
 
 function AsyncProgress({ answered, total }: { answered: number; total: number }) {
   return <div className="async-progress">
@@ -105,6 +107,10 @@ function AsyncPlayer({ token }: { token: string }) {
   const deadlinePassed = expiresAt !== undefined && now >= expiresAt;
   const canAnswer = info?.status === "ACTIVE" && !deadlinePassed;
   const stateActive = state?.status === "ACTIVE";
+  const immediateReveal = Boolean(info?.immediateReveal);
+  useEffect(() => {
+    if (immediateReveal) preloadMascots(["correct", "wrong"], MOMENT_MASCOT_SIZE);
+  }, [immediateReveal]);
   useEffect(() => {
     if (!deadlinePassed || !stateActive) return;
     let active = true;
@@ -272,7 +278,7 @@ function AsyncPlayer({ token }: { token: string }) {
     const correctId = revealCards && answerResult
       ? answerResult.correctChoiceId ?? revealCards.answers.find((answer) => answer.text === answerResult.correctText)?.id
       : undefined;
-    const mood = answerResult ? answerResult.correct ? "cheering" : "surprised" : "curious";
+    const mascot = !answerResult ? "intro" : answerResult.correct ? "correct" : "wrong";
     const momentClass = answerResult ? answerResult.correct ? "is-correct" : "is-wrong"
       : justAnswered ? "async-moment-saved" : "async-moment-ready";
     const rankChange = rankBeforeAnswer != null && state.rank != null ? rankBeforeAnswer - state.rank : 0;
@@ -289,7 +295,7 @@ function AsyncPlayer({ token }: { token: string }) {
         </div>
         {deadlineWarning}
         <div className={`async-moment ${momentClass}`}>
-          <LlamaCharacter mood={mood} className="async-moment-llama" />
+          <RateLamaMascot state={mascot} size={MOMENT_MASCOT_SIZE} decorative className="async-moment-llama" />
           <div className="async-moment-body">
             <h1 id="async-pause-title" className="async-pause-title" ref={pauseHeadingRef} tabIndex={-1}>
               {answerResult ? answerResult.correct ? "Richtig!" : "Leider daneben" :
@@ -376,7 +382,7 @@ function AsyncPlayer({ token }: { token: string }) {
     <div className="async-start">
       <Link className="async-back" to={routes.home}><ArrowLeft aria-hidden="true" /> Zur Startseite</Link>
       {loading ? <LoadingNotice>Quiz wird geladen …</LoadingNotice> : !info ? <div className="rl-card async-card async-unavailable">
-        <LlamaCharacter mood="surprised" className="async-unavailable-llama" />
+        <RateLamaMascot state="intro" size={150} decorative className="async-unavailable-llama" />
         <h1 className="rl-h1">Quizrunde nicht verfügbar</h1>
         <p>{error || "Dieser Link oder Quiz-Code ist ungültig oder die Ergebnisse wurden bereits gelöscht."}</p>
         <p><Link className="rl-btn rl-btn-secondary" to={routes.join()}>Quiz-Code eingeben</Link></p>
@@ -432,7 +438,7 @@ function AsyncPlayer({ token }: { token: string }) {
             {busy ? "Quiz wird geöffnet …" : "Quiz starten"}
           </button>
         </section> : <section className="rl-card async-card async-player-card">
-          <LlamaCharacter mood="proud" className="async-ended-llama" />
+          <RateLamaMascot state="intro" size={150} decorative className="async-ended-llama" />
           <h2 className="rl-h2">Diese Quizrunde ist beendet</h2>
           <p>Die Quizrunde endete am {formatDateTimeWithZone(info.endedAt ?? info.expiresAt, info.timeZone)}.</p>
         </section>}

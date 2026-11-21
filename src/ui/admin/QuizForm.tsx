@@ -13,7 +13,7 @@ import { CategoryIcon } from "../CategoryIcon";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ErrorNotice } from "../common/Notices";
 import { Meadow, QuestionBubble } from "../CreateIllustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { FieldError } from "./FieldError";
 import { answerLetter, basicsComplete, BASICS_FIELDS, questionComplete, type EditorStep } from "./editorHelpers";
 import "../neu.css";
@@ -326,7 +326,7 @@ export function QuizForm({ initialQuiz, onSave, saving = false, cloudMode = fals
 
       <footer className="rl-editor-footer">
         <Meadow className="rl-editor-meadow" />
-        <LlamaCharacter key={step} mood={step === 1 ? "proud" : "cheering"} className="rl-editor-llama" />
+        <RateLamaMascot key={step} state={step === 1 ? "intro" : "correct"} size={124} decorative className="rl-editor-llama" />
         <div className="rl-editor-action">
           {step === 1
             ? <button key="next" type="submit" className="rl-start-button rl-editor-button">

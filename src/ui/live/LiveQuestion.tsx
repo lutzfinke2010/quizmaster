@@ -5,7 +5,7 @@ import { AnswerCards } from "../AnswerCards";
 import { Avatar } from "../game/Avatar";
 import { answerColumns } from "../game/questionLayout";
 import { DeadlineTimer, QuestionPosition } from "../game/Timers";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { AnswerProgress } from "./AnswerProgress";
 import { letter } from "./phaseLabels";
 
@@ -51,7 +51,7 @@ export function PersonalQuestion({ state, offset, participant, standingLabel, ti
       {state.status === "QUESTION_OPEN" && state.closesAt != null && <DeadlineTimer deadline={state.closesAt} offset={offset} />}
     </div>
     <div className="rl-live-question-head">
-      <LlamaCharacter mood="curious" className="rl-live-question-llama" />
+      <RateLamaMascot state="intro" size={64} decorative className="rl-live-question-llama" />
       <h1 id="question-title" className="rl-live-question-title" ref={headingRef} tabIndex={-1}>{question.text}</h1>
     </div>
     <AnswerCards answers={question.answers} columns={answerColumns(question.answers)} selectedId={selected}

@@ -1,5 +1,5 @@
 .rl-status { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 560px; margin: 24px auto; text-align: center; }
-.rl-status-llama { width: 170px; height: auto; }
+.rl-status-llama { height: 170px; }
 
 /* Start page */
 .rl-home .rl-main { gap: 18px; }
@@ -53,14 +53,14 @@
 .rl-home-host { display: flex; flex-direction: column; gap: 14px; }
 .rl-home-host-row { display: flex; align-items: center; gap: 14px; }
 .rl-home-host p { margin-top: 6px !important; line-height: 1.45; color: #2a463c; }
-.rl-home-host-llama { flex: none; width: 84px; height: auto; }
+.rl-home-host-llama { height: 104px; margin-block: -6px; }
 @media (max-width: 360px) { .rl-home-host-llama { display: none; } }
 
 /* Focused join page */
 .rl-join-card { margin-top: 18px; align-items: stretch; text-align: left; }
 .rl-join-card .rl-h1, .rl-join-card .rl-eyebrow { text-align: center; }
 .rl-join-card .rl-lead { text-align: center; }
-.rl-join-llama { align-self: center; width: 130px; height: auto; margin-bottom: -6px; }
+.rl-join-llama { align-self: center; height: 132px; }
 
 @keyframes rl-home-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 @media (prefers-reduced-motion: reduce) { .rl-code-input[aria-invalid="true"] { animation: none; } }

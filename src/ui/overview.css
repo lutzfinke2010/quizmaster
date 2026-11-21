@@ -12,7 +12,7 @@
   background: linear-gradient(180deg, #fdf8ee, #f8f0e1); border-right: 1px solid #efe5d2;
 }
 .rl-sidebar .rl-brand { padding: 0 8px; }
-.rl-sidebar .rl-brand-mark { width: 44px; height: 44px; }
+.rl-sidebar .rl-brand-mark { height: 44px; }
 .rl-sidebar .rl-brand-name { font-size: 1.3rem; }
 .rl-nav { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .rl-nav-item {

@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { Maximize2, Pause, Play, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { AsyncStandings } from "../../cloud";
-import { LlamaHead } from "../Illustrations";
+import { RateLamaHead } from "../RateLamaMascot";
 import { AnimatedPoints } from "../game/AnimatedPoints";
 import { Avatar } from "../game/Avatar";
 import { useFinaleTransition } from "../game/events";
@@ -145,7 +145,7 @@ export function StandingsPresentation({ standings, statusText, formatPoints, err
       {presenting && <div className="async-presentation-board">
         <header className="async-presentation-header">
           <div className="async-presentation-heading">
-            <span className="rl-brand async-presentation-brand" aria-hidden="true"><LlamaHead className="rl-brand-mark" /><span className="rl-brand-name">RateLama</span></span>
+            <span className="rl-brand async-presentation-brand" aria-hidden="true"><RateLamaHead className="rl-brand-mark" /><span className="rl-brand-name">RateLama</span></span>
             <p className="async-presentation-title">{standings.title}</p>
             <h1>{standings.isFinal ? "Endstand" : "Zwischenstand"}</h1>
           </div>

@@ -2,7 +2,7 @@
 
 /* ---------- Phone header ---------- */
 .rl-live-screen .rl-header { padding: 12px 16px 4px; }
-.rl-live-screen .rl-brand-mark { width: 42px; height: 42px; }
+.rl-live-screen .rl-brand-mark { height: 42px; }
 .rl-live-screen .rl-header-aside { gap: 6px; }
 .rl-live-screen .rl-score { padding: 5px 10px 5px 6px; font-size: .95rem; }
 .rl-live-screen .rl-score-star { width: 20px; height: 20px; }
@@ -23,7 +23,7 @@
 .rl-live-hint { font-size: .95rem; line-height: 1.45; font-weight: 700; color: #4f5d52; }
 .rl-live-footnote { font-size: .88rem; font-weight: 700; color: #4f5d52; text-align: center; }
 .rl-live-title { min-width: 0; font-size: 1.05rem; font-weight: 900; color: #183a30; overflow-wrap: anywhere; }
-.rl-live-llama { width: 120px; max-width: 40%; height: auto; flex: none; }
+.rl-live-llama { height: 128px; }
 
 /* Identity line of the participant */
 .rl-live-identity {
@@ -50,7 +50,7 @@
 .rl-live-lobby { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .rl-live-lobby-intro { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .rl-live-lobby-intro > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.rl-live-lobby-intro .rl-live-llama { width: 110px; }
+.rl-live-lobby-intro .rl-live-llama { height: 120px; }
 .rl-live-lobby-players { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .rl-live-lobby-count { font-size: 1.05rem; font-weight: 800; color: #2a463c; }
 .rl-live-lobby-count strong { font-size: 1.5rem; font-weight: 900; color: #0a6b52; }
@@ -82,7 +82,7 @@
 
 /* ---------- Countdown & cancelled ---------- */
 .rl-live-countdown { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; text-align: center; }
-.rl-live-countdown .rl-live-llama { width: 130px; }
+.rl-live-countdown .rl-live-llama { height: 140px; }
 
 /* ---------- Question ---------- */
 .rl-live-question { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -102,7 +102,7 @@
 .rl-live-metabar .rl-countdown-time { font-size: 1.1rem; }
 .rl-live-question-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .rl-live-question-head .rl-live-question-title { flex: 1; min-width: 0; }
-.rl-live-question-llama { width: 52px; height: auto; flex: none; }
+.rl-live-question-llama { height: 64px; }
 .rl-live-question.is-personal .rl-answer { min-height: 58px; }
 @media (max-height: 700px) { .rl-live-question.is-personal .rl-answer { min-height: 52px; } }
 
@@ -136,7 +136,7 @@
 }
 .rl-live-result.is-correct { background: linear-gradient(180deg, #f3ffe6, #e2f7cc); box-shadow: 0 8px 24px -14px #4cbf3f88, inset 0 0 0 2px #b9e39a; }
 .rl-live-result.is-wrong { background: linear-gradient(180deg, #fffaf0, #fff1dd); box-shadow: 0 8px 24px -14px #e9822a55, inset 0 0 0 2px #f6d6b4; }
-.rl-live-result-llama { width: 110px; height: auto; }
+.rl-live-result-llama { height: 112px; }
 .rl-live-result-message { font-size: 1.6rem; line-height: 1.15; font-weight: 900; color: #183a30; }
 .rl-live-result.is-correct .rl-live-result-message { color: #1d6f22; }
 .rl-live-result.is-wrong .rl-live-result-message { color: #9a3d0c; }
@@ -205,7 +205,7 @@
 .rl-live-own-points .rl-animated-points { font-size: 1.6rem; font-weight: 900; color: #0a6b52; }
 .rl-live-own-correct { font-weight: 700; color: #2a463c; }
 .rl-live-ranking .rl-finale { padding: 12px 16px; }
-.rl-live-ranking .rl-finale-llama { width: 120px; }
+.rl-live-ranking .rl-finale-llama { height: 128px; }
 
 /* ---------- Phone extras ---------- */
 .rl-live-delete { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 8px; padding-top: 16px; border-top: 2px dashed #ebe1cc; }
@@ -243,7 +243,7 @@
   .rl-live-view.is-presentation .rl-live-join-qr svg { width: 260px; height: 260px; }
   .rl-live-view.is-presentation .rl-live-join-text { flex: none; align-items: center; }
   .rl-live-view.is-presentation .rl-live-join-code { align-self: center; font-size: 4rem; }
-  .rl-live-view.is-presentation .rl-live-lobby-intro .rl-live-llama { width: 170px; }
+  .rl-live-view.is-presentation .rl-live-lobby-intro .rl-live-llama { height: 190px; }
   .rl-live-view.is-presentation .rl-live-lobby .rl-h1 { font-size: clamp(2.4rem, 3.6vw, 3.4rem); }
   .rl-live-view.is-presentation .rl-live-player { font-size: 1.1rem; min-height: 52px; }
   .rl-live-view.is-presentation .rl-live-player .rl-avatar { width: 44px; height: 44px; }
@@ -257,7 +257,7 @@
   .rl-live-ranking.is-shared > .rl-live-ranking-podium { grid-area: podium; }
   .rl-live-ranking.is-shared > .rl-live-ranking-rows { grid-area: rows; }
   .rl-live-ranking.is-shared.is-final > .rl-finale { flex-direction: row; justify-content: center; gap: 18px; padding: 10px 24px; }
-  .rl-live-ranking.is-shared .rl-finale-llama { width: 110px; }
+  .rl-live-ranking.is-shared .rl-finale-llama { height: 116px; }
   .rl-live-view.is-presentation .rl-live-ranking-podium .rl-podium-player { max-width: 230px; }
   .rl-live-view.is-presentation .rl-podium-name { font-size: 1.2rem; }
   .rl-live-view.is-presentation .rl-podium-points { font-size: 1.05rem; }

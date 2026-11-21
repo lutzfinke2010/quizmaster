@@ -11,7 +11,7 @@ import { adminAccess, authMessage, emailSchema, passwordSchema } from "../../dom
 import { ErrorNotice, LoadingNotice } from "../common/Notices";
 import { ScreenLayout } from "../shell/ScreenLayout";
 import { Sparkle } from "../Illustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { usePageTitle } from "../usePageTitle";
 import "../quizzes.css";
 import "./admin.css";
@@ -130,7 +130,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
   if (step === "pending" || step === "sessionError") {
     return <GateScreen title={TITLES[step]}>
       <div className="rl-adm-login-hero">
-        <LlamaCharacter mood={step === "pending" ? "curious" : "surprised"} className="rl-adm-login-llama" />
+        <RateLamaMascot state="intro" size={140} decorative className="rl-adm-login-llama" />
         <span className="rl-eyebrow">BASISLAGER · QUIZMASTER</span>
         <h1 className="rl-title">{TITLES[step]}</h1>
       </div>
@@ -150,7 +150,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
   const passwordLabel = step === "newPassword" ? "Neues Passwort" : "Passwort";
   return <GateScreen title={TITLES[step]}>
     <div className="rl-adm-login-hero">
-      <LlamaCharacter mood={step === "signUp" ? "cheering" : "proud"} className="rl-adm-login-llama" />
+      <RateLamaMascot state="intro" size={140} decorative className="rl-adm-login-llama" />
       <span className="rl-eyebrow">BASISLAGER · QUIZMASTER</span>
       <h1 className="rl-title">{TITLES[step]} <Sparkle className="rl-title-sparkle" /></h1>
     </div>

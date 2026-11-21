@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { ArrowRight, Layers, PartyPopper, PencilLine, Users } from "lucide-react";
 import { Notice } from "../common/Notices";
 import { Confetti, Sparkle } from "../Illustrations";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { routes } from "../routes";
 import { ScreenLayout } from "../shell/ScreenLayout";
 import { useAppMode } from "../shell/appMode";
@@ -79,7 +79,7 @@ function Home() {
     <HowItWorks />
     {cloud && <section className="rl-card rl-home-host" aria-labelledby="rl-host-heading">
       <div className="rl-home-host-row">
-        <LlamaCharacter mood="proud" className="rl-home-host-llama" aria-hidden="true" />
+        <RateLamaMascot state="correct" size={104} decorative className="rl-home-host-llama" />
         <div>
           <h2 id="rl-host-heading" className="rl-h3">Du bist Quizmaster?</h2>
           <p>Fragen sammeln, eine Live-Runde starten oder ein Quiz zum Mitmachen verschicken.</p>
@@ -96,7 +96,7 @@ function Join() {
   usePageTitle("Mitspielen");
   return <ScreenLayout aside={<HeaderNav />} className="rl-home rl-join-page">
     <section className="rl-start-card rl-join-card" aria-labelledby="rl-join-heading">
-      <LlamaCharacter mood="curious" className="rl-join-llama" aria-hidden="true" />
+      <RateLamaMascot state="intro" size={132} decorative className="rl-join-llama" />
       <span className="rl-eyebrow">DEIN PLATZ IST NOCH FREI</span>
       <h1 id="rl-join-heading" className="rl-h1">Mitspielen</h1>
       <p className="rl-lead">Gib den sechsstelligen Quiz-Code ein – für Live-Quiz und Quiz zum Mitmachen. Ein Konto ist nicht nötig.</p>

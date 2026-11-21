@@ -1,0 +1,40 @@
+/* Zero specificity: every placement sets its own height, whatever order the CSS chunks load in. */
+:where(.quiz-mascot) {
+  display: block;
+  flex: none;
+  width: auto;
+  height: 160px;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: 50% 100%;
+  transform-origin: 50% 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+
+:where(.rl-lama-head) {
+  display: block;
+  flex: none;
+  width: auto;
+  height: 50px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(.quiz-mascot) { animation: mascot-enter 280ms ease-out both; }
+  :where(.quiz-mascot-celebration) { animation: mascot-enter 280ms ease-out both, mascot-hop 560ms 320ms cubic-bezier(.3, 1.5, .5, 1) 2; }
+}
+
+@keyframes mascot-enter {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes mascot-hop {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-8%); }
+}

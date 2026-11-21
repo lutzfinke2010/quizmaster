@@ -1,0 +1,32 @@
+{
+  "name": "RateLama Mascot Assets",
+  "version": "1.0.0",
+  "format": "PNG",
+  "background": "transparent",
+  "assets": [
+    {
+      "id": "lama-wave",
+      "file": "assets/mascots/lama-winken.png",
+      "width": 1024,
+      "height": 1536,
+      "state": "intro",
+      "description": "Freundlich winkendes Lama für Begrüßung und Quizstart"
+    },
+    {
+      "id": "lama-thumbs-up",
+      "file": "assets/mascots/lama-daumenhoch.png",
+      "width": 1024,
+      "height": 1536,
+      "state": "correct",
+      "description": "Lama mit Daumen-hoch-Geste für richtige Antworten und Ermutigung"
+    },
+    {
+      "id": "lama-celebrate",
+      "file": "assets/mascots/lama-jubel.png",
+      "width": 1084,
+      "height": 1451,
+      "state": "celebration",
+      "description": "Jubelndes Lama für Quizabschluss und Punktegewinn"
+    }
+  ]
+}

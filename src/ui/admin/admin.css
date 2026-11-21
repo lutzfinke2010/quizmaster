@@ -19,7 +19,7 @@
 .rl-adm-header-actions { display: flex; flex-wrap: wrap; gap: 10px 12px; margin-top: 16px; }
 .rl-adm-header-actions .rl-new-quiz-button { min-height: 56px; margin: 0; padding: 0 22px 0 12px; font-size: 1.15rem; border-radius: 999px; }
 .rl-adm-header-actions .rl-new-quiz-plus { width: 34px; height: 34px; }
-.rl-adm-header-art { flex: none; width: 150px; filter: drop-shadow(0 10px 10px #5a3e1a26); }
+.rl-adm-header-art { height: 200px; margin-right: 12px; }
 .rl-adm-count {
   display: inline-grid; place-items: center; min-width: 48px; height: 48px; margin-left: 6px; padding: 0 12px;
   border-radius: 999px; font-size: 1.5rem; color: #0a6b52; background: #e2f4cf; box-shadow: inset 0 0 0 2px #b9e39a;
@@ -147,7 +147,7 @@
 .rl-adm-empty { border-radius: 26px; background: var(--rl-card); box-shadow: inset 0 0 0 2px #efe5d2; }
 .rl-adm-empty h2 { font-size: 1.3rem; font-weight: 900; color: #183a30; }
 .rl-adm-empty p { font-weight: 600; color: #2a463c; line-height: 1.4; }
-.rl-adm-empty-art { width: 110px; height: auto; }
+.rl-adm-empty-art { height: 124px; }
 
 /* Detail page */
 .rl-adm-detail .rl-summary { margin-top: 0; }
@@ -266,7 +266,7 @@
 /* Login (phone card) */
 .rl-adm-login { display: flex; flex-direction: column; gap: 14px; padding-bottom: 12px; }
 .rl-adm-login-hero { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
-.rl-adm-login-llama { width: 132px; margin-top: 4px; }
+.rl-adm-login-llama { height: 140px; margin-top: 4px; }
 .rl-adm-login .rl-title { justify-content: center; margin-top: 6px !important; font-size: 1.75rem; }
 .rl-adm-login-lead { text-align: center; font-weight: 600; line-height: 1.45; color: #2a463c; }
 .rl-adm-login-form { display: flex; flex-direction: column; gap: 14px; }
@@ -287,8 +287,8 @@
   .rl-adm-section-head h2 { font-size: 1.3rem; }
   .rl-adm-header-actions > * { flex: 1 1 100%; }
   .rl-adm-header-actions .rl-new-quiz-button { justify-content: center; }
-  .rl-adm-editor .rl-editor-footer { padding-left: 100px; }
-  .rl-adm-editor .rl-editor-llama { width: 96px; }
+  .rl-adm-editor .rl-editor-footer { padding-left: 92px; }
+  .rl-adm-editor .rl-editor-llama { height: 112px; }
   .rl-adm-editor .rl-editor-button { padding: 0 14px; font-size: 1.05rem; }
   .rl-adm-save-note { font-size: .84rem; }
 }

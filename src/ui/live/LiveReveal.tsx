@@ -2,7 +2,7 @@ import { Check, CheckCircle2, Lightbulb } from "lucide-react";
 import type { GameState, MyResult } from "../../cloud";
 import { AnimatedPoints } from "../game/AnimatedPoints";
 import { Achievements, Encouragement, ScoreAward } from "../game/Rewards";
-import { LlamaCharacter } from "../LlamaCharacter";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { letter } from "./phaseLabels";
 
 /** Vote distribution: share of all submitted answers, correct answer highlighted. */
@@ -36,7 +36,7 @@ export function VoteResults({ state, selected }: { state: GameState; selected?: 
 function PersonalResult({ result, celebrate, eventScope }: { result: MyResult; celebrate: boolean; eventScope: string }) {
   const correct = result.answered && result.correct;
   return <div className={`rl-live-result${correct ? " is-correct" : " is-wrong"}`}>
-    <LlamaCharacter mood={correct ? "cheering" : "surprised"} className="rl-live-result-llama" />
+    <RateLamaMascot state={correct ? "correct" : "wrong"} size={112} decorative className="rl-live-result-llama" />
     <h2 className="rl-live-result-message" role="status">{!result.answered ? "Zeit abgelaufen · Keine Antwort" :
       result.correct ? "Richtig!" : "Leider daneben"}</h2>
     {result.answered && !result.correct && <Encouragement />}

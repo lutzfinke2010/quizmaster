@@ -9,8 +9,8 @@ import { categoryToneClass } from "../categories";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { message } from "../common/message";
 import { ErrorNotice } from "../common/Notices";
-import { LlamaCharacter } from "../LlamaCharacter";
-import { BookStack, LlamaMascot } from "../OverviewIllustrations";
+import { BookStack } from "../OverviewIllustrations";
+import { RateLamaMascot } from "../RateLamaMascot";
 import { routes } from "../routes";
 import { usePageTitle } from "../usePageTitle";
 import { useDraftStorage } from "./draftStorage";
@@ -77,7 +77,7 @@ export function LocalDashboardPage() {
           </Link>
         </div>
       </div>
-      <LlamaMascot className="rl-adm-header-art" />
+      <RateLamaMascot state="intro" size={200} decorative className="rl-adm-header-art" />
     </header>
     <LocalNotice />
     <section className="rl-card rl-adm-storage" aria-labelledby="draft-storage-heading">
@@ -100,7 +100,7 @@ export function LocalDashboardPage() {
     </section>
     <ErrorNotice error={error} />
     {enabled && drafts.length === 0 && !error ? <div className="rl-empty rl-adm-empty">
-      <LlamaCharacter mood="curious" className="rl-adm-empty-art" />
+      <RateLamaMascot state="intro" size={124} decorative className="rl-adm-empty-art" />
       <h2>Hier ist noch Platz für Ideen.</h2>
       <p>Starte mit einem eigenen Quiz oder entdecke unsere zehn Beispielfragen.</p>
       <button type="button" className="rl-btn rl-btn-secondary" onClick={addExample}>
