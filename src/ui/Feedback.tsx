@@ -23,14 +23,15 @@ export function Celebration() {
   </div>;
 }
 
+/** Without `correctText` only the explanation is shown, e.g. when the answer cards already mark the solution. */
 export function ExplanationCard({ correctText, explanation, timedOut }: {
-  correctText: string; explanation?: string; timedOut: boolean;
+  correctText?: string; explanation?: string; timedOut: boolean;
 }) {
   return <div className="rl-explanation">
     <Lightbulb className="rl-explanation-icon" aria-hidden="true" />
     <div>
       {timedOut && <p className="rl-explanation-hint">Die Zeit ist abgelaufen.</p>}
-      <p className="rl-explanation-title">Richtig ist: {correctText}</p>
+      {correctText && <p className="rl-explanation-title">Richtig ist: {correctText}</p>}
       {explanation && <p className="rl-explanation-text">{explanation}</p>}
     </div>
   </div>;

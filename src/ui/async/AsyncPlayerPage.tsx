@@ -6,13 +6,14 @@ import { formatDateTimeWithZone } from "../../domain/localTime";
 import { useNoIndex } from "../../hooks/useNoIndex";
 import { AnswerCards } from "../AnswerCards";
 import { ExplanationCard, ScorePill } from "../Feedback";
+import { Flame } from "../Illustrations";
 import { LlamaCharacter } from "../LlamaCharacter";
 import { message } from "../common/message";
 import { ErrorNotice, LoadingNotice } from "../common/Notices";
 import { AnimatedPoints } from "../game/AnimatedPoints";
 import { Avatar } from "../game/Avatar";
 import { answerColumns, useQuestionFocus } from "../game/questionLayout";
-import { Achievements, Encouragement, Finale, RankRise, ScoreAward } from "../game/Rewards";
+import { Achievements, Finale, RankRise, ScoreAward } from "../game/Rewards";
 import { DeadlineTimer, QuestionPosition, SpeedBonus } from "../game/Timers";
 import { ScreenLayout } from "../shell/ScreenLayout";
 import { routes } from "../routes";
@@ -24,7 +25,7 @@ import "./async.css";
 type PublicInfo = Awaited<ReturnType<typeof cloud.asyncPublicInfo>>;
 type Choice = { id: string; text: string };
 /** Confirmed answer that paused the quiz; keeps the tapped cards so the reveal can show them. */
-type PausedAfter = { answeredCount: number; answer: string; questionIndex: number; choiceId: string; answers: Choice[] };
+type PausedAfter = { answeredCount: number; answer: string; questionIndex: number; question: string; choiceId: string; answers: Choice[] };
 
 function AsyncProgress({ answered, total }: { answered: number; total: number }) {
   return <div className="async-progress">
@@ -32,6 +33,22 @@ function AsyncProgress({ answered, total }: { answered: number; total: number })
     <progress className="rl-meter" value={Math.min(answered, total)} max={Math.max(1, total)}
       aria-label={`${answered} von ${total} Fragen beantwortet`} />
   </div>;
+}
+
+/** Compact "2 von 10" pill for the pause, styled like the question position. */
+function PauseProgress({ answered, total }: { answered: number; total: number }) {
+  const percent = total > 0 ? Math.min(100, answered / total * 100) : 0;
+  return <div className="rl-question-position async-pause-progress">
+    <span className="rl-question-position-label">{answered} von {total}<span className="rl-visually-hidden"> Fragen beantwortet</span></span>
+    <span className="rl-question-position-track" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span>
+  </div>;
+}
+
+/** Current streak for the header, next to the score. */
+function StreakChip({ streak }: { streak: number }) {
+  return <span className={`async-streak-chip${streak >= 3 ? " is-on-fire" : ""}`} role="img" aria-label={`${streak} richtig in Folge`}>
+    <Flame className="async-streak-chip-flame" /><span aria-hidden="true">{streak}</span>
+  </span>;
 }
 
 function Identity({ avatarId, name }: { avatarId: string; name: string }) {
@@ -177,12 +194,13 @@ function AsyncPlayer({ token }: { token: string }) {
     if (!question || busy || !canAnswer) return;
     const answered = question.questionIndex;
     const answers = question.answers.map(({ id, text }) => ({ id, text }));
+    const questionText = question.text;
     const choiceIndex = question.answers.findIndex((answer) => answer.id === choiceId);
     const answerLabel = `${String.fromCharCode(65 + choiceIndex)} · ${question.answers[choiceIndex]?.text ?? ""}`;
     const pauseAfter = (latest: { answeredCount: number; attemptStatus?: string | null }) => {
       if (latest.attemptStatus === "COMPLETED") setCompletedLocally(true);
       if (latest.attemptStatus === "IN_PROGRESS" || (info?.immediateReveal && latest.attemptStatus === "COMPLETED")) {
-        setPausedAfter({ answeredCount: latest.answeredCount, answer: answerLabel, questionIndex: answered, choiceId, answers });
+        setPausedAfter({ answeredCount: latest.answeredCount, answer: answerLabel, questionIndex: answered, question: questionText, choiceId, answers });
       }
     };
     const request = ++requestSeqRef.current;
@@ -240,7 +258,10 @@ function AsyncPlayer({ token }: { token: string }) {
     state.results.filter((result) => result.answered && result.correct != null).length >= state.answeredCount);
   const lastAnswerCorrect = state?.answers.find((answer) => answer.questionIndex === state.answeredCount - 1)?.correct === true;
   // Only show the score once the server revealed it – hidden scores must never leak into the header.
-  const aside = resultAvailable && state?.points != null ? <ScorePill score={state.points} /> : undefined;
+  const aside = resultAvailable && state?.points != null ? <>
+    {(state.streak ?? 0) > 0 && <StreakChip streak={state.streak ?? 0} />}
+    <ScorePill score={state.points} />
+  </> : undefined;
 
   if (!loading && info && state && paused) {
     const justAnswered = pausedAfter?.answeredCount === state.answeredCount ? pausedAfter : null;
@@ -254,52 +275,60 @@ function AsyncPlayer({ token }: { token: string }) {
     const mood = answerResult ? answerResult.correct ? "cheering" : "surprised" : "curious";
     const momentClass = answerResult ? answerResult.correct ? "is-correct" : "is-wrong"
       : justAnswered ? "async-moment-saved" : "async-moment-ready";
+    const rankChange = rankBeforeAnswer != null && state.rank != null ? rankBeforeAnswer - state.rank : 0;
+    const pastQuestion = justAnswered?.question ?? (answerResult?.questionText || null);
+    const wrong = answerResult?.correct === false;
+    const hint = !finalReview && <p className="async-pause-hint">Pause gefällig? Du kannst bis {formatDateTimeWithZone(state.expiresAt, state.timeZone)} weiterspielen
+      – auf diesem Gerät über diesen Link oder den Quiz-Code.{rule && " Der Tempo-Bonus startet erst, wenn du die nächste Frage öffnest."}
+      {!state.immediateReveal && " Ob du richtig liegst, siehst du nach Ende der Runde."}</p>;
     return <ScreenLayout size="play" aside={aside} className="async-screen">
       <section className="async-pause" key={`pause-${state.answeredCount}`} aria-labelledby="async-pause-title">
         <div className="async-meta">
           <Identity avatarId={state.avatarId} name={state.displayName} />
-          <span className="rl-pill rl-pill-gray async-meta-pause">Pause</span>
+          <PauseProgress answered={state.answeredCount} total={state.questionCount} />
         </div>
         {deadlineWarning}
         <div className={`async-moment ${momentClass}`}>
           <LlamaCharacter mood={mood} className="async-moment-llama" />
-          <h1 id="async-pause-title" className="async-pause-title" ref={pauseHeadingRef} tabIndex={-1}>
-            {answerResult ? answerResult.correct ? "Richtig!" : "Leider daneben" :
-              justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
+          <div className="async-moment-body">
+            <h1 id="async-pause-title" className="async-pause-title" ref={pauseHeadingRef} tabIndex={-1}>
+              {answerResult ? answerResult.correct ? "Richtig!" : "Leider daneben" :
+                justAnswered ? "Antwort gespeichert" : `Bereit für Frage ${nextQuestion}?`}</h1>
+            {pastQuestion && <p className="async-moment-question">{pastQuestion}</p>}
+          </div>
         </div>
-        {justAnswered && <p className="async-pause-answer">Deine Antwort: <strong>{justAnswered.answer}</strong></p>}
+        {!answerResult && justAnswered && <p className="async-pause-answer">Deine Antwort: <strong>{justAnswered.answer}</strong></p>}
         {revealCards && correctId && <AnswerCards answers={revealCards.answers} selectedId={revealCards.choiceId}
           correctId={correctId} columns={answerColumns(revealCards.answers)} label="Auflösung" />}
-        {answerResult && <div className="personal-result">
-          {answerResult.correct === false && <Encouragement />}
-          <ScoreAward key={answerResult.questionIndex} points={answerResult.points ?? 0}
+        {answerResult?.correct && <div className="async-reward">
+          <ScoreAward key={answerResult.questionIndex} compact points={answerResult.points ?? 0}
             extra={answerResult.streakBonusPoints} streak={answerResult.streak} badges={state.badges}
-            celebrate={Boolean(justAnswered) && answerResult.correct === true}
-            eventId={`${token}:${state.startedAt}:points:${answerResult.questionIndex}`} />
-          <p className="result-total"><strong><AnimatedPoints value={state.points ?? 0}
-            from={justAnswered && answerResult.correct ? (state.points ?? 0) - (answerResult.points ?? 0) : state.points ?? 0} /> Punkte</strong> insgesamt</p>
-          {state.rank != null && <p className="async-rank">Aktuell Platz <strong>{state.rank}</strong></p>}
-          {rankBeforeAnswer != null && state.rank != null && <RankRise change={rankBeforeAnswer - state.rank}
-            eventId={`${token}:${state.startedAt}:rank:${answerResult.questionIndex}`}
-            celebrate={Boolean(justAnswered) && answerResult.correct === true} />}
-          <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
-          {answerResult.correct === false && answerResult.correctText
-            ? <ExplanationCard correctText={answerResult.correctText} explanation={answerResult.explanation ?? undefined} timedOut={false} />
-            : <>
-              {answerResult.correctText && <p className="async-correct-answer">Richtige Antwort: <strong>{answerResult.correctText}</strong></p>}
-              {answerResult.explanation && <p className="async-explanation">{answerResult.explanation}</p>}
-            </>}
-          {rule && <p className="async-score-line">Grundpunkte {pointsText(answerResult.basePoints ?? 0)} · Tempo-Bonus {pointsText(answerResult.bonusPoints ?? 0)}
-            {" · "}Streak-Bonus {pointsText(answerResult.streakBonusPoints ?? 0)}</p>}
+            celebrate={Boolean(justAnswered)} eventId={`${token}:${state.startedAt}:points:${answerResult.questionIndex}`} />
+          <RankRise change={rankChange} eventId={`${token}:${state.startedAt}:rank:${answerResult.questionIndex}`}
+            celebrate={Boolean(justAnswered)} />
         </div>}
-        <AsyncProgress answered={state.answeredCount} total={state.questionCount} />
-        <ErrorNotice error={error} />
-        <button type="button" className="rl-btn rl-btn-primary rl-btn-large async-continue" disabled={busy} onClick={() => void continueQuiz()}>
-          {busy ? "Frage wird geöffnet …" : <>{finalReview ? "Zum persönlichen Abschluss" : `Weiter zu Frage ${nextQuestion}`}<ArrowRight aria-hidden="true" /></>}
-        </button>
-        <p className="async-pause-hint">Du kannst hier eine Pause machen und bis {formatDateTimeWithZone(state.expiresAt, state.timeZone)} weiterspielen
-          – auf diesem Gerät über diesen Link oder den Quiz-Code.{rule && " Der Tempo-Bonus startet erst, wenn du die nächste Frage öffnest."}
-          {" "}{state.immediateReveal ? "Dein Ergebnis siehst du direkt nach jeder Antwort." : "Ob du richtig liegst, siehst du nach Ende der Runde."}</p>
+        {/* A wrong answer always names the solution; a right one only when the cards are missing (e.g. after a reload). */}
+        {answerResult && (answerResult.explanation || ((wrong || !correctId) && answerResult.correctText)) &&
+          <ExplanationCard correctText={wrong || !correctId ? answerResult.correctText ?? undefined : undefined}
+            explanation={answerResult.explanation ?? undefined} timedOut={false} />}
+        {/* Sticky on small screens: the next step stays in reach no matter how much feedback is shown above. */}
+        <div className="async-pause-actions">
+          <ErrorNotice error={error} />
+          <button type="button" className="rl-btn rl-btn-primary rl-btn-large async-continue" disabled={busy} onClick={() => void continueQuiz()}>
+            {busy ? "Frage wird geöffnet …" : finalReview ? <>Zum persönlichen Abschluss<ArrowRight aria-hidden="true" /></>
+              : <>Weiter<span className="rl-visually-hidden"> zu Frage {nextQuestion}</span><ArrowRight aria-hidden="true" /></>}
+          </button>
+        </div>
+        {answerResult ? <details className="rl-details async-more">
+          <summary>Platz, Serie und Punkte</summary>
+          <div className="rl-details-body">
+            {state.rank != null && <p className="async-rank">Aktuell Platz <strong>{state.rank}</strong></p>}
+            <Achievements streak={state.streak} maxStreak={state.maxStreak} badges={state.badges} />
+            {rule && <p className="async-score-line">Grundpunkte {pointsText(answerResult.basePoints ?? 0)} · Tempo-Bonus {pointsText(answerResult.bonusPoints ?? 0)}
+              {" · "}Streak-Bonus {pointsText(answerResult.streakBonusPoints ?? 0)}</p>}
+            {hint}
+          </div>
+        </details> : hint}
         {status}
       </section>
     </ScreenLayout>;

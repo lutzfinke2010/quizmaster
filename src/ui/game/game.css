@@ -43,6 +43,21 @@
 .rl-milestone-pop { color: #9a3d0c; background: #ffeee2; box-shadow: inset 0 0 0 2px #f6c6a6; }
 .rl-milestone-flame { width: 22px; height: 22px; }
 .rl-badge-pop { color: #5a3c00; background: #fff6da; box-shadow: inset 0 0 0 2px #f1d999; }
+/* Compact award: one "+X Punkte" pill, extras as small chips next to it (async pause). */
+.rl-score-award.is-compact { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.rl-score-award.is-compact .rl-score-award-points {
+  order: -1; gap: 6px; padding: 6px 20px 6px 12px; border-radius: 999px; font-size: 1.45rem;
+  background: linear-gradient(180deg, #f7ffe0, #e4f8b8); box-shadow: inset 0 0 0 2px #d2ef9a, 0 8px 18px -8px #4cbf3f66;
+  animation: rl-burst-in 240ms cubic-bezier(.3, 1.6, .5, 1);
+}
+.rl-score-award.is-compact .rl-score-award-star { width: 28px; height: 28px; }
+.rl-score-award-unit { font-size: .8em; }
+.rl-score-award.is-compact .rl-award-sequence { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+.rl-score-award.is-compact .rl-celebration { bottom: auto; top: 26px; }
+.rl-score-award.is-compact .rl-milestone-pop, .rl-score-award.is-compact .rl-badge-pop,
+.rl-score-award.is-compact .rl-streak-bonus { gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: .92rem; }
+.rl-score-award.is-compact .rl-streak-bonus { background: #fff3e8; box-shadow: inset 0 0 0 2px #f6c6a6; }
+.rl-score-award.is-compact .rl-milestone-flame, .rl-score-award.is-compact .rl-badge-pop svg { width: 18px; height: 18px; }
 
 .rl-badge-icon { width: 20px; height: 20px; flex: none; color: #a86f00; }
 .rl-badge-double { display: inline-flex; align-items: center; width: auto; }
@@ -102,6 +117,6 @@
 .rl-streak-option { display: flex; flex-direction: column; gap: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .rl-points-pop, .rl-milestone-pop, .rl-badge-pop, .rl-rank-rise.is-animated, .rl-stage-timer-digit,
+  .rl-points-pop, .rl-milestone-pop, .rl-badge-pop, .rl-rank-rise.is-animated, .rl-stage-timer-digit, .rl-score-award.is-compact .rl-score-award-points,
   .rl-finale.is-celebrating .rl-finale-trophy, .rl-achievements.is-on-fire .rl-achievements-flame { animation: none; }
 }

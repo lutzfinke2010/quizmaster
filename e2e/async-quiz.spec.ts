@@ -940,7 +940,8 @@ test("Gamification: sofortige Auflösung, Rangaufstieg, Streak-Bonus und letzte 
   await page.getByRole("button", { name: "Grün", exact: true }).click();
   await expect(page.locator(".rl-streak-bonus")).toContainText("+100");
   await expect(page.locator(".rl-badges")).toContainText("Dreier-Serie");
-  await expect(page.locator(".result-total .rl-animated-points")).toHaveAttribute("aria-label", "4.600");
+  await expect(page.locator(".rl-header .rl-score")).toHaveAttribute("aria-label", "4.600 Punkte");
+  await expect(page.locator(".rl-header").getByRole("img", { name: "3 richtig in Folge" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Zum persönlichen Abschluss" })).toBeVisible();
   await expect(page.locator(".async-question")).toHaveCount(0);
   await page.getByRole("button", { name: "Zum persönlichen Abschluss" }).click();
@@ -996,7 +997,7 @@ test("Gamification-Assets: gespeicherte Antworten ohne Sofortauflösung verraten
   await page.getByRole("button", { name: /Saturn/ }).click();
   await expect(page.getByRole("heading", { name: "Antwort gespeichert" })).toBeVisible();
   await expect(page.locator(".async-pause .async-moment-saved")).toBeVisible();
-  await expect(page.locator(".async-pause .rl-answer.is-correct, .async-pause .rl-answer.is-wrong, .rl-score-award, .rl-achievements, .result-total")).toHaveCount(0);
+  await expect(page.locator(".async-pause .rl-answer.is-correct, .async-pause .rl-answer.is-wrong, .rl-score-award, .rl-achievements, .rl-header .rl-score, .async-streak-chip")).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".async-pause .async-moment-ready")).toBeVisible();
   await expect(page.locator(".rl-score-award, .rl-achievements, .rl-celebration")).toHaveCount(0);
@@ -1092,8 +1093,8 @@ test("Gamification-Assets: Verbindungsfehler und falsche Antwort zeigen keine Pu
   await expect(page.locator(".async-pause .rl-answer.is-wrong")).toContainText("Mars");
   await expect(page.locator(".async-pause .rl-answer.is-correct")).toContainText("Saturn");
   await expect(page.locator(".async-pause .async-moment.is-wrong .rl-llama-surprised")).toBeVisible();
-  await expect(page.locator(".async-pause .rl-encouragement")).toBeVisible();
-  await expect(page.locator(".rl-score-award .rl-animated-points")).toHaveAttribute("aria-label", "0");
+  await expect(page.locator(".async-pause .rl-explanation")).toContainText("Richtig ist: Saturn");
+  await expect(page.locator(".rl-score-award")).toHaveCount(0);
   await expect(page.locator(".rl-celebration, .rl-points-pop")).toHaveCount(0);
 });
 
@@ -1119,7 +1120,8 @@ test("Gamification-Assets: Serien und Abzeichen funktionieren ohne aktivierten B
   await page.getByRole("button", { name: /Acht/ }).click();
   await page.getByRole("button", { name: "Weiter zu Frage 3" }).click();
   await page.getByRole("button", { name: /Grün/ }).click();
-  await expect(page.locator(".result-total .rl-animated-points")).toHaveAttribute("aria-label", "4.500");
+  await expect(page.locator(".rl-header .rl-score")).toHaveAttribute("aria-label", "4.500 Punkte");
+  await page.locator(".async-more summary").click();
   await expect(page.locator(".rl-badges li").filter({ hasText: "Dreier-Serie" }).locator("svg")).toBeVisible();
   await expect(page.locator(".rl-achievements.is-on-fire .rl-achievements-flame")).toBeVisible();
   await expect(page.locator(".rl-streak-bonus")).toHaveCount(0);
@@ -1140,6 +1142,28 @@ for (const width of [320, 390, 430]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: test.info().outputPath(`gamification-async-${width}.png`), animations: "disabled" });
   });
+}
+
+for (const [width, height] of [[360, 640], [390, 664], [768, 640]] as const) {
+  for (const [answer, heading] of [["Saturn", "Richtig!"], ["Mars", "Leider daneben"]] as const) {
+    test(`Link-Quiz-Auflösung: „Weiter“ ist nach „${heading}“ bei ${width}×${height} sofort sichtbar`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await mockAsync(page, { immediateReveal: true, streakBonusEnabled: true });
+      await page.goto("/q/token");
+      await page.getByRole("button", { name: "Quiz starten" }).click();
+      await page.getByRole("button", { name: answer, exact: true }).click();
+      await expect(page.getByRole("heading", { name: heading, exact: true })).toBeFocused();
+      await expect(page.locator(".async-moment-question")).toContainText("Welcher Planet");
+      await expect(page.locator(".async-pause .rl-answers li")).toHaveCount(4);
+      if (answer === "Mars") await expect(page.locator(".async-pause .rl-explanation")).toContainText("Richtig ist: Saturn");
+      else await expect(page.locator(".async-pause .rl-explanation-title")).toHaveCount(0);
+      // Extras live behind a disclosure instead of pushing the next step off screen.
+      await expect(page.locator(".async-more .rl-achievements")).toBeHidden();
+      await expect(page.getByRole("button", { name: "Weiter zu Frage 2" })).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: test.info().outputPath(`async-reveal-${width}x${height}-${answer}.png`), animations: "disabled" });
+    });
+  }
 }
 
 test("Gamification-Assets: Admin-Endstand feiert den Übergang, spätere Vollbildansicht und Reload nicht", async ({ page }) => {

@@ -48,7 +48,6 @@
 }
 .async-identity .rl-avatar { width: 32px; height: 32px; border-radius: 50%; }
 .async-identity > span { min-width: 0; overflow-wrap: anywhere; }
-.async-meta-pause { margin-left: auto; }
 .async-deadline-warning { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-weight: 800; color: #b4541a; }
 .async-question-title.rl-question { margin: 2px 0 0; font-size: clamp(1.25rem, 5.4vw, 1.55rem) !important; overflow-wrap: anywhere; }
 
@@ -66,27 +65,72 @@
 .async-progress { display: flex; flex-direction: column; gap: 6px; }
 .async-progress .rl-meter { width: 100%; }
 
-.async-moment {
-  position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 16px 12px 8px; border-radius: 26px;
-  background: #fff; box-shadow: inset 0 0 0 2px #eee5d2, 0 8px 20px -14px #5a3e1a66; animation: async-moment-in 220ms cubic-bezier(.3, 1.4, .5, 1);
+/* Pause after an answer: question scene, compact reveal, one clear way forward. */
+.async-pause { gap: 12px; }
+.async-meta .async-pause-progress { flex: 1 1 120px; min-width: 120px; }
+.async-streak-chip {
+  display: inline-flex; align-items: center; gap: 2px; padding: 7px 12px 7px 7px; border-radius: 999px;
+  background: #fff; box-shadow: 0 3px 12px #5a3e1a17; font-weight: 900; font-size: 1.05rem; color: #9a3d0c;
 }
-.async-moment-llama { flex: none; width: 104px; height: auto; margin: -10px 0 -14px; }
-.async-pause-title { flex: 1; min-width: 0; font-size: 1.7rem; line-height: 1.12; font-weight: 900; color: #183a30; overflow-wrap: anywhere; outline: none; }
+.async-streak-chip-flame { width: 24px; height: 24px; filter: grayscale(.5); opacity: .8; }
+.async-streak-chip.is-on-fire .async-streak-chip-flame { filter: none; opacity: 1; }
+.async-screen .rl-header-aside { flex-wrap: nowrap; gap: 6px; }
+
+.async-moment {
+  position: relative; display: flex; align-items: flex-end; gap: 8px; min-height: 112px; padding: 0 14px 0 4px;
+  border-radius: 26px; overflow: hidden; background: #fff; box-shadow: inset 0 0 0 2px #eee5d2, 0 8px 20px -14px #5a3e1a66;
+  animation: async-moment-in 220ms cubic-bezier(.3, 1.4, .5, 1);
+}
+/* Little hill the llama stands on. */
+.async-moment::before {
+  content: ""; position: absolute; left: -24px; bottom: -40px; width: 150px; height: 76px; border-radius: 50%;
+  background: #cdeba5; opacity: .75;
+}
+.async-moment-llama { position: relative; flex: none; width: 92px; height: auto; margin-bottom: -8px; }
+.async-moment-body {
+  position: relative; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0;
+  align-self: center; padding: 12px 0;
+}
+.async-pause-title { font-size: 1.5rem; line-height: 1.12; font-weight: 900; color: #183a30; overflow-wrap: anywhere; outline: none; }
+.async-moment-question { font-size: 1.02rem; line-height: 1.3; font-weight: 800; color: #2a463c; overflow-wrap: anywhere; }
 .async-moment.is-correct { background: linear-gradient(180deg, #f2ffe2, #d8f6b6); box-shadow: inset 0 0 0 2px #9edb7a, 0 8px 20px -14px #2a9a3066; }
 .async-moment.is-correct .async-pause-title { color: #1d5a18; }
+.async-moment.is-correct::before { background: #b6de85; }
 .async-moment.is-wrong { background: linear-gradient(180deg, #fff6f6, #ffe4e6); box-shadow: inset 0 0 0 2px #f3b9be, 0 8px 20px -14px #e8343f55; }
 .async-moment.is-wrong .async-pause-title { color: #9c1f2b; }
 .async-moment-saved { background: linear-gradient(180deg, #f3fbf6, #e2f4ea); box-shadow: inset 0 0 0 2px #b7dcc9; }
 .async-moment-ready { background: linear-gradient(180deg, #fffdf6, #fff3d6); box-shadow: inset 0 0 0 2px #f1d999; }
 .async-pause-answer { font-weight: 700; overflow-wrap: anywhere; }
 .async-pause-hint { font-size: .92rem; line-height: 1.45; color: #4f5d52; }
-.personal-result { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
-.personal-result > * { max-width: 100%; }
-.personal-result .rl-explanation { width: 100%; text-align: left; }
-.result-total { font-size: 1.1rem; color: #2a463c; }
-.result-total strong { font-size: 1.35rem; font-weight: 900; color: #183a30; }
-.async-correct-answer, .async-explanation { width: 100%; overflow-wrap: anywhere; }
-.async-explanation { color: #2a463c; line-height: 1.45; }
+
+/* Reveal cards are a reminder, not the main act – keep them small. */
+.async-pause .rl-answers { gap: 8px; }
+.async-pause .rl-answer { gap: 10px; min-height: 48px; padding: 5px 10px 5px 6px; border-radius: 16px; font-size: 1.02rem; }
+.async-pause .rl-answer-letter { width: 32px; height: 32px; font-size: 1rem; }
+.async-pause .rl-answer-state { font-size: .78rem; }
+.async-pause .rl-answer-mark { width: 28px; height: 28px; }
+.async-pause .rl-answer-mark svg { width: 17px; height: 17px; }
+.async-pause .rl-answer.is-correct { box-shadow: inset 0 0 0 3px #4cbf3f, 0 3px 0 #3aa232, 0 0 0 4px #b8ee8c66; }
+.async-pause .rl-answer.is-wrong { box-shadow: inset 0 0 0 3px #f05a6a, 0 3px 0 #d9485a; }
+.async-pause .rl-explanation { padding: 12px 14px; }
+.async-pause .rl-explanation-icon { width: 26px; height: 26px; }
+.async-pause .rl-explanation-title { font-size: 1.02rem; overflow-wrap: anywhere; }
+
+.async-reward { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.async-reward .rl-rank-rise { padding: 4px 12px; font-size: .92rem; }
+.async-reward .rl-rank-rise svg { width: 18px; height: 18px; }
+
+.async-pause-actions {
+  position: sticky; bottom: 0; z-index: 4; display: flex; flex-direction: column; gap: 8px;
+  margin: 0 -18px; padding: 16px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, #fbf3e200, #fbf3e2 18px);
+}
+.async-pause-actions .async-continue { width: 100%; }
+/* `overflow: hidden` on the card would turn the sticky bar into a static one. */
+@supports (overflow: clip) {
+  .rl-screen.async-screen { overflow: clip; }
+}
+.async-more .rl-details-body { display: flex; flex-direction: column; gap: 12px; }
 
 @keyframes async-moment-in { from { opacity: 0; transform: translateY(6px) scale(.97); } }
 
@@ -95,9 +139,17 @@
   .async-pause .rl-answers.is-cols-2 { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (min-width: 900px) {
+  .async-pause-actions { margin: 0 -32px; padding-inline: 32px; }
+  .async-pause .rl-answer { min-height: 56px; font-size: 1.1rem; }
+}
+
 @media (max-width: 359px) {
-  .async-moment-llama { width: 84px; }
-  .async-pause-title { font-size: 1.45rem; }
+  .async-moment-llama { width: 76px; }
+  .async-pause-title { font-size: 1.3rem; }
+  .async-moment-question { font-size: .95rem; }
+  .async-streak-chip { padding: 5px 9px 5px 5px; font-size: .9rem; }
+  .async-streak-chip-flame { width: 20px; height: 20px; }
 }
 
 /* ---------- Admin pages (publish + results) ---------- */

@@ -51,10 +51,11 @@ export function Achievements({ streak = 0, maxStreak = 0, badges = [] }: {
 /**
  * Points for one question. Confetti, points jump, streak milestone and fresh badges play only once per
  * `eventId` (see `claimGameEvent`), so reloads or re-renders don't celebrate twice.
+ * `compact` renders one left-aligned points line without the "Richtig!" pop – for places that already show a heading.
  */
-export function ScoreAward({ points, extra = 0, streak = 0, badges = [], celebrate = false, eventId }: {
+export function ScoreAward({ points, extra = 0, streak = 0, badges = [], celebrate = false, eventId, compact = false }: {
   points: number; extra?: number | null; streak?: number | null; badges?: string[] | null;
-  celebrate?: boolean; eventId: string;
+  celebrate?: boolean; eventId: string; compact?: boolean;
 }) {
   const allowed = useAwardEvent(eventId, celebrate && points > 0);
   const reduced = useReducedMotion();
@@ -72,18 +73,19 @@ export function ScoreAward({ points, extra = 0, streak = 0, badges = [], celebra
   }, [badgeSignature, scope, celebrate]);
   const milestone = newBadges.includes("STREAK_5") ? "Unaufhaltsam!" :
     newBadges.includes("STREAK_3") ? "Dreier-Serie!" : (streak ?? 0) >= 3 ? `${streak} richtig in Folge!` : null;
-  return <div className="rl-score-award">
+  return <div className={`rl-score-award${compact ? " is-compact" : ""}`}>
     {allowed && <div className="rl-award-sequence" role="status" aria-live="polite">
       {!reduced && <Celebration />}
-      <div className="rl-points-pop" aria-hidden="true"><Star className="rl-points-pop-star" />Richtig!</div>
+      {!compact && <div className="rl-points-pop" aria-hidden="true"><Star className="rl-points-pop-star" />Richtig!</div>}
       <span className="rl-visually-hidden">{formatPoints(points)} Punkte gewonnen.</span>
       {milestone && <div className="rl-milestone-pop"><Flame className="rl-milestone-flame" />{milestone}</div>}
       {newBadges.slice(-1).map((badge) =>
         <div className="rl-badge-pop" key={badge}><BadgeIcon badge={badge} />{badgeLabel(badge)}</div>)}
     </div>}
     <div className="rl-score-award-points">{points > 0 && <Star className="rl-score-award-star" />}+{" "}
-      <AnimatedPoints key={String(allowed)} value={points} from={allowed && !reduced ? 0 : points} /></div>
-    <p className="rl-score-award-label">Punkte für diese Frage</p>
+      <AnimatedPoints key={String(allowed)} value={points} from={allowed && !reduced ? 0 : points} />
+      {compact && <span className="rl-score-award-unit">Punkte</span>}</div>
+    {!compact && <p className="rl-score-award-label">Punkte für diese Frage</p>}
     {(extra ?? 0) > 0 && <p className="rl-streak-bonus"><Flame className="rl-streak-bonus-flame" />
       Davon +{extra} Streak-Bonuspunkte</p>}
   </div>;
